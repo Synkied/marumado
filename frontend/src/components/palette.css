@@ -1,0 +1,117 @@
+.palette {
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(640px, calc(100dvh - 64px));
+  margin: 12vh auto auto;
+  padding: 0;
+  border: 1px solid var(--ink);
+  border-radius: 22px;
+  background: var(--ground);
+  color: var(--ink);
+  box-shadow: 0 24px 60px -20px rgb(0 0 0 / 0.35);
+  overflow: hidden;
+}
+
+.palette::backdrop {
+  background: color-mix(in srgb, var(--ground) 55%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.palette[open] {
+  animation: palette-in 260ms var(--ease) 1;
+}
+
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+}
+
+.palette__box {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  max-height: inherit;
+}
+
+.palette__field {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 22px;
+  height: 68px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.palette__field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font-family: var(--f-mono);
+  font-size: 19px;
+}
+
+.palette__field input:focus {
+  outline: none;
+}
+
+.palette__esc {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.palette__list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+}
+
+.palette__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.palette__item.is-sel {
+  background: var(--ink);
+  color: var(--ground);
+}
+
+.palette__icon {
+  color: var(--mod, currentColor);
+}
+
+.palette__label {
+  font-family: var(--f-mono);
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.palette__sub {
+  font-size: 13px;
+  color: var(--ink-2);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.palette__item.is-sel .palette__sub {
+  color: color-mix(in srgb, var(--ground) 75%, var(--ink));
+}
+
+.palette__empty {
+  padding: 18px 14px;
+  color: var(--ink-2);
+}

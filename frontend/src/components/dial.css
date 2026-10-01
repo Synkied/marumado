@@ -1,0 +1,88 @@
+.dial {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+
+.dial__face {
+  position: relative;
+  width: var(--dial-size, clamp(96px, min(12.5vw, 14.5vh), 200px));
+  aspect-ratio: 1;
+}
+
+.dial--md .dial__face {
+  --dial-size: clamp(104px, 9.5vw, 150px);
+}
+
+.dial__face svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.dial__rim {
+  fill: var(--ground-raised);
+  stroke: var(--rule-soft);
+  stroke-width: 0.8;
+}
+
+.dial__track {
+  fill: none;
+  stroke: var(--track);
+  stroke-width: 6;
+}
+
+.dial__track--off {
+  stroke: var(--ink-3);
+  stroke-width: 2.4;
+  stroke-dasharray: 5 5;
+}
+
+.dial__arc {
+  fill: none;
+  stroke: var(--mod, var(--ink));
+  stroke-width: 6;
+  stroke-linecap: butt;
+  transition: stroke-dashoffset 1100ms var(--ease);
+}
+
+.dial__arc.is-settled {
+  transition: stroke 300ms ease-out;
+}
+
+.dial--signal .dial__arc {
+  stroke: var(--signal);
+}
+
+.dial__pip {
+  fill: var(--ink-2);
+}
+
+.dial__value {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--f-dot);
+  font-weight: 900;
+  font-size: calc(var(--dial-size, clamp(96px, min(12.5vw, 14.5vh), 200px)) * 0.26);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.dial--signal .dial__value {
+  color: var(--signal-text);
+}
+
+.dial--off .dial__value {
+  color: var(--ink-3);
+}
+
+.dial__caption {
+  font-family: var(--f-mono);
+  font-size: 13px;
+  color: var(--ink-2);
+}

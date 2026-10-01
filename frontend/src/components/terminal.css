@@ -1,0 +1,84 @@
+/* The live terminal: a dark slab whatever the theme, since agents draw for dark terminals. */
+.term {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 320px;
+  display: flex;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: #111110;
+  border: 1px solid var(--rule-soft);
+  overflow: hidden;
+}
+
+.term__screen {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.term__screen .xterm-viewport {
+  background: transparent !important;
+}
+
+.term:focus-within {
+  border-color: var(--c-agents);
+}
+
+.term__veil {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  padding: 24px;
+  background: rgb(17 17 16 / 0.72);
+  color: #ecece8;
+  font-family: var(--f-mono);
+  font-size: 14px;
+  text-align: center;
+}
+
+.term--connecting .term__veil {
+  background: rgb(17 17 16 / 0.4);
+}
+
+.btn--light {
+  border-color: #ecece8;
+  color: #ecece8;
+}
+
+.btn--light:hover:not(:disabled) {
+  background: #ecece8;
+  color: #111110;
+}
+
+/* The pane keeps Herdr's size; its scaled screen sits centred in the box. */
+.term__screen {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.term__screen .xterm {
+  height: auto;
+  transform-origin: center;
+}
+
+/* Phones: the pane at a readable size, panned with a finger. */
+.term--pan .term__screen {
+  display: block;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.term--pan .xterm {
+  width: max-content;
+}
+
+/* Phones in control: the pane is the box's size, drawn from the top-left. */
+.term--fit .term__screen {
+  display: block;
+}

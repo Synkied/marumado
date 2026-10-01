@@ -1,0 +1,160 @@
+"""Live Herdr terminal over a WebSocket: /api/agents/<pane_id>/terminal?token=&takeover=1[&cols=&rows=]
+
+The browser gets Herdr's own messages untouched (`terminal.frame` with base64 ANSI, `terminal.closed`),
+plus `{"type": "error", "message": ...}` when the stream can't start. It may send `terminal.input` and
+`terminal.scroll`; those are checked and passed to Herdr only in control mode.
+
+The stream normally runs at the pane's size in Herdr's layout, never the browser's: attaching at another
+size would resize the real terminal under the Herdr TUI. The browser scales its text to fit instead.
+Phones are the exception (control mode, `cols` and `rows` given): the pane takes the phone's size while
+it watches, follows its `terminal.resize` messages, and gets its layout size back when the phone leaves.
+"""
+import asyncio
+import hmac
+import json
+import re
+from urllib.parse import parse_qs, urlsplit
+
+from django.conf import settings
+
+from . import herdr
+
+PATH = re.compile(r'^/api/agents/(?P<pane>w\d+:p\d+)/terminal$')
+MAX_INPUT = 64 * 1024
+FOLLOW_SECONDS = 3
+
+
+def _clamp(value, low: int, high: int, default: int) -> int:
+    try:
+        return max(low, min(high, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _same_origin(scope) -> bool:
+    """Browsers let any page open a WebSocket to localhost, so only accept Marumado's own pages."""
+    headers = {k.decode('latin-1').lower(): v.decode('latin-1') for k, v in scope['headers']}
+    origin = headers.get('origin')
+    return origin is None or urlsplit(origin).netloc == headers.get('host', '')
+
+
+def _command(message: dict, fit: bool) -> dict | None:
+    """The browser's message, reduced to a command Herdr accepts, or None to drop it."""
+    kind = message.get('type')
+    if kind == 'terminal.resize' and fit:
+        return {'type': kind, 'cols': _clamp(message.get('cols'), 20, 400, 80), 'rows': _clamp(message.get('rows'), 8, 200, 24)}
+    if kind == 'terminal.input' and isinstance(message.get('text'), str) and 0 < len(message['text']) <= MAX_INPUT:
+        return {'type': kind, 'text': message['text']}
+    if kind == 'terminal.scroll' and message.get('direction') in ('up', 'down'):
+        return {'type': kind, 'direction': message['direction'], 'lines': _clamp(message.get('lines'), 1, 200, 3)}
+    return None
+
+
+async def _refuse(send, message: str):
+    await send({'type': 'websocket.send', 'text': json.dumps({'type': 'error', 'message': message})})
+    await send({'type': 'websocket.close', 'code': 1008})
+
+
+async def handle(scope, receive, send):
+    if (await receive())['type'] != 'websocket.connect':
+        return
+    match = PATH.match(scope['path'])
+    if not match or not _same_origin(scope):
+        await send({'type': 'websocket.close', 'code': 1008})
+        return
+    query = {k: v[-1] for k, v in parse_qs(scope.get('query_string', b'').decode()).items()}
+    await send({'type': 'websocket.accept'})
+
+    if settings.MARUMADO_TOKEN and not hmac.compare_digest(query.get('token', ''), settings.MARUMADO_TOKEN):
+        return await _refuse(send, 'This Marumado needs its access token.')
+    mode = herdr.terminal_mode()
+    if mode == 'off':
+        return await _refuse(send, 'The live terminal is turned off (MARUMADO_HERDR_TERMINAL=off).')
+    control = mode == 'control'
+    pane = match['pane']
+    fit = control and 'cols' in query and 'rows' in query
+    try:
+        size = await asyncio.to_thread(herdr.pane_size, pane) or (120, 40)
+        attach = (_clamp(query['cols'], 20, 400, 80), _clamp(query['rows'], 8, 200, 24)) if fit else size
+        cmd, environ = herdr.terminal_command(pane, *attach, control, takeover=query.get('takeover') == '1')
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, env=environ, limit=64 * 1024 * 1024,
+            stdin=asyncio.subprocess.PIPE if control else asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    except (RuntimeError, ValueError, OSError) as exc:
+        return await _refuse(send, str(exc))
+
+    async def pump_out():
+        assert proc.stdout
+        async for line in proc.stdout:
+            if line.strip():
+                await send({'type': 'websocket.send', 'text': line.decode('utf-8', 'replace')})
+        # Herdr ended without a terminal.closed: tell the browser why.
+        err = (await proc.stderr.read()).decode('utf-8', 'replace').strip() if proc.stderr else ''
+        try:
+            err = json.loads(err)['error']['message']
+        except (ValueError, KeyError, TypeError):
+            err = err.splitlines()[-1] if err else ''
+        if err:
+            await send({'type': 'websocket.send', 'text': json.dumps({'type': 'error', 'message': err})})
+
+    async def pump_in():
+        while True:
+            event = await receive()
+            if event['type'] == 'websocket.disconnect':
+                return
+            if not control or proc.stdin is None or not event.get('text'):
+                continue
+            try:
+                command = _command(json.loads(event['text']), fit)
+            except (ValueError, AttributeError):
+                command = None
+            if command:
+                try:
+                    proc.stdin.write(json.dumps(command).encode() + b'\n')
+                    await proc.stdin.drain()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+
+    async def follow_layout():
+        """Keep to the pane's size when the Herdr TUI is resized or its splits move."""
+        nonlocal size
+        while control and not fit and proc.stdin:
+            await asyncio.sleep(FOLLOW_SECONDS)
+            now = await asyncio.to_thread(herdr.pane_size, pane)
+            if now and now != size:
+                size = now
+                try:
+                    proc.stdin.write(json.dumps({'type': 'terminal.resize', 'cols': now[0], 'rows': now[1]}).encode() + b'\n')
+                    await proc.stdin.drain()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+
+    out_task, in_task = asyncio.create_task(pump_out()), asyncio.create_task(pump_in())
+    follow_task = asyncio.create_task(follow_layout())
+    try:
+        done, _ = await asyncio.wait({out_task, in_task}, return_when=asyncio.FIRST_COMPLETED)
+        browser_left = in_task in done
+    finally:
+        in_task.cancel()
+        out_task.cancel()
+        follow_task.cancel()
+        if proc.stdin and not proc.stdin.is_closing():
+            if fit:
+                # Give the pane back its size in the Herdr TUI before letting go.
+                try:
+                    size = await asyncio.wait_for(asyncio.to_thread(herdr.pane_size, pane), 3) or size
+                    proc.stdin.write(json.dumps({'type': 'terminal.resize', 'cols': size[0], 'rows': size[1]}).encode() + b'\n')
+                    await asyncio.wait_for(proc.stdin.drain(), 2)
+                except (BrokenPipeError, ConnectionResetError, TimeoutError, RuntimeError, ValueError):
+                    pass
+            proc.stdin.close()  # Herdr detaches cleanly when its input ends.
+        try:
+            await asyncio.wait_for(proc.wait(), 2)
+        except TimeoutError:
+            proc.kill()
+    if not browser_left:
+        try:
+            await send({'type': 'websocket.close', 'code': 1000})
+        except Exception:
+            pass  # the browser left meanwhile

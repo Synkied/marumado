@@ -1,0 +1,70 @@
+from django.db import models
+
+
+class Project(models.Model):
+    SOURCE_SCAN = 'scan'
+    SOURCE_MANUAL = 'manual'
+    SOURCES = [(SOURCE_SCAN, 'Scanned'), (SOURCE_MANUAL, 'Manual')]
+    KIND_PROJECT = 'project'
+    KIND_LINK = 'link'
+    KINDS = [(KIND_PROJECT, 'Project'), (KIND_LINK, 'Link')]
+
+    name = models.CharField(max_length=120)
+    path = models.CharField(max_length=500, blank=True, default='')
+    description = models.TextField(blank=True, default='')
+    local_url = models.URLField(blank=True, default='')
+    online_url = models.URLField(blank=True, default='')
+    repo_url = models.URLField(blank=True, default='')
+    tags = models.JSONField(default=list, blank=True)
+    pinned = models.BooleanField(default=False)
+    hidden = models.BooleanField(default=False)
+    source = models.CharField(max_length=10, choices=SOURCES, default=SOURCE_MANUAL)
+    # A link is a URL watched on its own (a site, a service), not a folder of code.
+    kind = models.CharField(max_length=10, choices=KINDS, default=KIND_PROJECT)
+    # Facts found by the scanner (stack, git branch, last commit...). Never edited by hand.
+    detected = models.JSONField(default=dict, blank=True)
+    # Fields the user changed by hand; the scanner never overwrites these.
+    locked_fields = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-pinned', 'name']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['path'], condition=~models.Q(path=''), name='unique_project_path'
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class UptimeCheck(models.Model):
+    TARGETS = [('local', 'Local'), ('online', 'Online')]
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='checks')
+    target = models.CharField(max_length=10, choices=TARGETS)
+    url = models.URLField()
+    ok = models.BooleanField()
+    status_code = models.PositiveIntegerField(null=True, blank=True)
+    latency_ms = models.FloatField(null=True, blank=True)
+    error = models.CharField(max_length=300, blank=True, default='')
+    checked_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-checked_at']
+        indexes = [models.Index(fields=['project', 'target', '-checked_at'])]
+
+
+class ScanRoot(models.Model):
+    """A folder added in the app whose subfolders are projects (on top of MARUMADO_PROJECT_ROOTS)."""
+
+    path = models.CharField(max_length=500, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['path']
+
+    def __str__(self):
+        return self.path

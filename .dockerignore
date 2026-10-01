@@ -1,0 +1,12 @@
+.git
+.impeccable
+node_modules
+**/node_modules
+frontend/dist
+frontend/.shot.mjs
+backend/.venv
+backend/data
+backend/staticfiles
+**/__pycache__
+.env
+compose.override.yaml

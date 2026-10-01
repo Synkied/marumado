@@ -1,0 +1,17 @@
+[project]
+name = "marumado-backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "a2wsgi>=1.10.10",
+    "django>=6.1.1",
+    "djangorestframework>=3.18.1",
+    "docker>=7.2.0",
+    "httpx>=0.28.1",
+    "psutil>=7.2.2",
+    "uvicorn>=0.54.0",
+    "websockets>=17.1",
+    "whitenoise>=6.12.0",
+]

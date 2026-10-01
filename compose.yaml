@@ -1,0 +1,37 @@
+# Marumado watches the machine it runs on, so the container shares the host's
+# process and network namespaces and reads the Docker socket. Linux hosts only
+# (Docker Desktop's VM would make it monitor the VM, not your Mac/PC).
+name: marumado
+
+services:
+  marumado:
+    build: .
+    image: marumado:latest
+    container_name: marumado
+    restart: unless-stopped
+    network_mode: host # see real listening ports, reach localhost project URLs
+    pid: host # see (and stop) real host processes
+    cap_add:
+      - SYS_PTRACE # read other users' process folders, to link processes to projects
+    environment:
+      MARUMADO_BIND: ${MARUMADO_BIND:-127.0.0.1}
+      MARUMADO_PORT: ${MARUMADO_PORT:-7878}
+      MARUMADO_TOKEN: ${MARUMADO_TOKEN:-}
+      MARUMADO_SECRET_KEY: ${MARUMADO_SECRET_KEY:-change-me-in-dot-env}
+      MARUMADO_ALLOWED_HOSTS: "*"
+      MARUMADO_PROJECT_ROOTS: ${MARUMADO_PROJECT_DIRS:-/projects}
+      MARUMADO_OPEN_URL: ${MARUMADO_OPEN_URL:-}
+      MARUMADO_HERDR_SMOLVM: ${MARUMADO_HERDR_SMOLVM:-}
+      MARUMADO_HERDR_EXEC: ${MARUMADO_HERDR_EXEC:-}
+      MARUMADO_HERDR_SSH: ${MARUMADO_HERDR_SSH:-}
+      MARUMADO_HERDR_BIN: ${MARUMADO_HERDR_BIN:-}
+      MARUMADO_HERDR_SOCKET: ${MARUMADO_HERDR_SOCKET:-}
+      MARUMADO_HERDR_TERMINAL: ${MARUMADO_HERDR_TERMINAL:-control}
+    volumes:
+      # Project folders are mounted read-only by compose.override.yaml, which
+      # `make up` generates from MARUMADO_PROJECT_DIRS and MARUMADO_MOUNTS in .env.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - marumado-data:/app/backend/data
+
+volumes:
+  marumado-data:
