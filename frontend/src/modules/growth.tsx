@@ -35,7 +35,7 @@ function paceLine(p: Project): string {
 }
 
 /** A per-viewer choice of view, remembered in this browser when storage allows. */
-function useView<T extends string>(key: string, views: readonly T[]): [T, (v: T) => void] {
+export function useView<T extends string>(key: string, views: readonly T[]): [T, (v: T) => void] {
   const [view, setView] = useState<T>(() => {
     try {
       const saved = localStorage.getItem(key) as T | null
@@ -55,7 +55,7 @@ function useView<T extends string>(key: string, views: readonly T[]): [T, (v: T)
   return [view, change]
 }
 
-function ViewSwitch<T extends string>({ value, views, onChange }: { value: T; views: [T, string][]; onChange: (v: T) => void }) {
+export function ViewSwitch<T extends string>({ value, views, onChange }: { value: T; views: [T, string][]; onChange: (v: T) => void }) {
   return (
     <div className="seg seg--mod" role="group" aria-label="View">
       {views.map(([v, label]) => (

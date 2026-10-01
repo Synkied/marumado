@@ -9,6 +9,7 @@ import { commits, pace, PACE_LABEL } from '../lib/growth'
 import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
 import type { Project, ScanRoot } from '../lib/types'
+import { useView, ViewSwitch } from './growth'
 import { Secret } from '../lib/streaming'
 import { SheetHead } from './sheetHead'
 
@@ -16,6 +17,12 @@ function lamp(p: Project) {
   const live = p.status.online.latest
   if (p.online_url && live && !live.ok) return 'row__lamp row__lamp--fault'
   return p.running ? 'row__lamp row__lamp--on' : 'row__lamp'
+}
+
+function stateLabel(p: Project): string {
+  const live = p.status.online.latest
+  if (p.online_url && live && !live.ok) return 'Live site down'
+  return p.running ? 'Running' : 'Idle'
 }
 
 function Links({ p }: { p: Project }) {
@@ -46,6 +53,7 @@ export function ProjectsSheet({ sub }: { sub?: string }) {
   const { projects, refreshProjects } = useHub()
   const [q, setQ] = useState('')
   const [scanning, setScanning] = useState(false)
+  const [view, setView] = useView('marumado.projects-view', ['grid', 'list'] as const)
 
   const list = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -79,6 +87,7 @@ export function ProjectsSheet({ sub }: { sub?: string }) {
   return (
     <div className="sheet">
       <SheetHead id="projects">
+        <ViewSwitch value={view} views={[['grid', 'Grid'], ['list', 'List']]} onChange={setView} />
         <a className="btn btn--quiet" href="#/m/projects/folders">
           <Icon name="folder" size={16} /> Folders
         </a>
@@ -98,6 +107,23 @@ export function ProjectsSheet({ sub }: { sub?: string }) {
         <div className="sheet__empty">Loading projects…</div>
       ) : list.length === 0 ? (
         <div className="sheet__empty">{q ? `Nothing matches “${q}”.` : 'No projects yet. Rescan your folders or add one by hand.'}</div>
+      ) : view === 'grid' ? (
+        <ul className="cardgrid cardgrid--wide">
+          {list.map((p) => (
+            <li className="itemcard" key={p.id}>
+              <span className="itemcard__state">
+                <span className={lamp(p)} aria-hidden />
+                {stateLabel(p)}
+              </span>
+              <a className="itemcard__name" href={`#/m/projects/${p.id}`}>
+                {p.name}
+              </a>
+              <span className="itemcard__sub">{(p.detected.stacks ?? []).join(' · ') || (p.source === 'manual' ? 'Added by hand' : 'Folder')}</span>
+              {p.detected.last_commit_at && <span className="itemcard__sub">Last commit {ago(p.detected.last_commit_at)}</span>}
+              <Links p={p} />
+            </li>
+          ))}
+        </ul>
       ) : (
         <ul className="list">
           {list.map((p) => (

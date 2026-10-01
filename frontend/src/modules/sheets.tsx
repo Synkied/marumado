@@ -10,10 +10,10 @@ import { useHub } from '../lib/hub'
 import { useMachines } from '../lib/machines'
 import { Redacted, Secret } from '../lib/streaming'
 import { go, type Route } from '../lib/route'
-import type { Agent, AgentStatus, Proc } from '../lib/types'
+import type { Agent, AgentStatus, Container, Proc, ProjectRef } from '../lib/types'
 import { useIsNarrow } from '../lib/useIsNarrow'
 import { usePoll } from '../lib/usePoll'
-import { MomentumSheet, SkillsSheet } from './growth'
+import { MomentumSheet, SkillsSheet, useView, ViewSwitch } from './growth'
 import { MachinesSheet } from './machines'
 import { OverviewSheet } from './overview'
 import { ProjectForm, ProjectsSheet } from './projects'
@@ -285,11 +285,29 @@ function PortsSheet() {
   )
 }
 
+type ContainerGroup = { key: string; label: string; project: ProjectRef; containers: Container[] }
+
+/** Containers by the project they belong to: Marumado's project (by folder), else their Compose project, else on their own. */
+function groupContainers(containers: Container[]): ContainerGroup[] {
+  const groups = new Map<string, ContainerGroup>()
+  for (const c of containers) {
+    const key = c.project ? `p:${c.project.id}` : c.compose_project ? `c:${c.compose_project}` : 'solo'
+    const label = c.project?.name ?? (c.compose_project || 'Standalone containers')
+    const g = groups.get(key) ?? { key, label, project: c.project, containers: [] }
+    g.containers.push(c)
+    groups.set(key, g)
+  }
+  // Groups that need you first, then by name; standalone containers last.
+  const rank = (g: ContainerGroup) => (g.containers.some((c) => c.health === 'unhealthy') ? 0 : g.key === 'solo' ? 2 : 1)
+  return [...groups.values()].sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label))
+}
+
 function DockerSheet() {
   const { docker, refreshDocker } = useHub()
   const [logsFor, setLogsFor] = useState<string | null>(null)
   const [logs, setLogs] = useState('')
   const [err, setErr] = useState('')
+  const [view, setView] = useView('marumado.docker-view', ['grid', 'list'] as const)
 
   const act = async (id: string, verb: string) => {
     setErr('')
@@ -312,9 +330,38 @@ function DockerSheet() {
   }
 
   if (!docker) return <div className="sheet__empty">Loading…</div>
+
+  const lampOf = (c: Container) => `row__lamp${c.health === 'unhealthy' ? ' row__lamp--fault' : c.status === 'running' ? ' row__lamp--on' : ''}`
+  const subOf = (c: Container) =>
+    [c.image, c.ports.length ? c.ports.map((p) => `:${p.host_port}`).join(' ') : ''].filter(Boolean).join(' · ')
+  const usage = (c: Container) => (c.status === 'running' && c.cpu != null ? `${c.cpu}% · ${bytes(c.mem)}` : c.status)
+  const actions = (c: Container) => (
+    <>
+      {c.status === 'running' ? (
+        <>
+          <button className="chip" type="button" onClick={() => act(c.id, 'restart')}>
+            Restart
+          </button>
+          <ConfirmButton className="chip" confirmLabel="Confirm stop" onConfirm={() => act(c.id, 'stop')}>
+            Stop
+          </ConfirmButton>
+        </>
+      ) : (
+        <button className="chip" type="button" onClick={() => act(c.id, 'start')}>
+          Start
+        </button>
+      )}
+      <button className="chip" type="button" onClick={() => showLogs(c.id)} aria-expanded={logsFor === c.id}>
+        Logs
+      </button>
+    </>
+  )
+
   return (
     <div className="sheet">
-      <SheetHead id="docker" />
+      <SheetHead id="docker">
+        {docker.available && docker.containers.length > 0 && <ViewSwitch value={view} views={[['grid', 'Grid'], ['list', 'List']]} onChange={setView} />}
+      </SheetHead>
       {!docker.available ? (
         <p className="notice">
           <strong>Docker is off.</strong> <Redacted text={docker.error} /> Containers show up here as soon as the Docker daemon is reachable.
@@ -322,49 +369,73 @@ function DockerSheet() {
       ) : docker.containers.length === 0 ? (
         <p className="sheet__lede">Docker is running, with no containers.</p>
       ) : (
-        <ul className="list">
-          {docker.containers.map((c) => {
-            const running = c.status === 'running'
-            return (
-              <li className="block" key={c.id}>
-                <div className="row">
-                  <span className={`row__lamp${c.health === 'unhealthy' ? ' row__lamp--fault' : running ? ' row__lamp--on' : ''}`} role="img" aria-label={c.status} />
-                  <span className="row__main">
-                    {c.name}
-                    <span className="row__sub">
-                      {c.image}
-                      {c.project ? ` · ${c.project.name}` : ''}
-                      {c.ports.length ? ` · ${c.ports.map((p) => `:${p.host_port}`).join(' ')}` : ''}
-                    </span>
-                  </span>
-                  <span className="row__meta">
-                    {running && c.cpu != null ? `${c.cpu}% · ${bytes(c.mem)}` : c.status}
-                  </span>
-                </div>
-                <div className="chips" style={{ paddingLeft: 26 }}>
-                  {running ? (
-                    <>
-                      <button className="chip" type="button" onClick={() => act(c.id, 'restart')}>
-                        Restart
-                      </button>
-                      <ConfirmButton className="chip" confirmLabel="Confirm stop" onConfirm={() => act(c.id, 'stop')}>
-                        Stop
-                      </ConfirmButton>
-                    </>
-                  ) : (
-                    <button className="chip" type="button" onClick={() => act(c.id, 'start')}>
-                      Start
-                    </button>
+        groupContainers(docker.containers).map((g) => {
+          const running = g.containers.filter((c) => c.status === 'running').length
+          const shownLogs = g.containers.find((c) => c.id === logsFor)
+          return (
+            <section className="sheet__section" key={g.key}>
+              <h3 className="docker__group">
+                {g.project ? <a href={`#/m/projects/${g.project.id}`}>{g.label}</a> : g.label}
+                <span className="docker__count">
+                  {running} of {g.containers.length} running
+                </span>
+              </h3>
+              {view === 'grid' ? (
+                <>
+                  <ul className="cardgrid cardgrid--wide">
+                    {g.containers.map((c) => (
+                      <li className={`itemcard${logsFor === c.id ? ' is-open' : ''}`} key={c.id}>
+                        <span className="itemcard__state">
+                          <span className={lampOf(c)} aria-hidden />
+                          {c.health === 'unhealthy' ? 'unhealthy' : c.status}
+                        </span>
+                        <span className="itemcard__name" title={c.name}>
+                          {c.compose_service || c.name}
+                        </span>
+                        <span className="itemcard__sub" title={subOf(c)}>
+                          {subOf(c)}
+                        </span>
+                        {c.status === 'running' && c.cpu != null && <span className="itemcard__sub mono">{usage(c)}</span>}
+                        <span className="chips">{actions(c)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {shownLogs && (
+                    <div className="sheet__section">
+                      <h3>Logs · {shownLogs.name}</h3>
+                      <pre className="logs">
+                        <Secret label="Logs">{logs}</Secret>
+                      </pre>
+                    </div>
                   )}
-                  <button className="chip" type="button" onClick={() => showLogs(c.id)} aria-expanded={logsFor === c.id}>
-                    Logs
-                  </button>
-                </div>
-                {logsFor === c.id && <pre className="logs"><Secret label="Logs">{logs}</Secret></pre>}
-              </li>
-            )
-          })}
-        </ul>
+                </>
+              ) : (
+                <ul className="list">
+                  {g.containers.map((c) => (
+                    <li className="block" key={c.id}>
+                      <div className="row">
+                        <span className={lampOf(c)} role="img" aria-label={c.status} />
+                        <span className="row__main" title={c.name}>
+                          {c.compose_service || c.name}
+                          <span className="row__sub">{subOf(c)}</span>
+                        </span>
+                        <span className="row__meta">{usage(c)}</span>
+                      </div>
+                      <div className="chips" style={{ paddingLeft: 26 }}>
+                        {actions(c)}
+                      </div>
+                      {logsFor === c.id && (
+                        <pre className="logs">
+                          <Secret label="Logs">{logs}</Secret>
+                        </pre>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )
+        })
       )}
       {err && <p className="notice signal-text">{err}</p>}
     </div>

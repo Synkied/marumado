@@ -2070,3 +2070,88 @@ a.heat__row:focus-visible {
   }
 }
 
+
+/* project and container cards (grid view): every card in a row is as tall as the tallest, actions at the bottom */
+
+.cardgrid--wide {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr));
+}
+
+.itemcard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+}
+
+.itemcard:hover,
+.itemcard.is-open {
+  border-color: var(--mod, var(--ink-3));
+  background: var(--ground-raised);
+}
+
+.itemcard__name {
+  font-family: var(--f-mono);
+  font-size: 16px;
+  color: inherit;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+a.itemcard__name:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+
+.itemcard__state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.itemcard__state .row__lamp {
+  width: 9px;
+  height: 9px;
+}
+
+.itemcard__sub {
+  font-size: 13px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemcard .chips {
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+/* Docker: one section per project, its name and how many of its containers run */
+.docker__group {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.docker__group a {
+  color: inherit;
+}
+
+.docker__count {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
