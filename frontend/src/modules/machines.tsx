@@ -3,14 +3,12 @@ import { ConfirmButton } from '../components/ConfirmButton'
 import { Icon } from '../components/Icon'
 import { api } from '../lib/api'
 import { duration } from '../lib/format'
-import { CPU_BUDGET, MEM_BUDGET } from '../lib/hub'
+import { CPU_BUDGET, DISK_BUDGET, MEM_BUDGET } from '../lib/hub'
 import { useMachines } from '../lib/machines'
 import { useRedact, useStreaming } from '../lib/streaming'
 import { go } from '../lib/route'
 import type { Machine } from '../lib/types'
 import { SheetHead } from './sheetHead'
-
-const DISK_BUDGET = 90
 
 export function MachinesSheet({ sub }: { sub?: string }) {
   const { machines } = useMachines()

@@ -16,7 +16,7 @@
   --rule: #111110;
   --rule-soft: #c4c4c0;
   --signal: #ff4f00;
-  --signal-text: #c23b00;
+  --signal-text: #b33600; /* 5:1 on the ground, so small 'needs you' text passes AA */
   --on-signal: #111110;
   --focus: #ff4f00;
 
@@ -163,5 +163,15 @@ textarea::placeholder {
   *::after {
     transition-duration: 0ms !important;
     animation-duration: 0ms !important;
+  }
+  /* Still mark that the page changed, with a short fade instead of movement. */
+  .sheet {
+    animation: sheet-fade 160ms ease-out 1 !important;
+  }
+}
+
+@keyframes sheet-fade {
+  from {
+    opacity: 0.4;
   }
 }

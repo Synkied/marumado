@@ -35,7 +35,7 @@ type Hub = {
 const HubContext = createContext<Hub | null>(null)
 
 const HISTORY_SECONDS = 10 * 60
-const DISK_BUDGET = 90
+export const DISK_BUDGET = 90
 export const MEM_BUDGET = 92
 export const CPU_BUDGET = 90
 

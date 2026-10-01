@@ -1,14 +1,12 @@
 import { Icon } from '../components/Icon'
 import { Meter } from '../components/Meter'
 import { duration } from '../lib/format'
-import { CPU_BUDGET, MEM_BUDGET, machineIssues, useHub, type ModuleId } from '../lib/hub'
+import { CPU_BUDGET, DISK_BUDGET, MEM_BUDGET, machineIssues, useHub, type ModuleId } from '../lib/hub'
 import { useMachines } from '../lib/machines'
 import { useRedact, useStreaming } from '../lib/streaming'
 import { go } from '../lib/route'
 import type { Machine } from '../lib/types'
 import { RetryButton } from './machines'
-
-const DISK_BUDGET = 90
 
 type Problem = { id: string; title: string; detail: string; href: string }
 
@@ -50,8 +48,20 @@ export function OverviewSheet() {
             // The machine on screen has the full alerts; the others, what their digest says.
             const problems: Problem[] =
               m.id === current
-                ? alerts.filter((a) => a.module !== 'machines').map((a) => ({ id: a.id, title: a.title, detail: a.detail, href: a.href }))
-                : machineIssues(m).map((i) => ({ id: i.id, title: i.title, detail: i.detail, href: issueHref(i.module, i.id) }))
+                ? alerts
+                    .filter((a) => a.module !== 'machines')
+                    .map((a) => ({
+                      id: a.id,
+                      title: a.title,
+                      detail: a.detail,
+                      href: a.href,
+                    }))
+                : machineIssues(m).map((i) => ({
+                    id: i.id,
+                    title: i.title,
+                    detail: i.detail,
+                    href: issueHref(i.module, i.id),
+                  }))
             return <MachineCard key={m.id} machine={m} viewing={m.id === current} problems={problems} open={(href) => open(m, href)} />
           })}
         </ul>
@@ -69,13 +79,19 @@ function Gauge({ label, percent, budget, title }: { label: string; percent: numb
   return (
     <span className="mcard__gauge" title={title}>
       <span className="mcard__key">{label}</span>
-      <Meter percent={percent} budget={budget} />
+      <Meter percent={percent} budget={budget} label={label} />
       <span className={`mcard__value${hot ? ' signal-text' : ''}`}>{Math.round(percent)}%</span>
     </span>
   )
 }
 
-type Count = { id: ModuleId; label: string; value: string; fault?: string; off?: boolean }
+type Count = {
+  id: ModuleId
+  label: string
+  value: string
+  fault?: string
+  off?: boolean
+}
 
 function counts(m: Machine): Count[] {
   const o = m.overview
@@ -83,11 +99,30 @@ function counts(m: Machine): Count[] {
   const waiting = o.agents.blocked.length
   return [
     o.agents.available
-      ? { id: 'agents', label: 'Agents', value: o.agents.total ? `${o.agents.working} of ${o.agents.total} working` : 'none running', fault: waiting ? `${waiting} waiting` : undefined }
-      : { id: 'agents', label: 'Agents', value: 'Herdr not running', off: true },
-    { id: 'projects', label: 'Projects', value: `${o.projects.running} of ${o.projects.total} running` },
+      ? {
+          id: 'agents',
+          label: 'Agents',
+          value: o.agents.total ? `${o.agents.working} of ${o.agents.total} working` : 'none running',
+          fault: waiting ? `${waiting} waiting` : undefined,
+        }
+      : {
+          id: 'agents',
+          label: 'Agents',
+          value: 'Herdr not running',
+          off: true,
+        },
+    {
+      id: 'projects',
+      label: 'Projects',
+      value: `${o.projects.running} of ${o.projects.total} running`,
+    },
     o.urls.checked
-      ? { id: 'urls', label: 'URLs', value: `${o.urls.up} of ${o.urls.checked} up`, fault: o.urls.down.length ? `${o.urls.down.length} down` : undefined }
+      ? {
+          id: 'urls',
+          label: 'URLs',
+          value: `${o.urls.up} of ${o.urls.checked} up`,
+          fault: o.urls.down.length ? `${o.urls.down.length} down` : undefined,
+        }
       : { id: 'urls', label: 'URLs', value: 'no live URLs yet', off: true },
     o.docker.available
       ? {
@@ -145,7 +180,7 @@ function MachineCard({ machine: m, viewing, problems, open }: { machine: Machine
       <p className={`mcard__sub${down ? ' signal-text' : ''}`}>{sub}</p>
 
       {s && (
-        <button className="mcard__vitals" type="button" onClick={() => open('#/m/machine')} aria-label={`${name}: CPU, memory and disk`}>
+        <button className="mcard__vitals" type="button" onClick={() => open('#/m/machine')} title={`Open ${name}'s machine details`}>
           <Gauge label="CPU" percent={s.cpu} budget={CPU_BUDGET} title={`Load ${s.load.map((l) => l.toFixed(2)).join(' ')}`} />
           <Gauge label="RAM" percent={s.memory} budget={MEM_BUDGET} />
           {s.disk && <Gauge label="Disk" percent={s.disk.percent} budget={DISK_BUDGET} title={streaming ? undefined : `Fullest disk: ${s.disk.mount}`} />}
@@ -168,7 +203,9 @@ function MachineCard({ machine: m, viewing, problems, open }: { machine: Machine
         </ul>
       )}
       {m.state === 'up' && !m.overview && (
-        <p className="mcard__note">{m.local ? 'Reading this machine…' : 'Update the Marumado on this machine to see its agents, projects, URLs and containers here.'}</p>
+        <p className="mcard__note">
+          {m.local ? 'Reading this machine…' : 'Update the Marumado on this machine to see its agents, projects, URLs and containers here.'}
+        </p>
       )}
 
       {problems.length > 0 && (

@@ -246,7 +246,8 @@
   height: 100%;
   border-radius: inherit;
   background: var(--c-machine);
-  transition: width 600ms var(--ease);
+  transform-origin: left center;
+  transition: transform 600ms var(--ease);
 }
 
 .vitals__value {
@@ -264,7 +265,8 @@
 }
 
 .vitals:hover .vitals__value {
-  color: var(--c-machine);
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
 }
 
 /* ---------- main: dial panel + detail sheet ---------- */
@@ -1211,6 +1213,12 @@ button.chip:hover {
   outline: none;
 }
 
+/* The field has no box of its own, so focus shows on its rule and icon. */
+.filter:focus-within {
+  border-bottom-color: var(--ink);
+  color: var(--ink);
+}
+
 .facts {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -1254,6 +1262,7 @@ button.chip:hover {
 }
 
 .meter {
+  display: block;
   position: relative;
   height: 6px;
   background: var(--track);
@@ -1635,7 +1644,7 @@ a.heat__row:focus-visible {
 .heat__week {
   font-family: var(--f-mono);
   font-size: 11px;
-  color: var(--ink-3);
+  color: var(--ink-2);
   white-space: nowrap;
 }
 
@@ -1690,7 +1699,7 @@ a.heat__row:focus-visible {
   gap: 4px;
   margin-top: 6px;
   font-size: 12px;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 .heat__legend .heat__cell {
@@ -1964,7 +1973,7 @@ a.heat__row:focus-visible {
 }
 
 .mcard__count.is-off .mcard__reading {
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 .mcard__note {
@@ -2022,54 +2031,6 @@ a.heat__row:focus-visible {
     padding: 14px 14px 12px;
   }
 }
-
-/* ---------- streaming mode ---------- */
-
-.stream {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-width: 40px;
-  height: 40px;
-  padding: 0 10px;
-  border: 1px solid var(--rule-soft);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--ink-2);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.stream:hover {
-  border-color: var(--ink);
-  color: var(--ink);
-}
-
-.stream--on,
-.stream--on:hover {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: var(--ground);
-}
-
-.secret {
-  font-family: var(--f-display);
-  font-size: 0.85em;
-  letter-spacing: 0.08em;
-  color: var(--ink-2);
-}
-
-@media (max-width: 860px) {
-  .stream__text {
-    display: none;
-  }
-}
-
 
 /* project and container cards (grid view): every card in a row is as tall as the tallest, actions at the bottom */
 
@@ -2135,6 +2096,107 @@ a.itemcard__name:hover {
   padding-top: 4px;
 }
 
+/* ---------- streaming mode ---------- */
+
+.stream {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.stream:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.stream--on,
+.stream--on:hover {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--ground);
+}
+
+.secret {
+  font-family: var(--f-display);
+  font-size: 0.85em;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+}
+
+@media (max-width: 860px) {
+  .stream__text {
+    display: none;
+  }
+}
+
+/* ---------- keep every sheet inside its column ---------- */
+
+/* A grid track sized by its content would grow past the column (and get cut by the scrolling side).
+   :where() keeps it weaker than a module's own layout, like the Agents list and terminal side by side. */
+:where(.sheet) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sheet__head {
+  flex-wrap: wrap;
+}
+
+.sheet__head > :first-child {
+  max-width: 100%;
+}
+
+/* The title shrinks with its column so a single word (PROCESSES, MOMENTUM) fits on one line, with room
+   to spare for its 10% stretch. It wraps between words, never inside one. */
+.sheet__head {
+  container-type: inline-size;
+}
+
+.sheet__title {
+  font-size: min(clamp(30px, 3.4vw, 54px), 12cqi);
+  overflow-wrap: normal;
+  hyphens: none;
+}
+
+@media (min-width: 861px) {
+  .side {
+    padding-right: 14px;
+  }
+}
+
+/* ---------- phones: every control is at least 44px tall ---------- */
+
+@media (max-width: 860px) {
+  .chip,
+  .picker,
+  .stream,
+  .btn {
+    min-height: 44px;
+  }
+  .picker select {
+    min-height: 42px;
+  }
+  .stream {
+    min-width: 44px;
+  }
+  .mcard__count {
+    min-height: 44px;
+  }
+}
+
 /* Docker: one section per project, its name and how many of its containers run */
 .docker__group {
   display: flex;
@@ -2154,7 +2216,6 @@ a.itemcard__name:hover {
   letter-spacing: 0;
   text-transform: none;
 }
-
 
 /* ---------- files: a project's folder, read-only ---------- */
 

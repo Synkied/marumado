@@ -10,7 +10,7 @@ import { useStreaming } from './lib/streaming'
 import { useIsNarrow } from './lib/useIsNarrow'
 import { usePins } from './lib/pins'
 import { go, useRoute } from './lib/route'
-import { MODULES, meta, useSummaries } from './modules/registry'
+import { MODULES, meta, useSummaries, type Summary } from './modules/registry'
 import { SheetFor } from './modules/sheets'
 import './app.css'
 
@@ -95,7 +95,7 @@ function Vitals() {
         <span key={r.key} className={`vitals__row${r.hot ? ' is-hot' : ''}`}>
           <span className="vitals__key">{r.key}</span>
           <span className="vitals__bar">
-            <span style={{ width: `${Math.min(100, r.value)}%` }} />
+            <span style={{ transform: `scaleX(${Math.min(100, r.value) / 100})` }} />
           </span>
           <span className="vitals__value">{r.value}%</span>
         </span>
@@ -116,13 +116,16 @@ function StatusBadge() {
         <span className="badge__value">{offline ? '!' : count || 'OK'}</span>
       </span>
       <span className="badge__caption">{offline ? 'OFFLINE' : count ? 'NEEDS YOU' : 'ALL CLEAR'}</span>
+      {/* The one thing announced as it changes; the sheets themselves stay quiet while they refresh. */}
+      <span className="sr-only" aria-live="polite">
+        {label}
+      </span>
     </a>
   )
 }
 
-function ModuleCell({ id, active }: { id: ModuleId; active: boolean }) {
+function ModuleCell({ id, active, s }: { id: ModuleId; active: boolean; s: Summary | null }) {
   const m = meta(id)
-  const s = useSummaries()[id]
   const index = String(MODULES.findIndex((x) => x.id === id) + 1).padStart(2, '0')
   const tone = s?.off ? 'off' : s?.fault ? 'signal' : 'ink'
   const reading = [s?.value, s?.caption].filter(Boolean).join(', ')
@@ -146,6 +149,7 @@ function ModuleCell({ id, active }: { id: ModuleId; active: boolean }) {
 type PanelProps = { pins: ModuleId[]; active?: ModuleId; perRow: number; onEdit: () => void; open: boolean; onToggle: () => void }
 
 function DialPanel({ pins, active, perRow, onEdit, open, onToggle }: PanelProps) {
+  const summaries = useSummaries()
   const rows: ModuleId[][] = []
   for (let i = 0; i < pins.length; i += perRow) rows.push(pins.slice(i, i + perRow))
   return (
@@ -157,7 +161,7 @@ function DialPanel({ pins, active, perRow, onEdit, open, onToggle }: PanelProps)
       {rows.map((row, i) => (
         <div className="panel__row" key={i}>
           {row.map((id) => (
-            <ModuleCell key={id} id={id} active={active === id} />
+            <ModuleCell key={id} id={id} active={active === id} s={summaries[id]} />
           ))}
         </div>
       ))}
@@ -339,7 +343,7 @@ export default function App() {
             open={narrow || sidebarOpen}
             onToggle={toggleSidebar}
           />
-          <section className={`side${activeModule && !arranging ? ` mod-${activeModule}` : ''}`} aria-live="polite">
+          <section className={`side${activeModule && !arranging ? ` mod-${activeModule}` : ''}`}>
               {narrow && !arranging && !home && (
                 <button className="side__back" type="button" onClick={() => go('#/')}>
                   <Icon name="back" size={18} /> Home
