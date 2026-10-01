@@ -140,6 +140,16 @@ class MachineViewSet(viewsets.ModelViewSet):
         machines.sync()
 
 
+@api_view(['POST'])
+def machine_retry(request, pk: int):
+    """Reconnect to a machine now, instead of waiting for the next automatic try."""
+    tunnel = machines.get(pk)
+    if tunnel is None:
+        return Response({'detail': 'No such machine.'}, status=404)
+    tunnel.retry()
+    return Response(tunnel.status())
+
+
 @api_view(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
 def machine_proxy(request, pk: int, rest: str):
     """/api/machines/<id>/<path>: the same call, answered by that machine's Marumado through its tunnel."""

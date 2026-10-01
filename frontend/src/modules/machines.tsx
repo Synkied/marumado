@@ -39,6 +39,25 @@ function stateText(m: Machine): string {
   return `${where} · ${s.os} · ${s.cores} cores · up ${duration(s.time - s.boot_time)}`
 }
 
+function RetryButton({ machine }: { machine: Machine }) {
+  const { refresh } = useMachines()
+  const [busy, setBusy] = useState(false)
+  const retry = async () => {
+    setBusy(true)
+    try {
+      await api(`machines/${machine.id}/retry`, { method: 'POST' })
+    } finally {
+      refresh()
+      setBusy(false)
+    }
+  }
+  return (
+    <button className="btn" type="button" disabled={busy} onClick={retry} aria-label={`Retry connecting to ${machine.name}`}>
+      {busy ? 'Retrying' : 'Retry'}
+    </button>
+  )
+}
+
 function MachinesList() {
   const { machines, current, select } = useMachines()
   return (
@@ -75,6 +94,7 @@ function MachinesList() {
                   </span>
                 )}
                 <span className="row__actions">
+                  {m.state === 'down' && <RetryButton machine={m} />}
                   {!m.local && (
                     <a className="btn btn--quiet" href={`#/m/machines/edit/${m.id}`} aria-label={`Edit ${m.name}`}>
                       Edit
@@ -99,7 +119,7 @@ function MachinesList() {
             Check that <span className="mono">ssh you@that-machine</span> works from this one without a password (key login). Connect once by hand to trust its host key.
           </li>
           <li>
-            Is this Marumado running in Docker? Set <span className="mono">MARUMADO_SSH_DIR=~/.ssh</span> in .env and run <span className="mono">make up</span>, so the container gets your SSH keys (read-only).
+            Is this Marumado running in Docker? Set <span className="mono">MARUMADO_SSH_DIR=~/.ssh</span> in .env and run <span className="mono">make up</span>, so the container gets your SSH keys and config.
           </li>
         </ol>
       </section>
@@ -162,7 +182,7 @@ function MachineForm({ machine }: { machine?: Machine }) {
           required
           value={form.ssh_target}
           onChange={set('ssh_target')}
-          placeholder="you@build-server, or an alias from ~/.ssh/config"
+          placeholder="you@build-server, ssh://you@build-server:2222, or a ~/.ssh/config alias"
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"

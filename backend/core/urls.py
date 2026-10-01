@@ -24,6 +24,7 @@ urlpatterns = [
     path('agents', views.agents),
     path('agents/<str:pane_id>/output', views.agent_output),
     path('agents/<str:pane_id>/input', views.agent_input),
+    path('machines/<int:pk>/retry', views.machine_retry),  # before the proxy, which takes every other path
     path('machines/<int:pk>/<path:rest>', views.machine_proxy),
     *router.urls,
 ]

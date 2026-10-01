@@ -7,6 +7,7 @@ live agent terminal), so every module can show any machine. Nothing is opened to
 Marumado stays bound to 127.0.0.1 and SSH key login is the only way in.
 """
 import ctypes
+import os
 import re
 import signal
 import socket
@@ -17,12 +18,14 @@ from collections import deque
 
 import httpx
 
+from . import sshhome
+
 SAMPLE_SECONDS = 5
 CONNECT_SECONDS = 20
 MAX_PAUSE = 60
 # What Marumado's own permission check answers when the token is wrong (rest_framework's default).
 TOKEN_REFUSED = 'You do not have permission to perform this action.'
-SSH_TARGET = re.compile(r'^[A-Za-z0-9_.@%+\[\]:-]+$')
+SSH_TARGET = re.compile(r'^[A-Za-z0-9_.@%+\[\]:/-]+$')  # also ssh://user@host:port
 
 _lock = threading.Lock()
 _tunnels: dict[int, 'Tunnel'] = {}
@@ -56,14 +59,38 @@ def _die_with_parent():
 
 def _ssh_error(lines: list[str], target: str) -> str:
     text = ' '.join(lines)
+    reached = re.search(r'connect to host \S+ port \d+: (.+)', text)
+    if reached:
+        return f"Couldn't reach {target} over SSH ({reached.group(1).rstrip('.')}). Is it on, and is the address and SSH port right?"
+    if 'Could not resolve hostname' in text:
+        return f"Couldn't find {target}: the host name doesn't resolve. Check the SSH target."
     if 'Permission denied' in text:
-        return f'SSH refused the login to {target}. Marumado needs key login (no password prompt).'
+        return f'SSH refused the login to {target}{_login_detail(target)}. Marumado needs key login (no password prompt).'
     if 'Host key verification failed' in text:
         return f"{target}'s host key isn't trusted yet. Connect once with `ssh {target}` from this machine to trust it."
     if 'open failed' in text or 'connect failed' in text:
         return f"Connected to {target}, but nothing listens on Marumado's port there. Is Marumado running on it?"
     meaningful = [ln for ln in lines if not ln.startswith(('Warning:', '**'))]
     return (meaningful or lines or ['SSH stopped without saying why.'])[-1]
+
+
+def _login_detail(target: str) -> str:
+    """Who ssh logged in as and with which keys, from `ssh -G`: the usual reason a login works by hand but not here."""
+    try:
+        out = subprocess.run(['ssh', '-G', '--', target], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ''
+    user, keys = '', []
+    for line in out.splitlines():
+        key, _, value = line.partition(' ')
+        if key == 'user':
+            user = value
+        elif key == 'identityfile':
+            path = os.path.expanduser(value)
+            if os.path.isfile(path):
+                keys.append(os.path.basename(path))
+    detail = f' as user {user}' if user else ''
+    return detail + (f', with keys {", ".join(keys)}' if keys else ', and found no key to offer (only an ssh-agent?)')
 
 
 def _summary(system: dict | None) -> dict | None:
@@ -97,6 +124,7 @@ class Tunnel:
         self.since = time.time()
         self.system: dict | None = None
         self._stop = threading.Event()
+        self._wake = threading.Event()  # retry(): reconnect now
         self._proc: subprocess.Popen | None = None
         self._stderr: deque[str] = deque(maxlen=20)
         self._http = httpx.Client(timeout=10)
@@ -110,6 +138,14 @@ class Tunnel:
 
     def stop(self):
         self._stop.set()
+        self._wake.set()
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+
+    def retry(self):
+        """Reconnect now instead of waiting out the pause, with a fresh ssh."""
+        self._set('connecting')
+        self._wake.set()
         if self._proc and self._proc.poll() is None:
             self._proc.terminate()
 
@@ -136,11 +172,14 @@ class Tunnel:
             if self._stop.is_set():
                 break
             pause = 2 if was_up else min(pause * 2, MAX_PAUSE)
-            self._stop.wait(pause)
+            if self._wake.is_set() or self._wake.wait(pause):
+                self._wake.clear()
+                pause = 2
         self._http.close()
 
     def _connect(self) -> bool:
         """Run one ssh tunnel until it ends. True if the machine answered at some point."""
+        sshhome.prepare()
         port = _free_port()
         cmd = [
             'ssh', '-N', '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes', '-o', 'ConnectTimeout=10',
@@ -159,7 +198,7 @@ class Tunnel:
 
         was_up = False
         started = time.time()
-        while proc.poll() is None and not self._stop.is_set():
+        while proc.poll() is None and not self._wake.is_set():
             try:
                 self.system = self._get('system').json()
                 self._set('up')
@@ -167,11 +206,11 @@ class Tunnel:
             except Unavailable as exc:
                 # ssh opens the local port only once it is logged in; until then, keep waiting.
                 if isinstance(exc, StillConnecting) and self.state != 'up' and time.time() - started < CONNECT_SECONDS:
-                    self._stop.wait(0.5)
+                    self._wake.wait(0.5)
                     continue
                 self.system = None
                 self._set('down', str(exc))
-            self._stop.wait(SAMPLE_SECONDS)
+            self._wake.wait(SAMPLE_SECONDS)
         if proc.poll() is None:
             proc.terminate()
         try:
@@ -179,7 +218,7 @@ class Tunnel:
         except subprocess.TimeoutExpired:
             proc.kill()
         self.local_port, self.system = None, None
-        if not self._stop.is_set():
+        if not self._wake.is_set():
             time.sleep(0.2)  # let the stderr reader catch the last line
             self._set('down', _ssh_error(list(self._stderr), self.target))
         return was_up

@@ -62,5 +62,5 @@ class MachineSerializer(serializers.ModelSerializer):
     def validate_ssh_target(self, value):
         value = value.strip()
         if not machines.valid_target(value):
-            raise serializers.ValidationError('Use user@host, a host name, or an alias from ~/.ssh/config.')
+            raise serializers.ValidationError('Use user@host, ssh://user@host:port, a host name, or an alias from ~/.ssh/config.')
         return value

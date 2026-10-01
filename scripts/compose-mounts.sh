@@ -25,12 +25,20 @@ dirs="${projects:-/projects},$(env_value MARUMADO_MOUNTS)"
   done
   # SSH keys, for MARUMADO_HERDR_SSH and for other machines in the Machines module
   # (set MARUMADO_SSH_DIR for those). Then Herdr's local socket and binary.
+  environment=""
   ssh_dir=$(env_value MARUMADO_SSH_DIR)
   if [ -n "$ssh_dir" ] || [ -n "$(env_value MARUMADO_HERDR_SSH)" ]; then
     ssh_dir=${ssh_dir:-$HOME/.ssh}
     case "$ssh_dir" in "~"*) ssh_dir="$HOME${ssh_dir#\~}" ;; esac
+    ssh_dir=${ssh_dir%/}
     [ -d "$ssh_dir" ] || echo "compose-mounts: warning: '$ssh_dir' does not exist on this machine" >&2
-    echo "      - \"$ssh_dir:/root/.ssh:ro\""
+    # At its host path, so absolute paths in its config resolve. ssh refuses a config owned by another
+    # user, so Marumado copies it into root's ~/.ssh before each ssh call (core/sshhome.py).
+    echo "      - \"$ssh_dir:$ssh_dir:ro\""
+    # ssh in the container is root; log in as you by default, like ssh on the host.
+    environment="$environment      MARUMADO_SSH_SOURCE: \"$ssh_dir\"
+      MARUMADO_SSH_USER: \"$(id -un)\"
+"
   fi
   for f in "$(env_value MARUMADO_HERDR_SOCKET)" "$(env_value MARUMADO_HERDR_BIN)"; do
     if [ -n "$f" ]; then echo "      - \"$f:$f\""; fi
@@ -44,8 +52,9 @@ dirs="${projects:-/projects},$(env_value MARUMADO_MOUNTS)"
     done
     cache="${XDG_CACHE_HOME:-$HOME/.cache}/smolvm"
     if [ -d "$cache" ]; then echo "      - \"$cache:$cache\""; fi
-    echo "    environment:"
-    echo "      MARUMADO_SMOLVM_HOME: \"$HOME\""
-    echo "      MARUMADO_SMOLVM_USER: \"$(id -u):$(id -g)\""
+    environment="$environment      MARUMADO_SMOLVM_HOME: \"$HOME\"
+      MARUMADO_SMOLVM_USER: \"$(id -u):$(id -g)\"
+"
   fi
+  if [ -n "$environment" ]; then printf '    environment:\n%s' "$environment"; fi
 } > compose.override.yaml

@@ -13,6 +13,8 @@ from pathlib import Path
 
 from marumado.settings import env
 
+from . import sshhome
+
 PANE_ID = re.compile(r'^w\d+:p\d+$')
 TIMEOUT = 4
 
@@ -73,6 +75,7 @@ def _command(args: tuple[str, ...], interactive: bool = False) -> tuple[list[str
             return [*prefix, 'sh', '-c', remote], environ
         if env('HERDR_EXEC'):
             return [*shlex.split(env('HERDR_EXEC')), 'sh', '-c', remote], None
+        sshhome.prepare()
         ssh = ['ssh', '-o', 'BatchMode=yes', '-o', f'ConnectTimeout={TIMEOUT - 1}', target, remote]
         return ssh, None
     binary = env('HERDR_BIN') or shutil.which('herdr')

@@ -48,8 +48,8 @@ In `.env`, set `MARUMADO_BIND=0.0.0.0` and `MARUMADO_TOKEN=$(make token)`, then 
 
 1. Run Marumado on the other machine too (`make up`), leaving `MARUMADO_BIND` at 127.0.0.1. Give it a `MARUMADO_TOKEN` if other people can log into that machine.
 2. Make sure `ssh you@that-machine` works from this one with key login and no password prompt, and connect once by hand to trust its host key.
-3. If this Marumado runs in Docker, set `MARUMADO_SSH_DIR=~/.ssh` in `.env` and run `make up`, so the container gets your SSH keys (read-only).
-4. In the app: **Machines → Add machine**, with the SSH target (`you@host` or a `~/.ssh/config` alias), its port, and its token.
+3. If this Marumado runs in Docker, set `MARUMADO_SSH_DIR=~/.ssh` in `.env` and run `make up`, so the container gets your SSH keys and config. Changes you make to them on the host are picked up on the next connection.
+4. In the app: **Machines → Add machine**, with the SSH target (`you@host`, `ssh://you@host:2222` for a non-standard SSH port, or a `~/.ssh/config` alias), its Marumado port, and its token.
 
 Nothing is opened to the network: the other Marumado stays on its localhost, and SSH is the only way in.
 
