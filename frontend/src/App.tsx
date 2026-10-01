@@ -272,7 +272,6 @@ export default function App() {
   const [pins, setPins] = usePins()
   const [arranging, setArranging] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const { alerts } = useHub()
   const narrow = useIsNarrow()
   const [sidebarOpen, toggleSidebar] = useSidebarOpen()
 
@@ -290,14 +289,12 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // On wide screens the sheet always shows something: what needs you, else Projects.
-  const sheetRoute = route.kind === 'home' ? (alerts.length ? { kind: 'alerts' as const } : { kind: 'module' as const, id: 'projects' as ModuleId }) : route
-  const showSheet = arranging || !narrow || route.kind !== 'home'
-  const activeModule = sheetRoute.kind === 'module' ? sheetRoute.id : undefined
+  const home = route.kind === 'home'
+  const activeModule = route.kind === 'module' ? route.id : undefined
 
   return (
     <TokenGate>
-      <div className={`app${narrow && route.kind !== 'home' ? ' app--sheet-only' : ''}`}>
+      <div className={`app${narrow ? (home ? ' app--home' : ' app--sheet-only') : ''}`}>
         <header className="top">
           <div className="top__brand">
             <Wordmark />
@@ -321,16 +318,14 @@ export default function App() {
             open={narrow || sidebarOpen}
             onToggle={toggleSidebar}
           />
-          {showSheet && (
-            <section className={`side${activeModule && !arranging ? ` mod-${activeModule}` : ''}`} aria-live="polite">
-              {narrow && !arranging && (
+          <section className={`side${activeModule && !arranging ? ` mod-${activeModule}` : ''}`} aria-live="polite">
+              {narrow && !arranging && !home && (
                 <button className="side__back" type="button" onClick={() => go('#/')}>
                   <Icon name="back" size={18} /> Home
                 </button>
               )}
-              {arranging ? <ArrangeSheet pins={pins} setPins={setPins} onDone={() => setArranging(false)} /> : <SheetFor route={sheetRoute} />}
+              {arranging ? <ArrangeSheet pins={pins} setPins={setPins} onDone={() => setArranging(false)} /> : <SheetFor route={route} />}
             </section>
-          )}
         </main>
 
         {paletteOpen && <Palette onClose={() => setPaletteOpen(false)} />}

@@ -1810,3 +1810,215 @@ a.heat__row:focus-visible {
     flex: none;
   }
 }
+
+/* ---------- overview (home): one card per machine ---------- */
+
+.mcards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.mcard {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius);
+}
+
+.mcard.is-viewing {
+  border-color: var(--ink-3);
+  background: var(--ground-raised);
+}
+
+.mcard.is-fault {
+  border-color: var(--signal);
+}
+
+.mcard__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+}
+
+.mcard__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.mcard__tag {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.mcard__sub {
+  margin: -6px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.mcard__key {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.mcard__vitals {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 0 4px;
+  border: 0;
+  border-top: 1px solid var(--rule-soft);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  --mod: var(--c-machine);
+}
+
+.mcard__gauge {
+  display: grid;
+  grid-template-columns: 5ch minmax(0, 1fr) 4.5ch;
+  align-items: center;
+  gap: 12px;
+}
+
+.mcard__value {
+  font-family: var(--f-mono);
+  font-size: 14px;
+  text-align: right;
+}
+
+.mcard__vitals:hover .mcard__value,
+.mcard__count:hover .mcard__reading,
+.mcard__issue:hover .mcard__issue-text {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+
+.mcard__counts,
+.mcard__issues {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mcard__count {
+  display: grid;
+  grid-template-columns: 12px 9ch minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--rule-soft);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The module's own colour, as on its dial. */
+.mcard__count::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mod);
+  justify-self: center;
+}
+
+.mcard__count.is-off::before {
+  background: none;
+  border: 1.5px solid var(--ink-3);
+}
+
+.mcard__reading {
+  font-family: var(--f-mono);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.mcard__count.is-off .mcard__reading {
+  color: var(--ink-3);
+}
+
+.mcard__note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.mcard__issues {
+  display: grid;
+  border-top: 1px solid var(--rule);
+}
+
+.mcard__issue {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--rule-soft);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mcard__issues li:last-child .mcard__issue {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.mcard__issue-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  font-family: var(--f-mono);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.mcard__issue > svg {
+  flex: none;
+  color: var(--ink-2);
+}
+
+/* Phones: on the home screen, the overview comes before the module dials. */
+@media (max-width: 860px) {
+  .app--home .side {
+    order: -1;
+  }
+  .mcard {
+    padding: 14px 14px 12px;
+  }
+}

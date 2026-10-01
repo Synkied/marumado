@@ -9,7 +9,7 @@ router.register('skills', views.SkillViewSet, basename='skill')
 router.register('machines', views.MachineViewSet, basename='machine')
 
 urlpatterns = [
-    path('overview', views.overview),
+    path('overview', views.overview_view),
     path('system', views.system),
     path('system/history', views.history),
     path('processes', views.processes),

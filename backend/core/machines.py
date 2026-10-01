@@ -1,7 +1,8 @@
 """Other machines, each running its own Marumado on its own localhost, reached through SSH tunnels.
 
 One thread per machine keeps `ssh -N -L <free port>:127.0.0.1:<its port> <target>` running (reconnecting
-with a growing pause) and samples the machine's /api/system every few seconds for the Machines module.
+with a growing pause) and samples the machine's /api/system every few seconds for the Machines module, and its
+/api/overview (core/overview.py) a little less often for the home view.
 The API passes /api/machines/<id>/<path> through the tunnel (views.machine_proxy, and terminal.py for the
 live agent terminal), so every module can show any machine. Nothing is opened to the network: the other
 Marumado stays bound to 127.0.0.1 and SSH key login is the only way in.
@@ -21,6 +22,7 @@ import httpx
 from . import sshhome
 
 SAMPLE_SECONDS = 5
+OVERVIEW_SECONDS = 10
 CONNECT_SECONDS = 20
 MAX_PAUSE = 60
 # What Marumado's own permission check answers when the token is wrong (rest_framework's default).
@@ -123,6 +125,8 @@ class Tunnel:
         self.error = ''
         self.since = time.time()
         self.system: dict | None = None
+        self.overview: dict | None = None
+        self._overview_at = 0.0
         self._stop = threading.Event()
         self._wake = threading.Event()  # retry(): reconnect now
         self._proc: subprocess.Popen | None = None
@@ -160,6 +164,7 @@ class Tunnel:
             'has_token': bool(self.token), 'local': False,
             'state': self.state, 'error': self.error, 'since': self.since,
             'summary': _summary(self.system) if self.state == 'up' else None,
+            'overview': self.overview if self.state == 'up' else None,
         }
 
     # ------------------------------------------------------------ the tunnel
@@ -203,6 +208,7 @@ class Tunnel:
                 self.system = self._get('system').json()
                 self._set('up')
                 was_up = True
+                self._sample_overview()
             except Unavailable as exc:
                 # ssh opens the local port only once it is logged in; until then, keep waiting.
                 if isinstance(exc, StillConnecting) and self.state != 'up' and time.time() - started < CONNECT_SECONDS:
@@ -217,11 +223,25 @@ class Tunnel:
             proc.wait(5)
         except subprocess.TimeoutExpired:
             proc.kill()
-        self.local_port, self.system = None, None
+        self.local_port, self.system, self.overview, self._overview_at = None, None, None, 0.0
         if not self._wake.is_set():
             time.sleep(0.2)  # let the stderr reader catch the last line
             self._set('down', _ssh_error(list(self._stderr), self.target))
         return was_up
+
+    def _sample_overview(self):
+        """The machine's digest for the home view. Slower to answer than /system (it asks Herdr), and a
+        Marumado from before /overview existed has none, so failing here never marks the machine down."""
+        if time.time() - self._overview_at < OVERVIEW_SECONDS:
+            return
+        self._overview_at = time.time()
+        try:
+            res = self.request('GET', 'overview', timeout=10)
+            data = res.json() if res.status_code == 200 else None
+            # An older Marumado answers /overview with a different shape (or not at all).
+            self.overview = data if isinstance(data, dict) and 'agents' in data else None
+        except (Unavailable, ValueError):
+            pass
 
     def _read_stderr(self, proc: subprocess.Popen):
         for line in proc.stderr:
@@ -295,8 +315,8 @@ def statuses() -> list[dict]:
     return [t.status() for t in tunnels]
 
 
-def local_status(system: dict | None) -> dict:
+def local_status(system: dict | None, overview: dict | None) -> dict:
     return {
         'id': 'local', 'name': 'This machine', 'ssh_target': '', 'port': None, 'has_token': False, 'local': True,
-        'state': 'up', 'error': '', 'since': None, 'summary': _summary(system),
+        'state': 'up', 'error': '', 'since': None, 'summary': _summary(system), 'overview': overview,
     }

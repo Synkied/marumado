@@ -39,20 +39,42 @@ const DISK_BUDGET = 90
 export const MEM_BUDGET = 92
 export const CPU_BUDGET = 90
 
-/** The machines not on screen: unreachable, or over the disk and memory budgets. */
+/** Something wrong on a machine, read from its summary and digest; `module` is where to look on that machine. */
+export type Issue = { id: string; module: ModuleId; title: string; detail: string }
+
+/** What needs attention on a machine that isn't on screen (the one on screen has the full alerts). */
+export function machineIssues(m: Machine): Issue[] {
+  const out: Issue[] = []
+  const s = m.summary
+  if (s?.disk && s.disk.percent >= DISK_BUDGET) {
+    out.push({ id: 'disk', module: 'machine', title: `Disk ${s.disk.mount} is ${Math.round(s.disk.percent)}% full`, detail: `Above the ${DISK_BUDGET}% budget` })
+  }
+  if (s && s.memory >= MEM_BUDGET) {
+    out.push({ id: 'mem', module: 'machine', title: `Memory at ${Math.round(s.memory)}%`, detail: `Above the ${MEM_BUDGET}% budget` })
+  }
+  const o = m.overview
+  for (const a of o?.agents.blocked ?? []) {
+    out.push({ id: `agent:${a.pane_id}`, module: 'agents', title: `${a.label} in ${a.where} is waiting for you`, detail: 'Approval or question' })
+  }
+  for (const u of o?.urls.down ?? []) {
+    out.push({ id: `url:${u.id}`, module: 'urls', title: `${u.name} (live) is down`, detail: u.detail })
+  }
+  for (const name of o?.docker.unhealthy ?? []) {
+    out.push({ id: `ctr:${name}`, module: 'docker', title: `${name} is unhealthy`, detail: 'Container health check failing' })
+  }
+  return out
+}
+
+/** The machines not on screen: unreachable, or with something that needs you (see the home view). */
 function machineAlerts(machines: Machine[] = [], current: MachineId): Alert[] {
   const out: Alert[] = []
   for (const m of machines) {
     if (m.state === 'down') {
       out.push({ id: `machine:${m.id}`, module: 'machines', title: `${m.name} is unreachable`, detail: m.error || 'No answer', href: '#/m/machines' })
     }
-    const s = m.summary
-    if (m.id === current || !s) continue
-    if (s.disk && s.disk.percent >= DISK_BUDGET) {
-      out.push({ id: `machine:${m.id}:disk`, module: 'machines', title: `${m.name}: disk ${s.disk.mount} is ${Math.round(s.disk.percent)}% full`, detail: `Above the ${DISK_BUDGET}% budget`, href: '#/m/machines' })
-    }
-    if (s.memory >= MEM_BUDGET) {
-      out.push({ id: `machine:${m.id}:mem`, module: 'machines', title: `${m.name}: memory at ${Math.round(s.memory)}%`, detail: `Above the ${MEM_BUDGET}% budget`, href: '#/m/machines' })
+    if (m.id === current) continue
+    for (const i of machineIssues(m)) {
+      out.push({ id: `machine:${m.id}:${i.id}`, module: 'machines', title: `${m.name}: ${i.title}`, detail: i.detail, href: '#/' })
     }
   }
   return out

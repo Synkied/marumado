@@ -3,6 +3,7 @@ import { Terminal } from '../components/Terminal'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { DotChart } from '../components/DotChart'
 import { Icon } from '../components/Icon'
+import { Meter } from '../components/Meter'
 import { api } from '../lib/api'
 import { bytes, duration, rate } from '../lib/format'
 import { useHub } from '../lib/hub'
@@ -13,11 +14,13 @@ import { useIsNarrow } from '../lib/useIsNarrow'
 import { usePoll } from '../lib/usePoll'
 import { MomentumSheet, SkillsSheet } from './growth'
 import { MachinesSheet } from './machines'
+import { OverviewSheet } from './overview'
 import { ProjectForm, ProjectsSheet } from './projects'
 import { SheetHead } from './sheetHead'
 
 export function SheetFor({ route }: { route: Route }) {
   if (route.kind === 'alerts') return <AlertsSheet />
+  if (route.kind === 'home') return <OverviewSheet />
   if (route.kind !== 'module') return null
   switch (route.id) {
     case 'projects':
@@ -78,15 +81,6 @@ function AlertsSheet() {
           ))}
         </ul>
       )}
-    </div>
-  )
-}
-
-function Meter({ percent, budget }: { percent: number; budget?: number }) {
-  return (
-    <div className="meter" role="meter" aria-valuenow={Math.round(percent)} aria-valuemin={0} aria-valuemax={100}>
-      <div className={`meter__fill${budget && percent >= budget ? ' meter__fill--fault' : ''}`} style={{ width: `${Math.min(100, percent)}%` }} />
-      {budget && <div className="meter__budget" style={{ left: `${budget}%` }} aria-hidden="true" />}
     </div>
   )
 }

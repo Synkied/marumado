@@ -1,15 +1,13 @@
 import os
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import psutil
 from django.http import HttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
-from . import discovery, herdr, machines, monitor, opener
+from . import discovery, herdr, machines, monitor, opener, overview
 from .models import Machine, Project, ScanRoot, Skill, UptimeCheck
 from .serializers import MachineSerializer, ProjectSerializer, SkillSerializer, UptimeCheckSerializer
 
@@ -120,7 +118,7 @@ class MachineViewSet(viewsets.ModelViewSet):
     queryset = Machine.objects.all()
 
     def list(self, request):
-        return Response([machines.local_status(monitor.snapshot('system')), *machines.statuses()])
+        return Response([machines.local_status(monitor.snapshot('system'), overview.digest()), *machines.statuses()])
 
     def retrieve(self, request, pk=None):
         machine = self.get_object()
@@ -258,22 +256,9 @@ def docker_logs(request, cid: str):
 
 
 @api_view(['GET'])
-def overview(request):
-    system = monitor.snapshot('system')
-    dock = monitor.snapshot('docker')
-    projects = Project.objects.filter(hidden=False)
-    return Response({
-        'host': system['host'] if system else None,
-        'uptime_seconds': time.time() - psutil.boot_time(),
-        'projects': projects.count(),
-        'docker': {
-            'available': dock['available'],
-            'running': sum(c['status'] == 'running' for c in dock['containers']),
-            'total': len(dock['containers']),
-        },
-        'listening_ports': len(monitor.snapshot('ports')),
-        'processes': len(monitor.snapshot('processes')),
-    })
+def overview_view(request):
+    """This machine at a glance, for the home view (which reads every machine's)."""
+    return Response(overview.digest())
 
 
 def _roots_payload() -> dict:

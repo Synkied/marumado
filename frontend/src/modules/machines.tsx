@@ -39,7 +39,7 @@ function stateText(m: Machine): string {
   return `${where} · ${s.os} · ${s.cores} cores · up ${duration(s.time - s.boot_time)}`
 }
 
-function RetryButton({ machine }: { machine: Machine }) {
+export function RetryButton({ machine }: { machine: Machine }) {
   const { refresh } = useMachines()
   const [busy, setBusy] = useState(false)
   const retry = async () => {

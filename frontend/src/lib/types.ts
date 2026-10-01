@@ -198,4 +198,16 @@ export type Machine = {
     disk: { mount: string; percent: number } | null
     time: number
   } | null
+  /** its digest for the home view; null while unreachable, or from a Marumado older than /overview */
+  overview: Overview | null
+}
+
+/** One machine at a glance (GET /api/overview on that machine). */
+export type Overview = {
+  time: number
+  projects: { total: number; running: number }
+  urls: { checked: number; up: number; down: { id: number; name: string; detail: string }[] }
+  docker: { available: boolean; running: number; total: number; unhealthy: string[] }
+  agents: { available: boolean; total: number; working: number; blocked: { pane_id: string; label: string; where: string }[] }
+  ports: number
 }
