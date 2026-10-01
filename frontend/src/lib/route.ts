@@ -6,7 +6,7 @@ export type Route =
   | { kind: 'alerts' }
   | { kind: 'module'; id: ModuleId; sub?: string }
 
-const MODULES: ModuleId[] = ['projects', 'machine', 'agents', 'urls', 'ports', 'docker', 'processes', 'momentum', 'skills']
+const MODULES: ModuleId[] = ['projects', 'machine', 'agents', 'urls', 'ports', 'docker', 'processes', 'momentum', 'skills', 'machines']
 
 export function parse(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean)

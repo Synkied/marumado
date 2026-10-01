@@ -5,6 +5,7 @@ import { Palette } from './components/Palette'
 import { TokenGate } from './components/TokenGate'
 import { bytes } from './lib/format'
 import { CPU_BUDGET, MEM_BUDGET, useHub, type ModuleId } from './lib/hub'
+import { useMachines } from './lib/machines'
 import { useIsNarrow } from './lib/useIsNarrow'
 import { usePins } from './lib/pins'
 import { go, useRoute } from './lib/route'
@@ -23,6 +24,33 @@ function Wordmark() {
       </svg>
       <span className="wordmark__text">MARUMADO</span>
     </a>
+  )
+}
+
+const MANAGE = 'manage'
+
+/** Which machine every module shows. Another machine than this one is marked, so it is never mistaken for it. */
+function MachinePicker() {
+  const { machines, current, currentMachine, select } = useMachines()
+  if (!machines) return null
+  const remote = currentMachine && !currentMachine.local
+  return (
+    <label className={`picker${remote ? ' picker--remote' : ''}${currentMachine?.state === 'down' ? ' is-fault' : ''}`} title="Which machine Marumado shows">
+      <Icon name="server" size={16} />
+      <span className="sr-only">Machine</span>
+      <select
+        value={String(current)}
+        onChange={(e) => (e.target.value === MANAGE ? go('#/m/machines') : select(e.target.value === 'local' ? 'local' : Number(e.target.value)))}
+      >
+        {machines.map((m) => (
+          <option key={m.id} value={String(m.id)}>
+            {m.local ? `${m.summary?.hostname ?? 'This machine'} (this one)` : m.name}
+            {m.state === 'down' ? ' · unreachable' : ''}
+          </option>
+        ))}
+        <option value={MANAGE}>{machines.length > 1 ? 'Manage machines…' : 'Add a machine…'}</option>
+      </select>
+    </label>
   )
 }
 
@@ -58,9 +86,10 @@ function Vitals() {
 
 function StatusBadge() {
   const { alerts, system, error } = useHub()
+  const { currentMachine } = useMachines()
   const count = alerts.length
   const offline = !!error && !system
-  const label = offline ? 'Backend offline' : count ? `${count} ${count === 1 ? 'thing needs' : 'things need'} you` : 'All clear'
+  const label = offline ? (currentMachine && !currentMachine.local ? `${currentMachine.name} unreachable` : 'Backend offline') : count ? `${count} ${count === 1 ? 'thing needs' : 'things need'} you` : 'All clear'
   return (
     <a className={`badge${count || offline ? ' badge--alert' : ''}`} href="#/alerts" aria-label={label}>
       <span className="badge__disc">
@@ -270,7 +299,10 @@ export default function App() {
     <TokenGate>
       <div className={`app${narrow && route.kind !== 'home' ? ' app--sheet-only' : ''}`}>
         <header className="top">
-          <Wordmark />
+          <div className="top__brand">
+            <Wordmark />
+            <MachinePicker />
+          </div>
           <ActiveNow />
           <button className="search" type="button" onClick={() => setPaletteOpen(true)}>
             <Icon name="search" size={20} />

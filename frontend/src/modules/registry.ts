@@ -2,6 +2,7 @@ import type { IconName } from '../components/Icon'
 import { pace, skillMap, tracked } from '../lib/growth'
 import type { ModuleId } from '../lib/hub'
 import { useHub } from '../lib/hub'
+import { useMachines } from '../lib/machines'
 
 export type Summary = {
   value: string
@@ -23,6 +24,7 @@ export const MODULES: ModuleMeta[] = [
   { id: 'processes', label: 'Processes', icon: 'processes', blurb: 'What is running, and what is heavy' },
   { id: 'momentum', label: 'Momentum', icon: 'momentum', blurb: 'Which projects are moving, and what to push or park' },
   { id: 'skills', label: 'Skills', icon: 'skills', blurb: 'What you use, what is getting rusty, what to learn' },
+  { id: 'machines', label: 'Machines', icon: 'server', blurb: 'Other machines, reached over SSH, side by side' },
 ]
 
 export const meta = (id: ModuleId) => MODULES.find((m) => m.id === id)!
@@ -30,6 +32,7 @@ export const meta = (id: ModuleId) => MODULES.find((m) => m.id === id)!
 /** One dial's worth of state for every module. */
 export function useSummaries(): Record<ModuleId, Summary | null> {
   const { system, projects, ports, docker, agents, skills, alerts } = useHub()
+  const { machines } = useMachines()
   const faulty = new Set(alerts.map((a) => a.module))
 
   const code = projects?.filter((p) => p.kind === 'project')
@@ -118,5 +121,17 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
     }
   }
 
-  return { momentum: momentumSum, skills: skillsSum, agents: agentsSum, projects: projectsSum, machine: machineSum, urls: urlsSum, ports: portsSum, docker: dockerSum, processes: processesSum }
+  let machinesSum: Summary | null = null
+  if (machines) {
+    const up = machines.filter((m) => m.state === 'up').length
+    const down = machines.filter((m) => m.state === 'down').length
+    machinesSum = {
+      value: machines.length > 1 ? `${up}/${machines.length}` : '1',
+      fraction: up / machines.length,
+      caption: machines.length === 1 ? 'only this one' : down ? `${down} unreachable` : 'all reachable',
+      fault: faulty.has('machines'),
+    }
+  }
+
+  return { machines: machinesSum, momentum: momentumSum, skills: skillsSum, agents: agentsSum, projects: projectsSum, machine: machineSum, urls: urlsSum, ports: portsSum, docker: dockerSum, processes: processesSum }
 }

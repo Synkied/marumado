@@ -3,7 +3,7 @@ import '@xterm/xterm/css/xterm.css'
 import '@fontsource/ubuntu-mono/400.css'
 import '@fontsource/ubuntu-mono/700.css'
 import { useEffect, useRef, useState } from 'react'
-import { getToken } from '../lib/api'
+import { apiPath, getToken } from '../lib/api'
 import './terminal.css'
 
 type Link = { state: 'connecting' | 'live' | 'closed'; message: string; takeover: boolean }
@@ -135,7 +135,7 @@ export function Terminal({ paneId, control, phone = false, fit: fitWanted = fals
         sent = `${g.cols}x${g.rows}`
       }
       const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      ws = new WebSocket(`${scheme}://${window.location.host}/api/agents/${encodeURIComponent(paneId)}/terminal?${q}`)
+      ws = new WebSocket(`${scheme}://${window.location.host}/api/${apiPath(`agents/${encodeURIComponent(paneId)}/terminal`)}?${q}`)
       ws.onmessage = onMessage
       ws.onclose = () => {
         if (!ended) setLink({ state: 'closed', message: 'Lost the connection to Marumado.', takeover: false })

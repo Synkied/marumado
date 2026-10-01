@@ -4,13 +4,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import psutil
+from django.http import HttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
-from . import discovery, herdr, monitor, opener
-from .models import Project, ScanRoot, Skill, UptimeCheck
-from .serializers import ProjectSerializer, SkillSerializer, UptimeCheckSerializer
+from . import discovery, herdr, machines, monitor, opener
+from .models import Machine, Project, ScanRoot, Skill, UptimeCheck
+from .serializers import MachineSerializer, ProjectSerializer, SkillSerializer, UptimeCheckSerializer
 
 RECENT_CHECKS = 30
 
@@ -110,6 +111,52 @@ class ProjectViewSet(viewsets.ModelViewSet):
 class SkillViewSet(viewsets.ModelViewSet):
     serializer_class = SkillSerializer
     queryset = Skill.objects.all()
+
+
+class MachineViewSet(viewsets.ModelViewSet):
+    """The machines Marumado shows, this one first. Saving or removing one starts or stops its tunnel."""
+
+    serializer_class = MachineSerializer
+    queryset = Machine.objects.all()
+
+    def list(self, request):
+        return Response([machines.local_status(monitor.snapshot('system')), *machines.statuses()])
+
+    def retrieve(self, request, pk=None):
+        machine = self.get_object()
+        tunnel = machines.get(machine.id)
+        return Response(tunnel.status() if tunnel else {**MachineSerializer(machine).data, 'state': 'connecting'})
+
+    def perform_create(self, serializer):
+        serializer.save()
+        machines.sync()
+
+    def perform_update(self, serializer):
+        serializer.save()
+        machines.sync()
+
+    def perform_destroy(self, instance):
+        instance.delete()
+        machines.sync()
+
+
+@api_view(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+def machine_proxy(request, pk: int, rest: str):
+    """/api/machines/<id>/<path>: the same call, answered by that machine's Marumado through its tunnel."""
+    tunnel = machines.get(pk)
+    if tunnel is None or rest.startswith('machines'):
+        return Response({'detail': 'No such machine.'}, status=404)
+    # This Marumado's own token stays here; the tunnel adds the other machine's.
+    query = request._request.GET.copy()
+    query.pop('token', None)
+    try:
+        res = tunnel.request(request.method, rest, query.urlencode(), request.body, request.content_type,
+                             timeout=10 if request.method == 'GET' else 30)
+    except machines.Unavailable as exc:
+        return Response({'detail': str(exc), 'machine': tunnel.name}, status=503)
+    if res.status_code == 204:
+        return HttpResponse(status=204)
+    return HttpResponse(res.content, status=res.status_code, content_type=res.headers.get('content-type', 'application/json'))
 
 
 @api_view(['GET'])

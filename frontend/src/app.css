@@ -7,6 +7,7 @@
 .mod-agents { --mod: var(--c-agents); }
 .mod-momentum { --mod: var(--c-momentum); }
 .mod-skills { --mod: var(--c-skills); }
+.mod-machines { --mod: var(--c-machines); }
 
 .app {
   min-height: 100dvh;
@@ -54,6 +55,8 @@
   letter-spacing: 0.01em;
   transform: scaleX(1.12);
   transform-origin: left center;
+  /* The stretch doesn't take up layout space; reserve it so the machine picker doesn't overlap. */
+  margin-right: 0.6em;
 }
 
 .search {
@@ -123,6 +126,88 @@
   from {
     background-color: var(--ground);
   }
+}
+
+/* ---------- machine picker: which machine every module shows ---------- */
+
+.top__brand {
+  display: flex;
+  align-items: center;
+  gap: clamp(10px, 1.4vw, 20px);
+  min-width: 0;
+}
+
+.picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  color: var(--ink-2);
+  min-width: 0;
+}
+
+.picker:hover,
+.picker:focus-within {
+  border-color: var(--ink);
+}
+
+.picker select {
+  appearance: none;
+  min-width: 0;
+  max-width: 22ch;
+  min-height: 32px;
+  padding: 0 22px 0 0;
+  border: 0;
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 6px center;
+  font-family: var(--f-mono);
+  font-size: 13px;
+  color: inherit;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.picker select:focus {
+  outline: none;
+}
+
+.picker option {
+  color: var(--ink);
+  background: var(--ground-raised);
+}
+
+/* Showing another machine: filled, so it is never mistaken for this one. */
+.picker--remote {
+  border-color: var(--c-machines);
+  background: var(--c-machines);
+  color: var(--on-mod);
+}
+
+.picker--remote:hover,
+.picker--remote:focus-within {
+  border-color: var(--ink);
+}
+
+.picker.is-fault {
+  border-color: var(--signal);
+  background: transparent;
+  color: var(--signal-text);
+}
+
+.machines__readings {
+  display: flex;
+  gap: 14px;
+}
+
+.machines__steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 1.4em;
+  color: var(--ink-2);
 }
 
 /* ---------- vitals: CPU and RAM in the top bar ---------- */
@@ -1380,6 +1465,13 @@ button.chip:hover {
     gap: 12px;
     padding: 10px 0;
   }
+  .picker select {
+    max-width: 14ch;
+  }
+  .machines__readings {
+    display: grid;
+    gap: 2px;
+  }
   .search {
     width: 44px;
     height: 44px;
@@ -1432,6 +1524,7 @@ button.chip:hover {
 @media (max-width: 860px) {
   .wordmark__text {
     transform: scaleX(1.06);
+    margin-right: 0.3em;
   }
 }
 
@@ -1700,5 +1793,20 @@ a.heat__row:focus-visible {
 
   .sheet__head .seg__btn {
     padding: 0 12px;
+  }
+}
+
+/* Phones: the header can't fit the wordmark and the machine picker; the four-dot mark stays as the logo. */
+@media (max-width: 520px) {
+  .wordmark__text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .wordmark {
+    flex: none;
   }
 }

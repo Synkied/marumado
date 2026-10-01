@@ -174,3 +174,28 @@ export type Agents = { available: boolean; error: string; where: string; termina
 export type SkillIntent = '' | 'learn' | 'grow' | 'ignore'
 
 export type Skill = { id: number; name: string; intent: SkillIntent; note: string; created_at: string; updated_at: string }
+
+export type Machine = {
+  id: 'local' | number
+  name: string
+  ssh_target: string
+  port: number | null
+  has_token: boolean
+  local: boolean
+  /** connecting: the tunnel is opening; down: it failed or the other Marumado isn't answering (see error) */
+  state: 'connecting' | 'up' | 'down'
+  error: string
+  /** when it entered this state (unix seconds) */
+  since: number | null
+  summary: {
+    hostname: string
+    os: string
+    cores: number
+    boot_time: number
+    cpu: number
+    load: number[]
+    memory: number
+    disk: { mount: string; percent: number } | null
+    time: number
+  } | null
+}

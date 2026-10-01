@@ -1,7 +1,8 @@
 from rest_framework import serializers
 
 from .discovery import SCANNED_FIELDS
-from .models import Project, Skill, UptimeCheck
+from . import machines
+from .models import Machine, Project, Skill, UptimeCheck
 
 
 class UptimeCheckSerializer(serializers.ModelSerializer):
@@ -50,3 +51,16 @@ class SkillSerializer(serializers.ModelSerializer):
         if clash.exists():
             raise serializers.ValidationError(f'“{name}” is already on your list.')
         return name
+
+
+class MachineSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Machine
+        fields = ['id', 'name', 'ssh_target', 'port', 'token']
+        extra_kwargs = {'token': {'write_only': True}}
+
+    def validate_ssh_target(self, value):
+        value = value.strip()
+        if not machines.valid_target(value):
+            raise serializers.ValidationError('Use user@host, a host name, or an alias from ~/.ssh/config.')
+        return value

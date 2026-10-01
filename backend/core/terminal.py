@@ -13,13 +13,15 @@ import asyncio
 import hmac
 import json
 import re
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from django.conf import settings
 
-from . import herdr
+from . import herdr, machines
 
 PATH = re.compile(r'^/api/agents/(?P<pane>w\d+:p\d+)/terminal$')
+# The same terminal on another machine, relayed through its tunnel to its own Marumado.
+REMOTE_PATH = re.compile(r'^/api/machines/(?P<machine>\d+)/(?P<rest>agents/w\d+:p\d+/terminal)$')
 MAX_INPUT = 64 * 1024
 FOLLOW_SECONDS = 3
 
@@ -59,7 +61,8 @@ async def handle(scope, receive, send):
     if (await receive())['type'] != 'websocket.connect':
         return
     match = PATH.match(scope['path'])
-    if not match or not _same_origin(scope):
+    remote = REMOTE_PATH.match(scope['path'])
+    if not (match or remote) or not _same_origin(scope):
         await send({'type': 'websocket.close', 'code': 1008})
         return
     query = {k: v[-1] for k, v in parse_qs(scope.get('query_string', b'').decode()).items()}
@@ -67,6 +70,8 @@ async def handle(scope, receive, send):
 
     if settings.MARUMADO_TOKEN and not hmac.compare_digest(query.get('token', ''), settings.MARUMADO_TOKEN):
         return await _refuse(send, 'This Marumado needs its access token.')
+    if remote:
+        return await _relay(int(remote['machine']), remote['rest'], query, receive, send)
     mode = herdr.terminal_mode()
     if mode == 'off':
         return await _refuse(send, 'The live terminal is turned off (MARUMADO_HERDR_TERMINAL=off).')
@@ -153,6 +158,58 @@ async def handle(scope, receive, send):
             await asyncio.wait_for(proc.wait(), 2)
         except TimeoutError:
             proc.kill()
+    if not browser_left:
+        try:
+            await send({'type': 'websocket.close', 'code': 1000})
+        except Exception:
+            pass  # the browser left meanwhile
+
+
+async def _relay(machine_id: int, rest: str, query: dict, receive, send):
+    """Pass the browser's terminal through to another machine's Marumado, which checks and runs it."""
+    from websockets.asyncio.client import connect
+    from websockets.exceptions import ConnectionClosed, WebSocketException
+
+    tunnel = machines.get(machine_id)
+    if tunnel is None:
+        return await _refuse(send, 'No such machine.')
+    if not tunnel.local_port or tunnel.state != 'up':
+        return await _refuse(send, tunnel.error or f'Still connecting to {tunnel.name}.')
+    query = {k: v for k, v in query.items() if k != 'token'}
+    if tunnel.token:
+        query['token'] = tunnel.token
+    url = f'ws://127.0.0.1:{tunnel.local_port}/api/{rest}?{urlencode(query)}'
+    try:
+        upstream = await connect(url, max_size=None, open_timeout=10)
+    except (OSError, TimeoutError, WebSocketException) as exc:
+        return await _refuse(send, f"Couldn't open the terminal on {tunnel.name}: {exc}")
+
+    async def pump_down():
+        try:
+            async for message in upstream:
+                await send({'type': 'websocket.send', 'text': message if isinstance(message, str) else message.decode('utf-8', 'replace')})
+        except ConnectionClosed:
+            pass
+
+    async def pump_up():
+        while True:
+            event = await receive()
+            if event['type'] == 'websocket.disconnect':
+                return
+            if event.get('text'):
+                try:
+                    await upstream.send(event['text'])
+                except ConnectionClosed:
+                    return
+
+    down_task, up_task = asyncio.create_task(pump_down()), asyncio.create_task(pump_up())
+    try:
+        done, _ = await asyncio.wait({down_task, up_task}, return_when=asyncio.FIRST_COMPLETED)
+        browser_left = up_task in done
+    finally:
+        down_task.cancel()
+        up_task.cancel()
+        await upstream.close()
     if not browser_left:
         try:
             await send({'type': 'websocket.close', 'code': 1000})

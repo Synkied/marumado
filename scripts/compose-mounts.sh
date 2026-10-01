@@ -23,10 +23,13 @@ dirs="${projects:-/projects},$(env_value MARUMADO_MOUNTS)"
     esc=$(printf '%s' "$d" | sed 's/"/\\"/g')
     echo "      - \"$esc:$esc:ro\""
   done
-  # Herdr: SSH keys for MARUMADO_HERDR_SSH, or the local socket and binary.
-  if [ -n "$(env_value MARUMADO_HERDR_SSH)" ]; then
-    ssh_dir=$(env_value MARUMADO_SSH_DIR)
+  # SSH keys, for MARUMADO_HERDR_SSH and for other machines in the Machines module
+  # (set MARUMADO_SSH_DIR for those). Then Herdr's local socket and binary.
+  ssh_dir=$(env_value MARUMADO_SSH_DIR)
+  if [ -n "$ssh_dir" ] || [ -n "$(env_value MARUMADO_HERDR_SSH)" ]; then
     ssh_dir=${ssh_dir:-$HOME/.ssh}
+    case "$ssh_dir" in "~"*) ssh_dir="$HOME${ssh_dir#\~}" ;; esac
+    [ -d "$ssh_dir" ] || echo "compose-mounts: warning: '$ssh_dir' does not exist on this machine" >&2
     echo "      - \"$ssh_dir:/root/.ssh:ro\""
   fi
   for f in "$(env_value MARUMADO_HERDR_SOCKET)" "$(env_value MARUMADO_HERDR_BIN)"; do

@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, ApiError } from './api'
 import { daysSince, PUSH_GRACE_DAYS } from './growth'
-import type { Agents, Docker, HistoryPoint, Port, Project, Skill, System } from './types'
+import type { MachineId } from './api'
+import { useMachines } from './machines'
+import type { Agents, Docker, HistoryPoint, Machine, Port, Project, Skill, System } from './types'
 import { usePoll } from './usePoll'
 
 export type Alert = {
@@ -13,7 +15,7 @@ export type Alert = {
   href: string
 }
 
-export type ModuleId = 'projects' | 'machine' | 'urls' | 'ports' | 'docker' | 'processes' | 'agents' | 'momentum' | 'skills'
+export type ModuleId = 'projects' | 'machine' | 'urls' | 'ports' | 'docker' | 'processes' | 'agents' | 'momentum' | 'skills' | 'machines'
 
 type Hub = {
   system?: System
@@ -36,6 +38,25 @@ const HISTORY_SECONDS = 10 * 60
 const DISK_BUDGET = 90
 export const MEM_BUDGET = 92
 export const CPU_BUDGET = 90
+
+/** The machines not on screen: unreachable, or over the disk and memory budgets. */
+function machineAlerts(machines: Machine[] = [], current: MachineId): Alert[] {
+  const out: Alert[] = []
+  for (const m of machines) {
+    if (m.state === 'down') {
+      out.push({ id: `machine:${m.id}`, module: 'machines', title: `${m.name} is unreachable`, detail: m.error || 'No answer', href: '#/m/machines' })
+    }
+    const s = m.summary
+    if (m.id === current || !s) continue
+    if (s.disk && s.disk.percent >= DISK_BUDGET) {
+      out.push({ id: `machine:${m.id}:disk`, module: 'machines', title: `${m.name}: disk ${s.disk.mount} is ${Math.round(s.disk.percent)}% full`, detail: `Above the ${DISK_BUDGET}% budget`, href: '#/m/machines' })
+    }
+    if (s.memory >= MEM_BUDGET) {
+      out.push({ id: `machine:${m.id}:mem`, module: 'machines', title: `${m.name}: memory at ${Math.round(s.memory)}%`, detail: `Above the ${MEM_BUDGET}% budget`, href: '#/m/machines' })
+    }
+  }
+  return out
+}
 
 function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: Project[], docker?: Docker, agents?: Agents): Alert[] {
   const out: Alert[] = []
@@ -88,6 +109,7 @@ function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: 
 }
 
 export function HubProvider({ children }: { children: ReactNode }) {
+  const { machines, current } = useMachines()
   const system = usePoll<System>('system', 2000)
   const projects = usePoll<Project[]>('projects', 10000)
   const ports = usePoll<Port[]>('ports', 5000)
@@ -123,8 +145,8 @@ export function HubProvider({ children }: { children: ReactNode }) {
   }, [system.data])
 
   const alerts = useMemo(
-    () => deriveAlerts(system.data, history, projects.data, docker.data, agents.data),
-    [system.data, history, projects.data, docker.data, agents.data],
+    () => [...deriveAlerts(system.data, history, projects.data, docker.data, agents.data), ...machineAlerts(machines, current)],
+    [system.data, history, projects.data, docker.data, agents.data, machines, current],
   )
 
   const value: Hub = {

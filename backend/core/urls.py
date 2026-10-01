@@ -6,6 +6,7 @@ from . import views
 router = DefaultRouter(trailing_slash=False)
 router.register('projects', views.ProjectViewSet, basename='project')
 router.register('skills', views.SkillViewSet, basename='skill')
+router.register('machines', views.MachineViewSet, basename='machine')
 
 urlpatterns = [
     path('overview', views.overview),
@@ -23,5 +24,6 @@ urlpatterns = [
     path('agents', views.agents),
     path('agents/<str:pane_id>/output', views.agent_output),
     path('agents/<str:pane_id>/input', views.agent_input),
+    path('machines/<int:pk>/<path:rest>', views.machine_proxy),
     *router.urls,
 ]

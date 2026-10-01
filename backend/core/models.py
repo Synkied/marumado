@@ -91,3 +91,22 @@ class Skill(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class Machine(models.Model):
+    """Another machine running its own Marumado, reached through an SSH tunnel (core/machines.py)."""
+
+    name = models.CharField(max_length=60, unique=True)
+    # user@host or a ~/.ssh/config alias. Needs key login (no password prompt).
+    ssh_target = models.CharField(max_length=255)
+    # The port its Marumado listens on, on its own localhost.
+    port = models.PositiveIntegerField(default=7878)
+    # Its MARUMADO_TOKEN, when it has one.
+    token = models.CharField(max_length=200, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name

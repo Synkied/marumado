@@ -6,11 +6,13 @@ import { Icon } from '../components/Icon'
 import { api } from '../lib/api'
 import { bytes, duration, rate } from '../lib/format'
 import { useHub } from '../lib/hub'
+import { useMachines } from '../lib/machines'
 import { go, type Route } from '../lib/route'
 import type { Agent, AgentStatus, Proc } from '../lib/types'
 import { useIsNarrow } from '../lib/useIsNarrow'
 import { usePoll } from '../lib/usePoll'
 import { MomentumSheet, SkillsSheet } from './growth'
+import { MachinesSheet } from './machines'
 import { ProjectForm, ProjectsSheet } from './projects'
 import { SheetHead } from './sheetHead'
 
@@ -36,17 +38,24 @@ export function SheetFor({ route }: { route: Route }) {
       return <MomentumSheet />
     case 'skills':
       return <SkillsSheet sub={route.sub} key={route.sub ?? 'list'} />
+    case 'machines':
+      return <MachinesSheet sub={route.sub} />
   }
 }
 
 function AlertsSheet() {
   const { alerts, system, error } = useHub()
+  const { currentMachine } = useMachines()
   return (
     <div className="sheet">
       <header className="sheet__head">
         <h2 className="sheet__title">{alerts.length ? 'Needs you' : 'All clear'}</h2>
       </header>
-      {error && !system ? (
+      {error && !system && currentMachine && !currentMachine.local ? (
+        <p className="notice">
+          <strong>{currentMachine.name} isn’t answering.</strong> {error.message} <a href="#/m/machines">Machines</a>
+        </p>
+      ) : error && !system ? (
         <p className="notice">
           <strong>The Marumado backend isn’t answering.</strong> Start it with <span className="mono">uv run python manage.py serve</span> in{' '}
           <span className="mono">backend/</span>, then this page reconnects by itself.

@@ -417,6 +417,8 @@ def ensure_started():
         ('uptime', lambda: settings.MARUMADO_UPTIME_SECONDS, lambda now: run_uptime_checks()),
         ('rescan', lambda: 3600, _rescan_step),
     ]
+    from . import machines
+    machines.sync()
     for name, interval, step in loops:
         threading.Thread(target=_forever, args=(name, interval, step), name=f'marumado-{name}', daemon=True).start()
     # Give the first sample a moment so the first request isn't empty.

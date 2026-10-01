@@ -24,6 +24,20 @@ export function setToken(token: string) {
   }
 }
 
+export type MachineId = 'local' | number
+
+let machine: MachineId = 'local'
+
+/** Which machine the API answers for. Other machines are reached through this Marumado (`/api/machines/<id>/…`). */
+export function setApiMachine(id: MachineId) {
+  machine = id
+}
+
+/** `path` as seen from the chosen machine. The list of machines always comes from this Marumado. */
+export function apiPath(path: string): string {
+  return machine === 'local' || path === 'machines' || path.startsWith('machines/') || path.startsWith('machines?') ? path : `machines/${machine}/${path}`
+}
+
 export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
   const headers = new Headers(init.headers)
   const token = getToken()
@@ -33,11 +47,14 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
     headers.set('Content-Type', 'application/json')
     body = JSON.stringify(init.json)
   }
-  const res = await fetch(`/api/${path}`, { ...init, headers, body })
+  const res = await fetch(`/api/${apiPath(path)}`, { ...init, headers, body })
   if (res.status === 204) return undefined as T
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const detail = typeof data === 'object' && data && 'detail' in data ? String(data.detail) : res.statusText
+    let detail = res.statusText
+    if (typeof data === 'object' && data && 'detail' in data) detail = String(data.detail)
+    // A form's field errors: {"field": ["message"]}
+    else if (typeof data === 'object' && data && Object.keys(data).length) detail = Object.values(data).flat().join(' ')
     throw new ApiError(res.status, detail)
   }
   return data as T

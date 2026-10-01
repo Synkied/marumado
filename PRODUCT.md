@@ -20,13 +20,13 @@ web
 
 ## Product Purpose
 
-A single self-hosted hub on the machine it runs on. It links every project (local folders, running local URLs, online deployments, repos) and shows the health of the machine: CPU, memory, disk, network, processes, listening ports, Docker containers, and up/down status for project URLs.
+A single self-hosted hub on the machine it runs on, and from there on the user's other machines (mostly Linux servers), each running its own Marumado and reached over SSH. It links every project (local folders, running local URLs, online deployments, repos) and shows the health of the machine: CPU, memory, disk, network, processes, listening ports, Docker containers, and up/down status for project URLs.
 
 Success: opening Marumado answers "where is X / is X up / why is the machine slow" without opening a terminal.
 
 ## Positioning
 
-It runs *on* the machine it describes. It discovers projects by scanning folders and links them to live listening ports and Compose containers through their working directories. A generic bookmarks page or a cloud uptime monitor cannot know which local process belongs to which project.
+It runs *on* the machine it describes, on every machine, and any one of them can show all the others: each instance stays on its own localhost and the one you open reaches the rest through SSH tunnels, so nothing new is exposed to the network. It discovers projects by scanning folders and links them to live listening ports and Compose containers through their working directories. A generic bookmarks page or a cloud uptime monitor cannot know which local process belongs to which project.
 
 ## Operating Context
 
