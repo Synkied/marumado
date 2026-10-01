@@ -21,6 +21,8 @@ urlpatterns = [
     path('roots', views.roots),
     path('roots/<int:pk>', views.root_detail),
     path('open', views.open_folder),
+    path('files', views.file_list),
+    path('files/read', views.file_read),
     path('agents', views.agents),
     path('agents/<str:pane_id>/output', views.agent_output),
     path('agents/<str:pane_id>/input', views.agent_input),

@@ -4,7 +4,7 @@ One hub for every project on this machine, and for the machine itself.
 
 ![Marumado's Agents module: the list of coding agents on the left, and the live terminal of the selected one filling the page](docs/agents.png)
 
-- **Projects**: every subfolder of your scan folders is a project, with its stack, git branch, last commit, repo and live URLs detected. Scan folders come from `MARUMADO_PROJECT_DIRS` in `.env` (comma separated, default `/projects`) plus any you add in the app (**Projects → Folders**). Add projects by hand too; fields you edit by hand survive rescans. A project whose folder you delete disappears on the next rescan, unless you pinned, edited or decided on it.
+- **Projects**: every subfolder of your scan folders is a project, with its stack, git branch, last commit, repo and live URLs detected. Scan folders come from `MARUMADO_PROJECT_DIRS` in `.env` (comma separated, default `/projects`) plus any you add in the app (**Projects → Folders**). Add projects by hand too; fields you edit by hand survive rescans. **Files** on a project browses its folder and opens files read-only in a code viewer (CodeMirror), limited to project and scan folders. A project whose folder you delete disappears on the next rescan, unless you pinned, edited or decided on it.
 - **Machine**: CPU, memory, disks, network, and sensors, with about 30 minutes of history.
 - **URLs**: every live and local URL is checked every minute, with up/down status and response time. **Add URL** watches any site or service that isn't a project.
 - **Ports**: what is listening, and which project it belongs to.

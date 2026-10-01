@@ -11,6 +11,7 @@ import { go } from '../lib/route'
 import type { Project, ScanRoot } from '../lib/types'
 import { useView, ViewSwitch } from './growth'
 import { Secret } from '../lib/streaming'
+import { FilesView } from './files'
 import { SheetHead } from './sheetHead'
 
 function lamp(p: Project) {
@@ -66,10 +67,11 @@ export function ProjectsSheet({ sub }: { sub?: string }) {
   if (sub === 'folders') return <FoldersSheet />
   if (sub === 'new') return <ProjectForm onDone={(id) => go(id ? `#/m/projects/${id}` : '#/m/projects')} />
   if (sub) {
-    const [id, mode] = sub.split('/')
+    const [id, mode, ...rest] = sub.split('/')
     const project = projects?.find((p) => String(p.id) === id)
     if (!projects) return <div className="sheet__empty">Loading…</div>
     if (!project) return <div className="sheet__empty">That project no longer exists.</div>
+    if ((mode === 'files' || mode === 'file') && project.path) return <FilesView project={project} kind={mode} rel={rest.join('/')} key={sub} />
     if (mode === 'edit') return <ProjectForm project={project} onDone={() => go(`#/m/projects/${project.id}`)} />
     return <ProjectDetail p={project} />
   }
@@ -177,6 +179,11 @@ function ProjectDetail({ p }: { p: Project }) {
           </h2>
         </div>
         <div className="sheet__actions">
+          {p.path && !p.detected.missing && (
+            <a className="btn btn--quiet" href={`#/m/projects/${p.id}/files`}>
+              <Icon name="file" size={16} /> Files
+            </a>
+          )}
           <a className="btn btn--quiet" href={`#/m/projects/${p.id}/edit`}>
             <Icon name="edit" size={16} /> Edit
           </a>

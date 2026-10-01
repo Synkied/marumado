@@ -7,7 +7,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
-from . import discovery, herdr, machines, monitor, opener, overview
+from . import discovery, files, herdr, machines, monitor, opener, overview
 from .models import Machine, Project, ScanRoot, Skill, UptimeCheck
 from .serializers import MachineSerializer, ProjectSerializer, SkillSerializer, UptimeCheckSerializer
 
@@ -321,6 +321,24 @@ def open_folder(request):
         return Response({'detail': "That folder doesn't exist any more."}, status=404)
     opener.open_folder(path)
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['GET'])
+def file_list(request):
+    """The entries of a folder inside a project or scan folder."""
+    try:
+        return Response(files.listing(request.query_params.get('path', '')))
+    except files.Refused as exc:
+        return Response({'detail': str(exc)}, status=404)
+
+
+@api_view(['GET'])
+def file_read(request):
+    """A text file inside a project or scan folder (the first megabyte), read-only."""
+    try:
+        return Response(files.read(request.query_params.get('path', '')))
+    except files.Refused as exc:
+        return Response({'detail': str(exc)}, status=404)
 
 
 @api_view(['GET'])
