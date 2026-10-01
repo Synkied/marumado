@@ -306,10 +306,13 @@ def scan() -> dict:
     missing = removed = 0
     root_paths = [r['path'] for r in roots()]
     for project in Project.objects.filter(source=Project.SOURCE_SCAN).exclude(path__in=seen):
-        # Outside every scanned folder (its folder was removed from the list): drop it,
-        # unless it was edited or pinned by hand, which keeps it as a missing project.
-        outside = not any(under(project.path, root) for root in root_paths)
-        if outside and not project.locked_fields and not project.pinned:
+        # Gone: outside every scanned folder (its folder was removed from the list), or deleted from a scan
+        # folder that is still there. Dropped, unless the owner pinned, edited or decided on it, which keeps
+        # it as a missing project. A scan folder that is itself unavailable (an unplugged drive) keeps its
+        # projects as missing too, so they come back with their history when it returns.
+        root = next((r for r in root_paths if under(project.path, r)), None)
+        gone = root is None or (Path(root).is_dir() and not Path(project.path).exists())
+        if gone and not project.locked_fields and not project.pinned and not project.focus:
             project.delete()
             removed += 1
             continue
