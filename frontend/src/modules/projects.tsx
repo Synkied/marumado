@@ -5,6 +5,7 @@ import { Icon } from '../components/Icon'
 import { OpenFolder } from '../components/OpenFolder'
 import { api } from '../lib/api'
 import { ago, hostOf } from '../lib/format'
+import { commits, pace, PACE_LABEL } from '../lib/growth'
 import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
 import type { Project, ScanRoot } from '../lib/types'
@@ -246,6 +247,18 @@ function ProjectDetail({ p }: { p: Project }) {
                 <dt>Last commit</dt>
                 <dd>
                   {p.detected.last_commit} · {ago(p.detected.last_commit_at)}
+                </dd>
+              </>
+            )}
+            {p.detected.last_commit_at && (
+              <>
+                <dt>Momentum</dt>
+                <dd>
+                  <a className="row__link" href="#/m/momentum">
+                    {PACE_LABEL[pace(p)]}
+                  </a>
+                  {` · ${commits(p.detected.weekly_commits)} commits in 12 weeks`}
+                  {p.focus === 'push' ? ' · marked push' : p.focus === 'park' ? ' · parked' : ''}
                 </dd>
               </>
             )}

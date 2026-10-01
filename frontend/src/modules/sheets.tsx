@@ -10,6 +10,7 @@ import { go, type Route } from '../lib/route'
 import type { Agent, AgentStatus, Proc } from '../lib/types'
 import { useIsNarrow } from '../lib/useIsNarrow'
 import { usePoll } from '../lib/usePoll'
+import { MomentumSheet, SkillsSheet } from './growth'
 import { ProjectForm, ProjectsSheet } from './projects'
 import { SheetHead } from './sheetHead'
 
@@ -31,6 +32,10 @@ export function SheetFor({ route }: { route: Route }) {
       return <ProcessesSheet />
     case 'agents':
       return <AgentsSheet sub={route.sub} />
+    case 'momentum':
+      return <MomentumSheet />
+    case 'skills':
+      return <SkillsSheet sub={route.sub} key={route.sub ?? 'list'} />
   }
 }
 
@@ -547,10 +552,32 @@ const TERMINAL_HINT = {
   off: 'Live terminal off (MARUMADO_HERDR_TERMINAL=off); output refreshes every 3 seconds.',
 }
 
+/** Desktop: show the pane at the window's size instead of Herdr's (remembered per browser). */
+function useFitPreference(): [boolean, (on: boolean) => void] {
+  const [fit, setFit] = useState(() => {
+    try {
+      return localStorage.getItem('marumado.terminal-fit') !== 'off'
+    } catch {
+      return true
+    }
+  })
+  const set = (on: boolean) => {
+    setFit(on)
+    try {
+      localStorage.setItem('marumado.terminal-fit', on ? 'on' : 'off')
+    } catch {
+      // private mode: remember for this visit only
+    }
+  }
+  return [fit, set]
+}
+
 function AgentsSheet({ sub }: { sub?: string }) {
   const { agents, projects } = useHub()
   const narrow = useIsNarrow()
   const [view, setView] = useState<'text' | 'screen'>('text')
+  const [fit, setFit] = useFitPreference()
+  const [full, setFull] = useState(false)
 
   if (!agents) return <div className="sheet__empty">Loading…</div>
   const projectFor = (a: Agent) =>
@@ -602,12 +629,30 @@ function AgentsSheet({ sub }: { sub?: string }) {
         </nav>
         <p className="agent-hint">{TERMINAL_HINT[mode]}</p>
       </aside>
-      <div className="agents__stage">
-        <p className="agent-meta">
-          {current.name ? `${current.name} · ` : ''}
-          {current.kind} · {project ? <a href={`#/m/projects/${project.id}`}>{project.name}</a> : current.cwd}
-          {current.workspace ? ` · ${current.workspace} ${current.pane_id}` : ` · ${current.pane_id}`}
-        </p>
+      <div className={`agents__stage${full && !narrow ? ' is-full' : ''}`}>
+        <div className="agent-bar">
+          <p className="agent-meta">
+            {current.name ? `${current.name} · ` : ''}
+            {current.kind} · {project ? <a href={`#/m/projects/${project.id}`}>{project.name}</a> : current.cwd}
+            {current.workspace ? ` · ${current.workspace} ${current.pane_id}` : ` · ${current.pane_id}`}
+          </p>
+          {!narrow && mode === 'control' && (
+            <button
+              type="button"
+              className="agent-fit"
+              aria-pressed={fit}
+              onClick={() => setFit(!fit)}
+              title={fit ? 'Show the pane at its Herdr size, scaled to fit' : 'Resize the pane to this window while you watch (the Herdr TUI gets it back when you leave)'}
+            >
+              Fit to window
+            </button>
+          )}
+          {!narrow && mode !== 'off' && (
+            <button type="button" className="agent-fit" aria-pressed={full} onClick={() => setFull(!full)}>
+              {full ? 'Exit full screen' : 'Full screen'}
+            </button>
+          )}
+        </div>
         {narrow && mode !== 'off' && (
           <div className="seg" role="group" aria-label="View">
             <button type="button" className="seg__btn" aria-pressed={view === 'text'} onClick={() => setView('text')}>
@@ -621,7 +666,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
         {mode === 'off' || (narrow && view === 'text') ? (
           <AgentOutput paneId={current.pane_id} key={current.pane_id} />
         ) : (
-          <Terminal paneId={current.pane_id} control={mode === 'control'} phone={narrow} key={current.pane_id} />
+          <Terminal paneId={current.pane_id} control={mode === 'control'} phone={narrow} fit={fit} key={current.pane_id} />
         )}
         {narrow && mode === 'control' && <AgentComposer paneId={current.pane_id} key={`c${current.pane_id}`} />}
       </div>

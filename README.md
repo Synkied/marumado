@@ -2,12 +2,18 @@
 
 One hub for every project on this machine, and for the machine itself.
 
+![Marumado's Agents module: the list of coding agents on the left, and the live terminal of the selected one filling the page](docs/agents.png)
+
 - **Projects**: every subfolder of your scan folders is a project, with its stack, git branch, last commit, repo and live URLs detected. Scan folders come from `MARUMADO_PROJECT_DIRS` in `.env` (comma separated, default `/projects`) plus any you add in the app (**Projects → Folders**). Add projects by hand too; fields you edit by hand survive rescans.
 - **Machine**: CPU, memory, disks, network, and sensors, with about 30 minutes of history.
 - **URLs**: every live and local URL is checked every minute, with up/down status and response time. **Add URL** watches any site or service that isn't a project.
 - **Ports**: what is listening, and which project it belongs to.
 - **Docker**: containers, start/stop/restart, and logs.
 - **Processes**: search, sort, and stop (with confirmation).
+- **Momentum**: how each project is moving, from 12 weeks of git history (moving, slowing, stalled). Mark projects *push* or *park*, or archive them; a pushed project with no commit for 14 days shows up under "needs you". Projects are rescanned every hour. A heatmap shows every project's last 12 weeks on one screen.
+- **Skills**: a skill map built from project stacks and libraries (React, Django REST, Three.js…), with how recently each was used (active, cooling, rusty). Add skills you want to learn, mark ones to grow, hide ones that aren't skills, and keep notes. Shown as a grid of cards or a list.
+- **Agents**: the coding agents running in [Herdr](https://herdr.dev), with their state and a live terminal you can watch and type into from the browser, including from your phone. Point `MARUMADO_HERDR_*` in `.env` at wherever Herdr runs (this machine, a VM or over SSH); `MARUMADO_HERDR_TERMINAL` sets whether the browser can type (`control`), only watch (`observe`) or neither (`off`).
+
 
 Press `/` (or ⌘K / Ctrl+K) anywhere to search projects, processes, ports, and containers. **Arrange** chooses which modules sit on the home panel.
 
@@ -35,7 +41,7 @@ After changing them, run `make up` (or `make restart`).
 
 ### Opening it to your phone or teammates
 
-In `.env`, set `MARUMADO_BIND=0.0.0.0` and `MARUMADO_TOKEN=$(make token)`, then run `make up`. Browsers ask for the token once. Never expose Marumado without a token: it can stop processes and containers.
+In `.env`, set `MARUMADO_BIND=0.0.0.0` and `MARUMADO_TOKEN=$(make token)`, then run `make up`. Browsers ask for the token once. Never expose Marumado without a token: it can stop processes and containers, and type into your agents.
 
 ## Run it without Docker
 

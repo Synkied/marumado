@@ -1,4 +1,5 @@
 import type { IconName } from '../components/Icon'
+import { pace, skillMap, tracked } from '../lib/growth'
 import type { ModuleId } from '../lib/hub'
 import { useHub } from '../lib/hub'
 
@@ -20,13 +21,15 @@ export const MODULES: ModuleMeta[] = [
   { id: 'ports', label: 'Ports', icon: 'ports', blurb: 'What is listening, and for which project' },
   { id: 'docker', label: 'Docker', icon: 'container', blurb: 'Containers and their logs' },
   { id: 'processes', label: 'Processes', icon: 'processes', blurb: 'What is running, and what is heavy' },
+  { id: 'momentum', label: 'Momentum', icon: 'momentum', blurb: 'Which projects are moving, and what to push or park' },
+  { id: 'skills', label: 'Skills', icon: 'skills', blurb: 'What you use, what is getting rusty, what to learn' },
 ]
 
 export const meta = (id: ModuleId) => MODULES.find((m) => m.id === id)!
 
 /** One dial's worth of state for every module. */
 export function useSummaries(): Record<ModuleId, Summary | null> {
-  const { system, projects, ports, docker, agents, alerts } = useHub()
+  const { system, projects, ports, docker, agents, skills, alerts } = useHub()
   const faulty = new Set(alerts.map((a) => a.module))
 
   const code = projects?.filter((p) => p.kind === 'project')
@@ -88,5 +91,32 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
       : { value: 'OFF', fraction: null, caption: 'Herdr not running', fault: false, off: true }
   }
 
-  return { agents: agentsSum, projects: projectsSum, machine: machineSum, urls: urlsSum, ports: portsSum, docker: dockerSum, processes: processesSum }
+  let momentumSum: Summary | null = null
+  if (projects) {
+    const judged = tracked(projects).filter((p) => pace(p) !== 'none')
+    const moving = judged.filter((p) => pace(p) === 'moving').length
+    const undecided = judged.filter((p) => pace(p) === 'stalled' && !p.focus).length
+    momentumSum = {
+      value: String(moving),
+      fraction: judged.length ? moving / judged.length : 0,
+      caption: faulty.has('momentum') ? 'push slipping' : undecided ? `${undecided} to decide` : 'moving',
+      fault: faulty.has('momentum'),
+    }
+  }
+
+  let skillsSum: Summary | null = null
+  if (projects && skills) {
+    const rows = skillMap(projects, skills).filter((r) => r.intent !== 'ignore')
+    const used = rows.filter((r) => r.projects.length)
+    const active = used.filter((r) => r.use === 'active').length
+    const learning = rows.filter((r) => r.intent === 'learn').length
+    skillsSum = {
+      value: String(active),
+      fraction: used.length ? active / used.length : 0,
+      caption: learning ? `active · ${learning} to learn` : 'active',
+      fault: false,
+    }
+  }
+
+  return { momentum: momentumSum, skills: skillsSum, agents: agentsSum, projects: projectsSum, machine: machineSum, urls: urlsSum, ports: portsSum, docker: dockerSum, processes: processesSum }
 }

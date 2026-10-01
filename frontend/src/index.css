@@ -28,6 +28,8 @@
   --c-docker: #b72e82;
   --c-processes: #8d6f13;
   --c-agents: #577a00;
+  --c-momentum: #0b7a68;
+  --c-skills: #5b4fd0;
   --on-mod: #ffffff;
 
   --f-display: 'Chakra Petch', ui-sans-serif, sans-serif;
@@ -69,6 +71,8 @@
     --c-docker: #f587c2;
     --c-processes: #d3ac41;
     --c-agents: #a6d454;
+    --c-momentum: #3fd3b4;
+    --c-skills: #a69dff;
     --on-mod: #111110;
     color-scheme: dark;
   }

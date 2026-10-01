@@ -44,23 +44,28 @@ function decode(b64: string): Uint8Array {
 
 /** A Herdr pane's live terminal, streamed over a WebSocket. `control` lets the keyboard type into it.
  * On a computer it shows the pane at Herdr's size (resizing it would squeeze the Herdr TUI), with the text scaled to fit.
- * On a `phone` that controls the pane, the pane takes the phone's size while it watches (the server gives it back
- * on leaving); a phone that only watches shows it at a readable size that scrolls both ways. */
-export function Terminal({ paneId, control, phone = false }: { paneId: string; control: boolean; phone?: boolean }) {
+ * With `fit` (always on a phone that controls the pane), the pane takes the browser's size while it watches and the
+ * server gives it back on leaving; a phone that only watches shows it at a readable size that scrolls both ways. */
+export function Terminal({ paneId, control, phone = false, fit: fitWanted = false }: { paneId: string; control: boolean; phone?: boolean; fit?: boolean }) {
   const host = useRef<HTMLDivElement>(null)
   const [attempt, setAttempt] = useState({ n: 0, takeover: false })
   const [link, setLink] = useState<Link>({ state: 'connecting', message: '', takeover: false })
+  // Flipping `fit` reconnects while the old stream is still letting go: take over from it.
+  const lastFit = useRef(fitWanted)
 
   useEffect(() => {
     const el = host.current
     if (!el) return
-    const fit = phone && control
+    const refit = lastFit.current !== fitWanted
+    lastFit.current = fitWanted
+    const fit = control && (phone || fitWanted)
     const pan = phone && !control
+    const scaled = !fit && !pan
     const css = getComputedStyle(document.documentElement)
     const term = new XTerm({
       theme: THEME,
       fontFamily: css.getPropertyValue('--f-mono').trim() || 'monospace',
-      fontSize: phone ? 12 : 13,
+      fontSize: phone ? 12 : fit ? 15 : 13,
       lineHeight: 1.15,
       scrollback: 0,
       cursorBlink: control,
@@ -70,7 +75,7 @@ export function Terminal({ paneId, control, phone = false }: { paneId: string; c
     term.open(el)
     // Switch to the terminal font once it has loaded, so xterm measures the real glyphs.
     let gone = false
-    document.fonts.load(`16px ${FONT}`).then(() => {
+    Promise.all([document.fonts.load(`16px ${FONT}`), document.fonts.load(`bold 16px ${FONT}`)]).then(() => {
       if (gone) return
       term.options.fontFamily = `${FONT}, ${term.options.fontFamily}`
       if (fit) follow()
@@ -94,7 +99,7 @@ export function Terminal({ paneId, control, phone = false }: { paneId: string; c
       if (k && k < 1) term.element.style.transform = `scale(${k})`
     }
     const fitFont = (again = true) => {
-      if (phone) return
+      if (!scaled) return
       cancelAnimationFrame(raf)
       if (term.element) term.element.style.transform = ''
       const k = ratio()
@@ -122,7 +127,7 @@ export function Terminal({ paneId, control, phone = false }: { paneId: string; c
       const q = new URLSearchParams()
       const token = getToken()
       if (token) q.set('token', token)
-      if (attempt.takeover) q.set('takeover', '1')
+      if (attempt.takeover || refit) q.set('takeover', '1')
       const g = fit ? grid() : null
       if (g) {
         q.set('cols', String(g.cols))
@@ -184,7 +189,7 @@ export function Terminal({ paneId, control, phone = false }: { paneId: string; c
     const observer = new ResizeObserver(() => (fit ? follow() : fitFont()))
     observer.observe(el)
     // xterm resizes itself a frame or two after a font change: check the fit again whenever it does.
-    const settled = new ResizeObserver(() => !phone && squeeze())
+    const settled = new ResizeObserver(() => scaled && squeeze())
     if (term.element) settled.observe(term.element)
     // Measure once the terminal has laid out, so a phone can ask for its size when attaching.
     const opening = requestAnimationFrame(connect)
@@ -204,10 +209,10 @@ export function Terminal({ paneId, control, phone = false }: { paneId: string; c
       }
       term.dispose()
     }
-  }, [paneId, control, phone, attempt])
+  }, [paneId, control, phone, fitWanted, attempt])
 
   return (
-    <div className={`term term--${link.state}${phone ? (control ? ' term--fit' : ' term--pan') : ''}`}>
+    <div className={`term term--${link.state}${control && (phone || fitWanted) ? ' term--fit' : phone ? ' term--pan' : ''}`}>
       <div className="term__screen" ref={host} />
       {link.state !== 'live' && (
         <div className="term__veil" role="status">

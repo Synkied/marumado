@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from .discovery import SCANNED_FIELDS
-from .models import Project, UptimeCheck
+from .models import Project, Skill, UptimeCheck
 
 
 class UptimeCheckSerializer(serializers.ModelSerializer):
@@ -15,7 +15,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         model = Project
         fields = [
             'id', 'name', 'path', 'description', 'local_url', 'online_url', 'repo_url', 'tags',
-            'pinned', 'hidden', 'source', 'kind', 'detected', 'locked_fields', 'created_at', 'updated_at',
+            'pinned', 'hidden', 'source', 'kind', 'focus', 'detected', 'locked_fields', 'created_at', 'updated_at',
         ]
         read_only_fields = ['source', 'detected', 'locked_fields', 'created_at', 'updated_at']
 
@@ -32,3 +32,21 @@ class ProjectSerializer(serializers.ModelSerializer):
                 locked.add(field)
         instance.locked_fields = sorted(locked)
         return super().update(instance, validated_data)
+
+
+class SkillSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Skill
+        fields = ['id', 'name', 'intent', 'note', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
+
+    def validate_name(self, value):
+        name = value.strip()
+        if not name:
+            raise serializers.ValidationError('Enter a skill name.')
+        clash = Skill.objects.filter(name__iexact=name)
+        if self.instance:
+            clash = clash.exclude(pk=self.instance.pk)
+        if clash.exists():
+            raise serializers.ValidationError(f'“{name}” is already on your list.')
+        return name

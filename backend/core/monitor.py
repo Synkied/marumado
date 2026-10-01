@@ -390,6 +390,18 @@ def _slow_step(now: float):
     refresh_docker()
 
 
+_rescanned = False
+
+
+def _rescan_step(now: float):
+    # `serve` already scans on start; after that, rescan so Momentum stays current.
+    global _rescanned
+    if _rescanned:
+        from . import discovery
+        discovery.scan()
+    _rescanned = True
+
+
 def ensure_started():
     global _started
     if _started:
@@ -403,6 +415,7 @@ def ensure_started():
         ('sampler', lambda: settings.MARUMADO_SAMPLE_SECONDS, _fast_step),
         ('ports+docker', lambda: 5, _slow_step),
         ('uptime', lambda: settings.MARUMADO_UPTIME_SECONDS, lambda now: run_uptime_checks()),
+        ('rescan', lambda: 3600, _rescan_step),
     ]
     for name, interval, step in loops:
         threading.Thread(target=_forever, args=(name, interval, step), name=f'marumado-{name}', daemon=True).start()

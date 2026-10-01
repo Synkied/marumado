@@ -4,6 +4,8 @@ import json
 import os
 import re
 import subprocess
+import time
+import tomllib
 from pathlib import Path
 
 from django.conf import settings
@@ -35,6 +37,42 @@ STACK_MARKERS = [
     ('compose.yml', 'Compose'),
     ('compose.yaml', 'Compose'),
 ]
+# Dependency name -> skill label, for the skills map. Read from package.json and Python requirements.
+LIB_SKILLS = {
+    'react': 'React',
+    'react-native': 'React Native',
+    'vue': 'Vue',
+    'svelte': 'Svelte',
+    '@angular/core': 'Angular',
+    'typescript': 'TypeScript',
+    'tailwindcss': 'Tailwind',
+    'express': 'Express',
+    'fastify': 'Fastify',
+    'three': 'Three.js',
+    'phaser': 'Phaser',
+    'd3': 'D3',
+    'electron': 'Electron',
+    'prisma': 'Prisma',
+    '@prisma/client': 'Prisma',
+    'socket.io': 'Socket.IO',
+    'vitest': 'Vitest',
+    'jest': 'Jest',
+    'playwright': 'Playwright',
+    '@playwright/test': 'Playwright',
+    'djangorestframework': 'Django REST',
+    'fastapi': 'FastAPI',
+    'flask': 'Flask',
+    'sqlalchemy': 'SQLAlchemy',
+    'celery': 'Celery',
+    'pandas': 'pandas',
+    'numpy': 'NumPy',
+    'torch': 'PyTorch',
+    'pytest': 'pytest',
+    'anthropic': 'Claude API',
+    '@anthropic-ai/sdk': 'Claude API',
+    'openai': 'OpenAI API',
+}
+MOMENTUM_WEEKS = 12
 SKIP_DIRS = {'node_modules', '.venv', 'venv', '__pycache__', '.git', 'dist', 'build', '.next'}
 SCANNED_FIELDS = ('description', 'online_url', 'repo_url')
 
@@ -55,12 +93,16 @@ def _repo_web_url(remote: str) -> str:
     return f'https://{m.group(1)}/{m.group(2)}' if m else ''
 
 
-def _stacks(path: Path) -> list[str]:
-    found: list[str] = []
-    dirs = [path] + [
+def _dirs(path: Path) -> list[Path]:
+    """The project root and the folders one level below it, where markers are looked for."""
+    return [path] + [
         d for d in sorted(path.iterdir()) if d.is_dir() and d.name not in SKIP_DIRS and not d.name.startswith('.')
     ][:30]
-    for d in dirs:
+
+
+def _stacks(path: Path) -> list[str]:
+    found: list[str] = []
+    for d in _dirs(path):
         for marker, label in STACK_MARKERS:
             if (d / marker).exists() and label not in found:
                 found.append(label)
@@ -72,6 +114,70 @@ def _stacks(path: Path) -> list[str]:
     if {'Next.js', 'Vite', 'Expo'} & set(found) and 'Node' in found:
         found.remove('Node')
     return found
+
+
+def _dependencies(d: Path) -> set[str]:
+    names: set[str] = set()
+    pkg = d / 'package.json'
+    if pkg.is_file():
+        try:
+            data = json.loads(pkg.read_text(errors='ignore'))
+        except (ValueError, OSError):
+            data = {}
+        if isinstance(data, dict):
+            for key in ('dependencies', 'devDependencies'):
+                if isinstance(data.get(key), dict):
+                    names.update(data[key])
+    reqs: list[str] = []
+    pyproject = d / 'pyproject.toml'
+    if pyproject.is_file():
+        try:
+            data = tomllib.loads(pyproject.read_text(errors='ignore'))
+        except (tomllib.TOMLDecodeError, OSError):
+            data = {}
+        project = data.get('project', {})
+        reqs += project.get('dependencies', []) if isinstance(project, dict) else []
+        for group in (data.get('dependency-groups') or {}).values():
+            reqs += [r for r in group if isinstance(r, str)]
+    req = d / 'requirements.txt'
+    if req.is_file():
+        try:
+            reqs += req.read_text(errors='ignore').splitlines()
+        except OSError:
+            pass
+    for r in reqs:
+        m = re.match(r'\s*([A-Za-z0-9_.\-]+)', r) if isinstance(r, str) else None
+        if m:
+            names.add(m.group(1).lower().replace('_', '-'))
+    return names
+
+
+def _libs(path: Path) -> list[str]:
+    """Notable libraries the project uses, as skill labels."""
+    found: list[str] = []
+    for d in _dirs(path):
+        labels = [LIB_SKILLS[n] for n in sorted(_dependencies(d)) if n in LIB_SKILLS]
+        if (d / 'tsconfig.json').exists():
+            labels.append('TypeScript')
+        for label in labels:
+            if label not in found:
+                found.append(label)
+    return found
+
+
+def _weekly_commits(path: Path) -> list[int]:
+    """Commits on local branches per week, oldest first, for the last MOMENTUM_WEEKS weeks."""
+    weeks = [0] * MOMENTUM_WEEKS
+    out = _git(path, 'log', '--branches', f'--since={MOMENTUM_WEEKS * 7}.days', '--format=%ct')
+    now = time.time()
+    for line in out.splitlines():
+        try:
+            age = int((now - int(line)) // (7 * 86400))
+        except ValueError:
+            continue
+        if 0 <= age < MOMENTUM_WEEKS:
+            weeks[MOMENTUM_WEEKS - 1 - age] += 1
+    return weeks
 
 
 def _description(path: Path) -> str:
@@ -124,11 +230,13 @@ def inspect(path: Path) -> dict:
         'online_url': _online_url(path, repo_url),
         'detected': {
             'stacks': _stacks(path),
+            'libs': _libs(path),
             'git': bool((path / '.git').exists()),
             'branch': _git(path, 'rev-parse', '--abbrev-ref', 'HEAD'),
             'last_commit_at': commit_at,
             'last_commit': commit_msg[:200],
             'dirty_files': len(dirty.splitlines()) if dirty else 0,
+            'weekly_commits': _weekly_commits(path) if commit_at else [],
         },
     }
 

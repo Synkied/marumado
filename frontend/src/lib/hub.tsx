@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, ApiError } from './api'
-import type { Agents, Docker, HistoryPoint, Port, Project, System } from './types'
+import { daysSince, PUSH_GRACE_DAYS } from './growth'
+import type { Agents, Docker, HistoryPoint, Port, Project, Skill, System } from './types'
 import { usePoll } from './usePoll'
 
 export type Alert = {
@@ -12,7 +13,7 @@ export type Alert = {
   href: string
 }
 
-export type ModuleId = 'projects' | 'machine' | 'urls' | 'ports' | 'docker' | 'processes' | 'agents'
+export type ModuleId = 'projects' | 'machine' | 'urls' | 'ports' | 'docker' | 'processes' | 'agents' | 'momentum' | 'skills'
 
 type Hub = {
   system?: System
@@ -21,18 +22,20 @@ type Hub = {
   ports?: Port[]
   docker?: Docker
   agents?: Agents
+  skills?: Skill[]
   alerts: Alert[]
   error: ApiError | Error | null
   refreshProjects: () => void
   refreshDocker: () => void
+  refreshSkills: () => void
 }
 
 const HubContext = createContext<Hub | null>(null)
 
 const HISTORY_SECONDS = 10 * 60
 const DISK_BUDGET = 90
-const MEM_BUDGET = 92
-const CPU_BUDGET = 90
+export const MEM_BUDGET = 92
+export const CPU_BUDGET = 90
 
 function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: Project[], docker?: Docker, agents?: Agents): Alert[] {
   const out: Alert[] = []
@@ -69,6 +72,13 @@ function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: 
       out.push({ id: `agent:${a.pane_id}`, module: 'agents', title: `${a.name || a.kind} in ${where} is waiting for you`, detail: a.title || 'Approval or question', href: '#/m/agents' })
     }
   }
+  // A project marked "push" that hasn't moved is a promise slipping.
+  for (const p of projects ?? []) {
+    const days = daysSince(p.detected.last_commit_at)
+    if (p.kind === 'project' && p.focus === 'push' && days != null && days > PUSH_GRACE_DAYS) {
+      out.push({ id: `push:${p.id}`, module: 'momentum', title: `${p.name} is marked push but hasn't moved`, detail: `No commit for ${days} days`, href: '#/m/momentum' })
+    }
+  }
   for (const c of docker?.containers ?? []) {
     if (c.health === 'unhealthy') {
       out.push({ id: `ctr:${c.id}`, module: 'docker', title: `${c.name} is unhealthy`, detail: c.image, href: '#/m/docker' })
@@ -83,6 +93,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const ports = usePoll<Port[]>('ports', 5000)
   const docker = usePoll<Docker>('docker', 5000)
   const agents = usePoll<Agents>('agents', 4000)
+  const skills = usePoll<Skill[]>('skills', 30000)
   const [history, setHistory] = useState<HistoryPoint[]>([])
   const lastT = useRef(0)
 
@@ -123,10 +134,12 @@ export function HubProvider({ children }: { children: ReactNode }) {
     ports: ports.data,
     docker: docker.data,
     agents: agents.data,
+    skills: skills.data,
     alerts,
     error: system.error ?? projects.error,
     refreshProjects: projects.refresh,
     refreshDocker: docker.refresh,
+    refreshSkills: skills.refresh,
   }
   return <HubContext.Provider value={value}>{children}</HubContext.Provider>
 }

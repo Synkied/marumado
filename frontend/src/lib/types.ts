@@ -29,13 +29,19 @@ export type Project = {
   source: 'scan' | 'manual'
   /** a link is a URL watched on its own, not a folder of code */
   kind: 'project' | 'link'
+  /** what the owner decided in Momentum; archiving a project hides it */
+  focus: '' | 'push' | 'park'
   detected: {
     stacks?: string[]
+    /** notable libraries, as skill labels */
+    libs?: string[]
     git?: boolean
     branch?: string
     last_commit_at?: string
     last_commit?: string
     dirty_files?: number
+    /** commits per week on local branches, oldest first (12 weeks) */
+    weekly_commits?: number[]
     missing?: boolean
   }
   locked_fields: string[]
@@ -163,3 +169,8 @@ export type Agent = {
 export type TerminalMode = 'control' | 'observe' | 'off'
 
 export type Agents = { available: boolean; error: string; where: string; terminal: TerminalMode; agents: Agent[] }
+
+/** What the owner wants to do with a skill. The skill itself comes from project stacks and libraries. */
+export type SkillIntent = '' | 'learn' | 'grow' | 'ignore'
+
+export type Skill = { id: number; name: string; intent: SkillIntent; note: string; created_at: string; updated_at: string }

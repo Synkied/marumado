@@ -21,6 +21,11 @@ class Project(models.Model):
     source = models.CharField(max_length=10, choices=SOURCES, default=SOURCE_MANUAL)
     # A link is a URL watched on its own (a site, a service), not a folder of code.
     kind = models.CharField(max_length=10, choices=KINDS, default=KIND_PROJECT)
+    # What the owner decided to do with the project (Momentum). Archiving is `hidden`.
+    FOCUS_PUSH = 'push'
+    FOCUS_PARK = 'park'
+    FOCUSES = [('', 'Undecided'), (FOCUS_PUSH, 'Push'), (FOCUS_PARK, 'Park')]
+    focus = models.CharField(max_length=10, choices=FOCUSES, default='', blank=True)
     # Facts found by the scanner (stack, git branch, last commit...). Never edited by hand.
     detected = models.JSONField(default=dict, blank=True)
     # Fields the user changed by hand; the scanner never overwrites these.
@@ -68,3 +73,21 @@ class ScanRoot(models.Model):
 
     def __str__(self):
         return self.path
+
+
+class Skill(models.Model):
+    """What the owner wants to do with a skill. Skills themselves come from project stacks and libraries."""
+
+    INTENTS = [('', 'No plan'), ('learn', 'Want to learn'), ('grow', 'Growing'), ('ignore', 'Not a skill')]
+
+    name = models.CharField(max_length=60, unique=True)
+    intent = models.CharField(max_length=10, choices=INTENTS, default='', blank=True)
+    note = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name

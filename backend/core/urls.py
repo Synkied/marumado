@@ -5,6 +5,7 @@ from . import views
 
 router = DefaultRouter(trailing_slash=False)
 router.register('projects', views.ProjectViewSet, basename='project')
+router.register('skills', views.SkillViewSet, basename='skill')
 
 urlpatterns = [
     path('overview', views.overview),

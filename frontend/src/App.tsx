@@ -3,13 +3,13 @@ import { Dial } from './components/Dial'
 import { Icon } from './components/Icon'
 import { Palette } from './components/Palette'
 import { TokenGate } from './components/TokenGate'
-import { useHub, type ModuleId } from './lib/hub'
+import { bytes } from './lib/format'
+import { CPU_BUDGET, MEM_BUDGET, useHub, type ModuleId } from './lib/hub'
 import { useIsNarrow } from './lib/useIsNarrow'
 import { usePins } from './lib/pins'
 import { go, useRoute } from './lib/route'
 import { MODULES, meta, useSummaries } from './modules/registry'
 import { SheetFor } from './modules/sheets'
-import type { Project } from './lib/types'
 import './app.css'
 
 function Wordmark() {
@@ -22,6 +22,36 @@ function Wordmark() {
         <circle cx="23" cy="23" r="6" />
       </svg>
       <span className="wordmark__text">MARUMADO</span>
+    </a>
+  )
+}
+
+/** CPU and RAM at a glance, in the top bar; opens the Machine module. */
+function Vitals() {
+  const { system } = useHub()
+  if (!system) return null
+  const cpu = Math.round(system.cpu.percent)
+  const mem = Math.round(system.memory.percent)
+  const rows = [
+    { key: 'CPU', value: cpu, hot: cpu >= CPU_BUDGET },
+    { key: 'RAM', value: mem, hot: mem >= MEM_BUDGET },
+  ]
+  return (
+    <a
+      className="vitals"
+      href="#/m/machine"
+      aria-label={`CPU ${cpu}%, memory ${mem}% (${bytes(system.memory.used)} of ${bytes(system.memory.total)})`}
+      title={`Memory: ${bytes(system.memory.used)} of ${bytes(system.memory.total)}`}
+    >
+      {rows.map((r) => (
+        <span key={r.key} className={`vitals__row${r.hot ? ' is-hot' : ''}`}>
+          <span className="vitals__key">{r.key}</span>
+          <span className="vitals__bar">
+            <span style={{ width: `${Math.min(100, r.value)}%` }} />
+          </span>
+          <span className="vitals__value">{r.value}%</span>
+        </span>
+      ))}
     </a>
   )
 }
@@ -144,45 +174,42 @@ function ArrangeSheet({ pins, setPins, onDone }: { pins: ModuleId[]; setPins: (p
   )
 }
 
-function bestLink(p: Project): string {
-  if (p.running && (p.local_url || p.suggested_local_url)) return p.local_url || p.suggested_local_url
-  return p.online_url || p.local_url || p.repo_url
-}
+type ActiveItem = { key: string; icon: string; label: string; href: string; state: 'on' | 'fault'; title: string }
 
-function RecentProjects() {
-  const { projects } = useHub()
-  const recent = useMemo(
+/** What is live right now, in the top bar: for now, agents that are working or waiting on you. */
+function ActiveNow() {
+  const { agents } = useHub()
+  const items = useMemo<ActiveItem[]>(
     () =>
-      (projects ?? [])
-        .filter((p) => p.kind === 'project')
-        .sort((a, b) => Number(b.running) - Number(a.running) || (b.detected.last_commit_at ?? '').localeCompare(a.detected.last_commit_at ?? ''))
-        .slice(0, 3),
-    [projects],
+      (agents?.available ? agents.agents : [])
+        .filter((a) => a.status === 'working' || a.status === 'blocked')
+        .sort((a, b) => Number(b.status === 'blocked') - Number(a.status === 'blocked'))
+        .map((a) => ({
+          key: `agent:${a.pane_id}`,
+          icon: 'agent',
+          label: a.title && a.title !== a.kind ? a.title : a.name || a.kind,
+          href: `#/m/agents/${a.pane_id}`,
+          state: a.status === 'blocked' ? 'fault' : 'on',
+          title: `${a.kind} · ${a.status === 'blocked' ? 'needs you' : 'working'}`,
+        })),
+    [agents],
   )
-  if (!recent.length) return null
+  if (!items.length) return null
   return (
-    <section className="recent" aria-labelledby="recent-title">
-      <h2 className="recent__title" id="recent-title">
-        Recent
+    <section className="active" aria-labelledby="active-title">
+      <h2 className="active__title" id="active-title">
+        Active
       </h2>
-      <ul className="recent__tiles">
-        {recent.map((p) => {
-          const link = bestLink(p)
-          return (
-            <li className="tile" key={p.id}>
-              <a className="tile__main" href={`#/m/projects/${p.id}`}>
-                <Icon name={p.online_url ? 'globe' : p.running ? 'terminal' : 'folder'} size={18} />
-                <span className="tile__name">{p.name}</span>
-                {p.running && <span className="tile__live">running</span>}
-              </a>
-              {link && (
-                <a className="tile__go" href={link} target="_blank" rel="noreferrer" aria-label={`Open ${p.name}`}>
-                  <Icon name="arrow" size={18} />
-                </a>
-              )}
-            </li>
-          )
-        })}
+      <ul className="active__tiles">
+        {items.map((it) => (
+          <li className={`tile${it.state === 'fault' ? ' is-fault' : ''}`} key={it.key}>
+            <a className="tile__main" href={it.href} title={`${it.label} (${it.title})`}>
+              <Icon name={it.icon} size={18} />
+              <span className="tile__name">{it.label}</span>
+              <span className={`tile__live${it.state === 'fault' ? ' tile__live--fault' : ''}`}>{it.state === 'fault' ? 'needs you' : 'working'}</span>
+            </a>
+          </li>
+        ))}
       </ul>
     </section>
   )
@@ -244,11 +271,12 @@ export default function App() {
       <div className={`app${narrow && route.kind !== 'home' ? ' app--sheet-only' : ''}`}>
         <header className="top">
           <Wordmark />
-          <RecentProjects />
+          <ActiveNow />
           <button className="search" type="button" onClick={() => setPaletteOpen(true)}>
             <Icon name="search" size={20} />
             <span className="search__hint">/ search</span>
           </button>
+          <Vitals />
           <StatusBadge />
         </header>
 

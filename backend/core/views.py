@@ -9,8 +9,8 @@ from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
 from . import discovery, herdr, monitor, opener
-from .models import Project, ScanRoot, UptimeCheck
-from .serializers import ProjectSerializer, UptimeCheckSerializer
+from .models import Project, ScanRoot, Skill, UptimeCheck
+from .serializers import ProjectSerializer, SkillSerializer, UptimeCheckSerializer
 
 RECENT_CHECKS = 30
 
@@ -105,6 +105,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
     def history(self, request, pk=None):
         checks = self.get_object().checks.all()[:200]
         return Response(UptimeCheckSerializer(checks, many=True).data)
+
+
+class SkillViewSet(viewsets.ModelViewSet):
+    serializer_class = SkillSerializer
+    queryset = Skill.objects.all()
 
 
 @api_view(['GET'])
