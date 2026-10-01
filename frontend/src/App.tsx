@@ -6,6 +6,7 @@ import { TokenGate } from './components/TokenGate'
 import { bytes } from './lib/format'
 import { CPU_BUDGET, MEM_BUDGET, useHub, type ModuleId } from './lib/hub'
 import { useMachines } from './lib/machines'
+import { useStreaming } from './lib/streaming'
 import { useIsNarrow } from './lib/useIsNarrow'
 import { usePins } from './lib/pins'
 import { go, useRoute } from './lib/route'
@@ -32,6 +33,7 @@ const MANAGE = 'manage'
 /** Which machine every module shows. Another machine than this one is marked, so it is never mistaken for it. */
 function MachinePicker() {
   const { machines, current, currentMachine, select } = useMachines()
+  const streaming = useStreaming().on
   if (!machines) return null
   const remote = currentMachine && !currentMachine.local
   return (
@@ -44,13 +46,31 @@ function MachinePicker() {
       >
         {machines.map((m) => (
           <option key={m.id} value={String(m.id)}>
-            {m.local ? `${m.summary?.hostname ?? 'This machine'} (this one)` : m.name}
+            {m.local ? `${(!streaming && m.summary?.hostname) || 'This machine'} (this one)` : m.name}
             {m.state === 'down' ? ' · unreachable' : ''}
           </option>
         ))}
         <option value={MANAGE}>{machines.length > 1 ? 'Manage machines…' : 'Add a machine…'}</option>
       </select>
     </label>
+  )
+}
+
+/** Streaming mode on or off: hides SSH logins, host names, paths, addresses and logs. */
+function StreamingToggle() {
+  const { on, toggle } = useStreaming()
+  return (
+    <button
+      className={`stream${on ? ' stream--on' : ''}`}
+      type="button"
+      onClick={toggle}
+      aria-pressed={on}
+      title={on ? 'Streaming mode: SSH logins, host names, paths, addresses and logs are hidden. Click to show them.' : 'Streaming mode: hide SSH logins, host names, paths, addresses and logs'}
+    >
+      <Icon name={on ? 'eye-off' : 'eye'} size={18} />
+      <span className="sr-only">Streaming mode</span>
+      {on && <span className="stream__text">Streaming</span>}
+    </button>
   )
 }
 
@@ -299,6 +319,7 @@ export default function App() {
           <div className="top__brand">
             <Wordmark />
             <MachinePicker />
+            <StreamingToggle />
           </div>
           <ActiveNow />
           <button className="search" type="button" onClick={() => setPaletteOpen(true)}>

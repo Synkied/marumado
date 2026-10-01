@@ -8,6 +8,7 @@ import { api } from '../lib/api'
 import { bytes, duration, rate } from '../lib/format'
 import { useHub } from '../lib/hub'
 import { useMachines } from '../lib/machines'
+import { Redacted, Secret } from '../lib/streaming'
 import { go, type Route } from '../lib/route'
 import type { Agent, AgentStatus, Proc } from '../lib/types'
 import { useIsNarrow } from '../lib/useIsNarrow'
@@ -48,7 +49,8 @@ export function SheetFor({ route }: { route: Route }) {
 
 function AlertsSheet() {
   const { alerts, system, error } = useHub()
-  const { currentMachine } = useMachines()
+  const { currentMachine, machines } = useMachines()
+  const targets = (machines ?? []).map((m) => m.ssh_target)
   return (
     <div className="sheet">
       <header className="sheet__head">
@@ -56,7 +58,7 @@ function AlertsSheet() {
       </header>
       {error && !system && currentMachine && !currentMachine.local ? (
         <p className="notice">
-          <strong>{currentMachine.name} isn’t answering.</strong> {error.message} <a href="#/m/machines">Machines</a>
+          <strong>{currentMachine.name} isn’t answering.</strong> <Redacted text={error.message} secrets={targets} /> <a href="#/m/machines">Machines</a>
         </p>
       ) : error && !system ? (
         <p className="notice">
@@ -71,8 +73,10 @@ function AlertsSheet() {
             <li className="row" key={a.id}>
               <span className="row__lamp row__lamp--fault" role="img" aria-label="fault" />
               <span className="row__main">
-                {a.title}
-                <span className="row__sub">{a.detail}</span>
+                <Redacted text={a.title} secrets={targets} />
+                <span className="row__sub">
+                  <Redacted text={a.detail} secrets={targets} />
+                </span>
               </span>
               <a className="go" href={a.href} aria-label={`Go to ${a.module}`}>
                 <Icon name="arrow" size={20} />
@@ -93,7 +97,7 @@ function MachineSheet() {
     <div className="sheet">
       <SheetHead id="machine" />
       <p className="sheet__lede">
-        {s.host.hostname} · {s.host.os} · {s.host.cpu_model || s.host.arch} · {s.host.cores_logical} cores · up {duration(s.time - s.host.boot_time)}
+        <Secret label="Host name">{s.host.hostname}</Secret> · {s.host.os} · {s.host.cpu_model || s.host.arch} · {s.host.cores_logical} cores · up {duration(s.time - s.host.boot_time)}
       </p>
 
       <section className="sheet__section">
@@ -258,7 +262,7 @@ function PortsSheet() {
                 <span className="row__main">
                   {p.project ? <a href={`#/m/projects/${p.project.id}`}>{p.project.name}</a> : p.process || 'Unknown process'}
                   <span className="row__sub">
-                    {p.process ? `${p.process} · pid ${p.pid}` : 'Process hidden by the OS'} · {p.address}
+                    {p.process ? `${p.process} · pid ${p.pid}` : 'Process hidden by the OS'} · <Secret label="Address">{p.address}</Secret>
                   </span>
                 </span>
                 {p.proto === 'tcp' && (
@@ -313,7 +317,7 @@ function DockerSheet() {
       <SheetHead id="docker" />
       {!docker.available ? (
         <p className="notice">
-          <strong>Docker is off.</strong> {docker.error} Containers show up here as soon as the Docker daemon is reachable.
+          <strong>Docker is off.</strong> <Redacted text={docker.error} /> Containers show up here as soon as the Docker daemon is reachable.
         </p>
       ) : docker.containers.length === 0 ? (
         <p className="sheet__lede">Docker is running, with no containers.</p>
@@ -356,7 +360,7 @@ function DockerSheet() {
                     Logs
                   </button>
                 </div>
-                {logsFor === c.id && <pre className="logs">{logs}</pre>}
+                {logsFor === c.id && <pre className="logs"><Secret label="Logs">{logs}</Secret></pre>}
               </li>
             )
           })}
@@ -428,12 +432,16 @@ function ProcessesSheet() {
                 <div className="sheet__section" style={{ padding: '6px 0 10px' }}>
                   <dl className="facts">
                     <dt>Command</dt>
-                    <dd>{p.cmdline || '—'}</dd>
+                    <dd>
+                      <Secret label="Command">{p.cmdline || '—'}</Secret>
+                    </dd>
                     <dt>Folder</dt>
-                    <dd>{p.cwd || '—'}</dd>
+                    <dd>
+                      <Secret label="Folder">{p.cwd || '—'}</Secret>
+                    </dd>
                     <dt>User</dt>
                     <dd>
-                      {p.user || '—'} · {p.threads} threads · {p.status}
+                      <Secret label="User">{p.user || '—'}</Secret> · {p.threads} threads · {p.status}
                     </dd>
                   </dl>
                   <div className="chips">
@@ -595,10 +603,10 @@ function AgentsSheet({ sub }: { sub?: string }) {
         <SheetHead id="agents" />
         {!agents.available ? (
           <p className="notice">
-            <strong>Herdr isn&rsquo;t reachable {agents.where}.</strong> {agents.error} If your agents run on another machine or VM, set <code>MARUMADO_HERDR_SMOLVM</code> (the smolvm machine name), <code>MARUMADO_HERDR_EXEC</code> or <code>MARUMADO_HERDR_SSH</code> in .env.
+            <strong>Herdr isn&rsquo;t reachable <Redacted text={agents.where} />.</strong> <Redacted text={agents.error} /> If your agents run on another machine or VM, set <code>MARUMADO_HERDR_SMOLVM</code> (the smolvm machine name), <code>MARUMADO_HERDR_EXEC</code> or <code>MARUMADO_HERDR_SSH</code> in .env.
           </p>
         ) : (
-          <p className="sheet__lede">Herdr is running {agents.where}, with no coding agents open.</p>
+          <p className="sheet__lede">Herdr is running <Redacted text={agents.where} />, with no coding agents open.</p>
         )}
       </div>
     )
@@ -636,7 +644,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
         <div className="agent-bar">
           <p className="agent-meta">
             {current.name ? `${current.name} · ` : ''}
-            {current.kind} · {project ? <a href={`#/m/projects/${project.id}`}>{project.name}</a> : current.cwd}
+            {current.kind} · {project ? <a href={`#/m/projects/${project.id}`}>{project.name}</a> : <Secret label="Folder">{current.cwd}</Secret>}
             {current.workspace ? ` · ${current.workspace} ${current.pane_id}` : ` · ${current.pane_id}`}
           </p>
           {!narrow && mode === 'control' && (

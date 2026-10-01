@@ -3,6 +3,7 @@ import { Meter } from '../components/Meter'
 import { duration } from '../lib/format'
 import { CPU_BUDGET, MEM_BUDGET, machineIssues, useHub, type ModuleId } from '../lib/hub'
 import { useMachines } from '../lib/machines'
+import { useRedact, useStreaming } from '../lib/streaming'
 import { go } from '../lib/route'
 import type { Machine } from '../lib/types'
 import { RetryButton } from './machines'
@@ -103,13 +104,17 @@ function counts(m: Machine): Count[] {
 function MachineCard({ machine: m, viewing, problems, open }: { machine: Machine; viewing: boolean; problems: Problem[]; open: (href: string) => void }) {
   const s = m.summary
   const down = m.state === 'down'
-  const name = m.local ? (s?.hostname ?? 'This machine') : m.name
-  const where = m.local ? 'This machine' : `via ${m.ssh_target}`
+  const streaming = useStreaming().on
+  const redact = useRedact()
+  const name = m.local ? (streaming ? 'This machine' : (s?.hostname ?? 'This machine')) : m.name
+  const where = m.local ? 'This machine' : streaming ? 'over SSH' : `via ${m.ssh_target}`
   const sub =
     m.state === 'connecting'
-      ? `Connecting over SSH to ${m.ssh_target}…`
+      ? streaming
+        ? 'Connecting over SSH…'
+        : `Connecting over SSH to ${m.ssh_target}…`
       : down
-        ? m.error || 'Unreachable'
+        ? redact(m.error || 'Unreachable', m.ssh_target)
         : s
           ? `${where} · ${s.os} · ${s.cores} cores · up ${duration(s.time - s.boot_time)}`
           : 'Reachable, waiting for its first reading'
@@ -143,7 +148,7 @@ function MachineCard({ machine: m, viewing, problems, open }: { machine: Machine
         <button className="mcard__vitals" type="button" onClick={() => open('#/m/machine')} aria-label={`${name}: CPU, memory and disk`}>
           <Gauge label="CPU" percent={s.cpu} budget={CPU_BUDGET} title={`Load ${s.load.map((l) => l.toFixed(2)).join(' ')}`} />
           <Gauge label="RAM" percent={s.memory} budget={MEM_BUDGET} />
-          {s.disk && <Gauge label="Disk" percent={s.disk.percent} budget={DISK_BUDGET} title={`Fullest disk: ${s.disk.mount}`} />}
+          {s.disk && <Gauge label="Disk" percent={s.disk.percent} budget={DISK_BUDGET} title={streaming ? undefined : `Fullest disk: ${s.disk.mount}`} />}
         </button>
       )}
 
@@ -173,8 +178,8 @@ function MachineCard({ machine: m, viewing, problems, open }: { machine: Machine
               <button className="mcard__issue" type="button" onClick={() => open(p.href)}>
                 <span className="row__lamp row__lamp--fault" aria-hidden="true" />
                 <span className="mcard__issue-text">
-                  {p.title}
-                  <span className="row__sub">{p.detail}</span>
+                  {redact(p.title, m.ssh_target)}
+                  <span className="row__sub">{redact(p.detail, m.ssh_target)}</span>
                 </span>
                 <Icon name="arrow" size={18} />
               </button>

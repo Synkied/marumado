@@ -2022,3 +2022,51 @@ a.heat__row:focus-visible {
     padding: 14px 14px 12px;
   }
 }
+
+/* ---------- streaming mode ---------- */
+
+.stream {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.stream:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.stream--on,
+.stream--on:hover {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--ground);
+}
+
+.secret {
+  font-family: var(--f-display);
+  font-size: 0.85em;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+}
+
+@media (max-width: 860px) {
+  .stream__text {
+    display: none;
+  }
+}
+

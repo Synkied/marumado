@@ -5,6 +5,7 @@ import { api } from '../lib/api'
 import { duration } from '../lib/format'
 import { CPU_BUDGET, MEM_BUDGET } from '../lib/hub'
 import { useMachines } from '../lib/machines'
+import { useRedact, useStreaming } from '../lib/streaming'
 import { go } from '../lib/route'
 import type { Machine } from '../lib/types'
 import { SheetHead } from './sheetHead'
@@ -30,12 +31,12 @@ function Reading({ label, percent, budget }: { label: string; percent: number; b
   )
 }
 
-function stateText(m: Machine): string {
-  if (m.state === 'connecting') return `Connecting over SSH to ${m.ssh_target}…`
-  if (m.state === 'down') return m.error || 'Unreachable'
+function stateText(m: Machine, streaming: boolean, redact: ReturnType<typeof useRedact>): string {
+  if (m.state === 'connecting') return streaming ? 'Connecting over SSH…' : `Connecting over SSH to ${m.ssh_target}…`
+  if (m.state === 'down') return redact(m.error || 'Unreachable', m.ssh_target)
   const s = m.summary
   if (!s) return 'Reachable, waiting for its first reading'
-  const where = m.local ? s.hostname : `${s.hostname} · via ${m.ssh_target}`
+  const where = streaming ? (m.local ? 'This machine' : 'Over SSH') : m.local ? s.hostname : `${s.hostname} · via ${m.ssh_target}`
   return `${where} · ${s.os} · ${s.cores} cores · up ${duration(s.time - s.boot_time)}`
 }
 
@@ -60,6 +61,8 @@ export function RetryButton({ machine }: { machine: Machine }) {
 
 function MachinesList() {
   const { machines, current, select } = useMachines()
+  const streaming = useStreaming().on
+  const redact = useRedact()
   return (
     <div className="sheet">
       <SheetHead id="machines">
@@ -84,7 +87,7 @@ function MachinesList() {
                 />
                 <span className="row__main">
                   {m.name}
-                  <span className={`row__sub${m.state === 'down' ? ' signal-text' : ''}`}>{stateText(m)}</span>
+                  <span className={`row__sub${m.state === 'down' ? ' signal-text' : ''}`}>{stateText(m, streaming, redact)}</span>
                 </span>
                 {s && (
                   <span className="row__meta machines__readings">
@@ -129,6 +132,7 @@ function MachinesList() {
 
 function MachineForm({ machine }: { machine?: Machine }) {
   const { refresh, current, select } = useMachines()
+  const streaming = useStreaming().on
   const [form, setForm] = useState({ name: machine?.name ?? '', ssh_target: machine?.ssh_target ?? '', port: String(machine?.port ?? 7878), token: '' })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -182,6 +186,8 @@ function MachineForm({ machine }: { machine?: Machine }) {
           required
           value={form.ssh_target}
           onChange={set('ssh_target')}
+          type={streaming ? 'password' : 'text'}
+          autoComplete="off"
           placeholder="you@build-server, ssh://you@build-server:2222, or a ~/.ssh/config alias"
           spellCheck={false}
           autoCapitalize="off"

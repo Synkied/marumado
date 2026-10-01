@@ -9,6 +9,7 @@ import { commits, pace, PACE_LABEL } from '../lib/growth'
 import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
 import type { Project, ScanRoot } from '../lib/types'
+import { Secret } from '../lib/streaming'
 import { SheetHead } from './sheetHead'
 
 function lamp(p: Project) {
@@ -198,7 +199,7 @@ function ProjectDetail({ p }: { p: Project }) {
           <li className="row">
             <Icon name="folder" size={20} />
             <span className="row__main">
-              {p.path}
+              <Secret label="Path">{p.path}</Secret>
               <span className="row__sub">Folder on this machine</span>
             </span>
             {!p.detected.missing && <OpenFolder path={p.path} />}
@@ -439,7 +440,7 @@ function FoldersSheet() {
             <li className="row" key={r.path}>
               <Icon name="folder" size={20} />
               <span className="row__main mono">
-                {r.path}
+                <Secret label="Path">{r.path}</Secret>
                 <span className={`row__sub${r.found ? '' : ' signal-text'}`}>
                   {r.found ? `${r.projects} ${r.projects === 1 ? 'project' : 'projects'}` : 'Not found on this machine'}
                   {r.source === 'env' && ' · set in .env'}
