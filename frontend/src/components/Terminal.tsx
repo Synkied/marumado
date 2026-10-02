@@ -1,7 +1,7 @@
 import { Terminal as XTerm } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import '@fontsource/ubuntu-mono/400.css'
-import '@fontsource/ubuntu-mono/700.css'
+import '@fontsource/iosevka/400.css'
+import '@fontsource/iosevka/700.css'
 import { useEffect, useRef, useState } from 'react'
 import { apiPath } from '../lib/api'
 import './terminal.css'
@@ -21,8 +21,8 @@ function theme(css: CSSStyleDeclaration) {
   return Object.fromEntries(Object.entries(THEME_TOKENS).map(([key, token]) => [key, css.getPropertyValue(`--term-${token}`).trim()]))
 }
 
-// Narrower than the app's Fira Code, so a wide pane fits the browser with bigger text.
-const FONT = "'Ubuntu Mono'"
+// The app's own mono: narrow, so a wide pane fits the browser with bigger text, and the terminal reads as part of the instrument.
+const FONT = "'Iosevka'"
 
 function decode(b64: string): Uint8Array {
   const raw = atob(b64)

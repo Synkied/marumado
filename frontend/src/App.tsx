@@ -21,10 +21,11 @@ import './app.css'
 function Wordmark() {
   return (
     <a className="wordmark" href="#/" aria-label="Marumado home">
+      {/* A round chart: the rim, its hub, and the pen's mark at the top. */}
       <svg className="wordmark__mark" viewBox="0 0 32 32" aria-hidden="true">
         <circle className="wordmark__ring" cx="16" cy="16" r="14.5" />
-        <circle className="wordmark__ring" cx="16" cy="16" r="11" />
-        <circle cx="16" cy="16" r="7" />
+        <circle className="wordmark__hub" cx="16" cy="16" r="5" />
+        <path className="wordmark__pen" d="M16 1.5V8" />
       </svg>
       <span className="wordmark__text">marumado</span>
       <span className="wordmark__kanji" lang="ja">丸窓</span>
@@ -151,7 +152,7 @@ function ModuleCell({ id, active, s }: { id: ModuleId; active: boolean; s: Summa
       title={reading ? `${m.label}: ${reading}` : m.label}
     >
       <span className="cell__label">{m.label}</span>
-      <Dial value={s?.value ?? '··'} fraction={s?.fraction ?? null} tone={tone} caption={s?.caption} />
+      <Dial value={s?.value ?? '··'} fraction={s?.fraction ?? null} tone={tone} caption={s?.caption} chart={s?.chart} quiet={!!s?.quiet && !s.fault} />
     </a>
   )
 }
@@ -164,7 +165,7 @@ function DialPanel({ pins, active, perRow, onEdit, open, onToggle }: PanelProps)
   for (let i = 0; i < pins.length; i += perRow) rows.push(pins.slice(i, i + perRow))
   return (
     <section className={`panel${open ? '' : ' panel--rail'}`} aria-label="Modules">
-      <button className="panel__toggle" type="button" onClick={onToggle} aria-expanded={open} title={open ? 'Show only the dials' : 'Show module details'}>
+      <button className="panel__toggle" type="button" onClick={onToggle} aria-expanded={open} title={open ? 'Show only the charts' : 'Show module details'}>
         <Icon name="back" size={16} />
         <span className="panel__toggle-text">{open ? 'Less' : 'More'}</span>
       </button>

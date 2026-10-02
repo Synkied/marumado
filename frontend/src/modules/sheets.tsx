@@ -95,7 +95,7 @@ function AlertsSheet() {
 function MachineSheet() {
   const { system: s, history } = useHub()
   if (!s) return <div className="sheet__empty">Reading the machine…</div>
-  const last = history.slice(-150)
+  const span = history.length > 1 ? `${Math.max(1, Math.round((history[history.length - 1].t - history[0].t) / 60))} min` : undefined
   return (
     <div className="sheet">
       <SheetHead id="machine" />
@@ -107,7 +107,7 @@ function MachineSheet() {
         <h3>
           CPU {Math.round(s.cpu.percent)}% · load {s.cpu.load.join(' ')}
         </h3>
-        <DotChart values={last.map((h) => h.cpu)} max={100} label="CPU over the last 5 minutes" unit="%" />
+        <DotChart values={history.map((h) => h.cpu)} max={100} label={`CPU over the last ${span ?? 'moment'}`} unit="%" span={span} />
         <div className="cores" aria-label="Per-core load">
           {s.cpu.per_core.map((c, i) => (
             <span key={i} className="core" title={`core ${i}: ${Math.round(c)}%`} style={{ background: `color-mix(in srgb, var(--ink) ${Math.round(c)}%, transparent)` }} />
@@ -120,7 +120,7 @@ function MachineSheet() {
           Memory {bytes(s.memory.used)} of {bytes(s.memory.total)}
         </h3>
         <Meter percent={s.memory.percent} budget={92} />
-        <DotChart values={last.map((h) => h.mem)} max={100} label="Memory over the last 5 minutes" unit="%" />
+        <DotChart values={history.map((h) => h.mem)} max={100} label={`Memory over the last ${span ?? 'moment'}`} unit="%" span={span} />
         {s.memory.swap_total > 0 && <span className="row__sub">Swap {bytes(s.memory.swap_used)} of {bytes(s.memory.swap_total)}</span>}
       </section>
 
@@ -128,7 +128,7 @@ function MachineSheet() {
         <h3>
           Network ↓ {rate(s.net.rx_rate)} · ↑ {rate(s.net.tx_rate)}
         </h3>
-        <DotChart values={last.map((h) => h.rx + h.tx)} label="Network throughput" unit=" B/s" />
+        <DotChart values={history.map((h) => h.rx + h.tx)} label="Network throughput" unit=" B/s" span={span} />
       </section>
 
       <section className="sheet__section">
@@ -233,7 +233,7 @@ function UrlsSheet() {
                       <Icon name="arrow" size={20} />
                     </a>
                   </div>
-                  {st.latency.length > 1 && !!st.uptime_percent && <DotChart values={st.latency} tone={fault ? 'signal' : 'ink'} height={48} label={`${p.name} ${t} latency`} unit=" ms" />}
+                  {st.latency.length > 1 && !!st.uptime_percent && <DotChart values={st.latency} tone={fault ? 'signal' : 'ink'} height={56} label={`${p.name} ${t} latency`} unit=" ms" span={`${st.latency.length} min`} />}
                 </li>
               )
             })}

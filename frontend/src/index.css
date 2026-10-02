@@ -3,7 +3,7 @@
 :root {
   background: var(--ground);
   color: var(--ink);
-  font-family: var(--f-display);
+  font-family: var(--f-sans);
   font-weight: var(--weight-body);
   font-size: var(--text-xl);
   line-height: 1.45;
@@ -30,8 +30,8 @@ body {
 }
 
 ::selection {
-  background: var(--stone);
-  color: var(--on-stone);
+  background: var(--solid);
+  color: var(--on-solid);
 }
 
 :focus-visible {

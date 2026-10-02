@@ -1,13 +1,18 @@
 /* Marumado's design tokens: every value a retheme changes, in one place.
  * Components use these and nothing else for colour, type, spacing, corners and motion.
- * The world is a dry garden (karesansui) seen from above: raked gravel, dark stones, one moss green for
- * "all clear" and one persimmon for "needs you". Each module's stone is its own mineral: muted pigments, so a module
- * can be found at a glance. Pigment hues keep clear of moss (olive) and persimmon (orange), which only ever mean state.
+ * The world is a chart recorder: the machine writes its own record. Pale chart paper with a faint graticule, each
+ * module a channel drawn by its own pen in a muted ink, one moss green for "all clear" and one persimmon alarm pen
+ * for "needs you". Pen hues keep clear of moss (olive) and persimmon (orange), which only ever mean state.
  * Fonts: swap the @fontsource imports below together with the --f-* families.
  * The one value CSS can't take from a variable is the phone breakpoint, 860px, written into app.css's media queries. */
 
-@import '@fontsource-variable/source-serif-4/opsz.css';
-@import '@fontsource-variable/source-code-pro/wght.css';
+@import '@fontsource/iosevka-aile/300.css';
+@import '@fontsource/iosevka-aile/400.css';
+@import '@fontsource/iosevka-aile/500.css';
+@import '@fontsource/iosevka-aile/600.css';
+@import '@fontsource/iosevka/400.css';
+@import '@fontsource/iosevka/500.css';
+@import '@fontsource/iosevka/600.css';
 
 /* 丸窓 in the wordmark: only the two Noto Serif JP chunks that hold those glyphs ship (SIL OFL, see assets/fonts). */
 @font-face {
@@ -26,41 +31,43 @@
 
 :root {
   /* Colour roles. Text is ink, ink-2 or signal-text; ink-3 is for strokes only. */
-  --ground: #e4e2dc; /* raked gravel */
-  --ground-raised: #ecebe6; /* fresh, unraked sand: fields, open cards, the search palette */
-  --ink: #252421;
-  --ink-2: #5c5a54; /* 5.3:1 on the ground */
-  --ink-3: #9a978f;
-  --track: #d2cfc7;
-  --rake: #cbc8bf; /* the raked lines and ripple rings in the gravel */
-  --rule: #b9b6ad;
-  --rule-soft: #d0cdc5;
-  --stone: #3a3936; /* a module's stone */
-  --stone-off: #d3d0c9; /* a module that is off or unavailable: a pale stone */
-  --on-stone: #f1efe9;
-  --on-stone-2: #bdbab2;
+  --ground: #ecebe4; /* chart paper */
+  --ground-raised: #f5f4ef; /* a fresh sheet: fields, the open item, the search palette */
+  --ink: #23231f;
+  --ink-2: #57564f; /* 6.3:1 on the paper */
+  --ink-3: #9a988e;
+  --track: #d9d7cd;
+  --grid: #dcdad0; /* the graticule's fine lines */
+  --grid-major: #cbc8bc; /* its major divisions and the rims of the chart discs */
+  --rule: #bfbcb1;
+  --rule-soft: #d6d3c9;
+  --solid: #2b2b27; /* a filled control: the pressed segment, a button on hover, the selected result */
+  --on-solid: #f5f4ef;
+  --on-solid-2: #b9b7ae;
+  --pen-off: #b3b0a6; /* the rim of a channel that is off or unavailable */
+  --disc: var(--ground); /* a chart disc's paper */
+  --rim-ink: 55%; /* how much of its pen a disc's rim takes */
   --moss: #5d6b3a; /* all clear, alive, working */
-  --signal: #c2502b; /* persimmon: needs you, and nothing else */
-  --signal-text: #a3411f; /* 5.1:1 on the ground, so small 'needs you' text passes AA */
+  --signal: #c2502b; /* persimmon, the alarm pen: needs you, and nothing else */
+  --signal-text: #a3411f; /* 5.4:1 on the paper, so small 'needs you' text passes AA */
   --on-signal: #f6f2ea;
-  --focus: #252421;
+  --focus: #23231f;
 
-  /* One mineral per module, like stones gathered from different rivers. A .mod-<id> class sets --mod (and --tint,
-     which colours the stone itself); outside a module everything falls back to ink and charcoal stone. */
-  --c-projects: oklch(0.44 0.085 262); /* indigo (ai) */
-  --c-urls: oklch(0.5 0.08 228); /* pale indigo (asagi) */
-  --c-machine: oklch(0.47 0.065 195); /* celadon slate */
-  --c-docker: oklch(0.48 0.07 165); /* jade */
-  --c-agents: oklch(0.46 0.08 300); /* wisteria (fuji) */
-  --c-skills: oklch(0.45 0.075 325); /* plum (ume) */
-  --c-ports: oklch(0.47 0.08 355); /* deep rose (enji) */
-  --c-tasks: oklch(0.5 0.075 72); /* ochre (kuchiba) */
-  --c-momentum: oklch(0.52 0.07 92); /* mustard (karashi) */
-  --c-processes: oklch(0.45 0.03 60); /* umber grey */
-  --c-machines: oklch(0.46 0.035 245); /* blue slate */
+  /* One pen per module, as on a multi-pen recorder: muted inks, so a channel can be found at a glance. A .mod-<id>
+     class sets --mod (that module's pen); outside a module everything falls back to ink. */
+  --c-projects: oklch(0.44 0.1 266); /* indigo */
+  --c-urls: oklch(0.5 0.085 158); /* jade */
+  --c-machine: oklch(0.48 0.07 215); /* slate teal */
+  --c-docker: oklch(0.49 0.075 190); /* celadon */
+  --c-agents: oklch(0.48 0.1 300); /* wisteria */
+  --c-skills: oklch(0.46 0.085 330); /* plum */
+  --c-ports: oklch(0.5 0.08 85); /* ochre */
+  --c-tasks: oklch(0.47 0.09 0); /* madder rose: deep and blue-leaning, never the alarm's orange */
+  --c-momentum: oklch(0.5 0.07 245); /* blue */
+  --c-processes: oklch(0.46 0.03 60); /* umber grey */
+  --c-machines: oklch(0.45 0.04 250); /* blue slate */
   --mod: var(--ink);
   --on-mod: var(--ground);
-  --quiet: 30%; /* how much of its mineral a quiet stone keeps */
 
   /* Syntax colours for the read-only code viewer: earth pigments, all at text contrast on the ground. */
   --syn-keyword: #4b5878;
@@ -92,16 +99,17 @@
   --term-cyan: #7fb2ac;
   --term-bright-cyan: #a2cbc6;
 
-  /* Type. One serif with optical sizes carries everything: light and open at display sizes, sturdier in text.
-     Mono is only for data and measurement: paths, ports, PIDs, logs, code. */
-  --f-display: 'Source Serif 4 Variable', 'Source Serif 4', ui-serif, Georgia, serif;
-  --f-mono: 'Source Code Pro Variable', 'Source Code Pro', ui-monospace, monospace;
+  /* Type. One family, two widths: Iosevka Aile (its proportional sibling) for names, prose and controls, Iosevka
+     for every value, reading, path, port, log and line of code. The terminals use Iosevka too, so the instrument and
+     the agents it watches speak the same letters. */
+  --f-sans: 'Iosevka Aile', ui-sans-serif, system-ui, sans-serif;
+  --f-mono: 'Iosevka', ui-monospace, 'SFMono-Regular', monospace;
   --f-cjk: 'Marumado Kanji', 'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif CJK JP', 'Noto Serif JP', serif;
 
   --weight-light: 300;
   --weight-body: 400;
-  --weight-strong: 560;
-  --weight-heavy: 640;
+  --weight-strong: 500;
+  --weight-heavy: 600;
 
   --text-2xs: 10px;
   --text-xs: 11px;
@@ -117,12 +125,12 @@
   --text-display-sm: clamp(26px, 2.4vw, 40px);
   --text-display: clamp(32px, 3.2vw, 50px);
 
-  --track-display: -0.01em;
+  --track-display: -0.02em;
   --track-title: 0;
   --track-snug: 0.04em;
-  --track-caps: 0.16em; /* small labels in tracked caps, like the names on the stones */
-  --track-caps-wide: 0.22em;
-  --track-wordmark: 0.14em;
+  --track-caps: 0.14em; /* small labels in tracked caps, like the channel names printed on a chart */
+  --track-caps-wide: 0.18em;
+  --track-wordmark: 0.02em;
 
   /* Spacing on a 2px grid: --sp-N is N × --space. Change --space to make the whole UI denser or roomier. */
   --space: 2px;
@@ -148,16 +156,16 @@
   --control: 40px;
   --touch: 44px;
 
-  /* Elevation: flat everywhere, except what floats over the page (the search palette). */
-  --shadow-float: 0 30px 70px -28px rgb(40 38 32 / 0.38);
+  /* Elevation: flat everywhere, except what floats over the page (the search palette, a menu). */
+  --shadow-float: 0 24px 60px -24px rgb(40 38 32 / 0.34);
 
-  /* Corners. Pills for small controls, soft rectangles for containers, circles stay 50%. */
-  --radius-xs: 3px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 22px;
-  --radius-pill: 999px;
+  /* Corners: an instrument's, small and exact. Circles (the chart discs, lamps, the status dot) stay 50%. */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-control: 4px; /* buttons, chips, segmented controls, the picker */
+  --radius-md: 5px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
 
   /* Motion. Quick for hover and state, base for surfaces, slow for one-off sweeps. Nothing bounces. */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
@@ -165,45 +173,47 @@
   --dur-base: 260ms;
   --dur-enter: 420ms;
   --dur-slow: 700ms;
-  --dur-sweep: 1400ms;
+  --dur-sweep: 1400ms; /* a pen drawing a channel's record onto its disc, once */
 
   color-scheme: light;
 }
 
-/* The garden at night: dark gravel, moonlit stones. */
+/* The recorder at night: dark paper, pale pens. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --ground: #191917;
-    --ground-raised: #22211f;
-    --ink: #e6e3db;
-    --ink-2: #a9a59c;
-    --ink-3: #6b6861;
+    --ground: #1a1a18;
+    --ground-raised: #232320;
+    --ink: #e8e5dc;
+    --ink-2: #a9a69c;
+    --ink-3: #6b6961;
     --track: #2f2e2b;
-    --rake: #2c2b28;
-    --rule: #45433f;
-    --rule-soft: #2f2e2b;
-    --stone: #cfcbc1;
-    --stone-off: #34332f;
-    --on-stone: #1b1b19;
-    --on-stone-2: #57554f;
+    --grid: #2b2a27;
+    --grid-major: #44423d;
+    --rule: #46443f;
+    --rule-soft: #302f2b;
+    --solid: #e2dfd5;
+    --on-solid: #1a1a18;
+    --on-solid-2: #57554f;
+    --pen-off: #5c5a54;
+    --disc: #201f1d; /* at night each disc is a sheet a shade lighter than the table, so it holds its shape */
+    --rim-ink: 85%;
     --moss: #93a666;
     --signal: #e0703f;
     --signal-text: #ec8a5c;
     --on-signal: #191917;
-    --focus: #e6e3db;
-    /* Moonlit minerals: the same hues, pale. */
-    --c-projects: oklch(0.72 0.049 262);
-    --c-urls: oklch(0.74 0.045 228);
-    --c-machine: oklch(0.73 0.038 195);
-    --c-docker: oklch(0.73 0.042 165);
-    --c-agents: oklch(0.72 0.045 300);
-    --c-skills: oklch(0.72 0.042 325);
-    --c-ports: oklch(0.72 0.045 355);
-    --c-tasks: oklch(0.75 0.049 72);
-    --c-momentum: oklch(0.76 0.049 92);
-    --c-processes: oklch(0.72 0.017 60);
-    --c-machines: oklch(0.72 0.021 245);
-    --quiet: 46%;
+    --focus: #e8e5dc;
+    /* The same pens, pale enough to read on dark paper. */
+    --c-projects: oklch(0.76 0.11 266);
+    --c-urls: oklch(0.79 0.1 158);
+    --c-machine: oklch(0.79 0.09 215);
+    --c-docker: oklch(0.79 0.09 190);
+    --c-agents: oklch(0.77 0.11 300);
+    --c-skills: oklch(0.77 0.1 330);
+    --c-ports: oklch(0.81 0.1 85);
+    --c-tasks: oklch(0.76 0.1 0);
+    --c-momentum: oklch(0.78 0.09 245);
+    --c-processes: oklch(0.77 0.03 60);
+    --c-machines: oklch(0.77 0.045 250);
     --syn-keyword: #9eaed0;
     --syn-string: #a8ba7a;
     --syn-number: #d6b26a;

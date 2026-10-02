@@ -4,7 +4,7 @@
   gap: var(--sp-4);
 }
 
-/* The face is the stone plus its ripples; the stone itself is 54% of it. */
+/* The face is one circular chart: paper, graticule, rim, the pen's record, and the hub with the reading. */
 .dial__face {
   position: relative;
   width: var(--dial-size, clamp(120px, min(16vw, 22vh), 300px));
@@ -24,136 +24,222 @@
   overflow: visible;
 }
 
-/* Gravel raked around the stone: it covers the straight rake lines beneath, as in a real garden. */
-.dial__apron {
-  fill: var(--ground);
+/* The disc is a sheet of paper laid on the table: it covers the graticule beneath. */
+.dial__paper {
+  fill: var(--disc);
 }
 
-.dial__ripple {
+.dial__grid {
   fill: none;
-  stroke: var(--rake);
-  stroke-width: 0.9;
+  stroke: var(--grid);
+  stroke-width: 0.8;
+  vector-effect: non-scaling-stroke;
 }
 
-.dial__arc {
+.dial__rim {
   fill: none;
-  stroke: var(--mod, var(--ink));
-  stroke-width: 3.2;
-  stroke-linecap: round;
-  transition: stroke-dashoffset var(--dur-sweep) var(--ease);
-}
-
-.dial__arc.is-settled {
+  stroke: color-mix(in oklab, var(--mod) var(--rim-ink), var(--ground));
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
   transition: stroke var(--dur-base) ease-out;
 }
 
-.dial--signal .dial__arc {
-  stroke: var(--signal);
+.dial__now {
+  stroke: var(--ink-3);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
 }
 
-.dial__stone {
-  fill: var(--tint, var(--stone));
-  transition: fill var(--dur-base) ease-out;
+.dial__hub {
+  fill: var(--disc);
+  stroke: var(--grid-major);
+  stroke-width: 0.8;
+  vector-effect: non-scaling-stroke;
 }
 
-.dial--off .dial__stone {
-  fill: var(--stone-off);
-}
+/* ---------- the pen's record ---------- */
 
-/* A quiet module (nothing running, nothing open) pales into the gravel but keeps its mineral, so it is still found
-   at a glance; the stones with something going on are the ones that hold the eye. */
-.dial--quiet .dial__stone {
-  fill: color-mix(in oklab, var(--tint, var(--stone)) var(--quiet), var(--ground));
-}
-
-.dial--quiet .dial__text,
-.dial--quiet .dial__label,
-.dial--quiet .dial__sub {
-  color: var(--ink);
-}
-
-/* Work in progress: two rings spread from the stone and fade, slowly, one after the other. */
-.dial__wave {
+.dial__trace {
   fill: none;
-  stroke: var(--mod, var(--ink));
-  stroke-width: 1.4;
-  opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: dial-wave 3.6s cubic-bezier(0.3, 0.4, 0.4, 1) infinite;
+  stroke: var(--mod);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
 }
 
-@keyframes dial-wave {
-  from {
-    scale: 0.6;
-    opacity: 0.85;
-  }
-  to {
-    scale: 1;
-    opacity: 0;
-  }
+.dial__trace--signal {
+  stroke: var(--signal);
+  stroke-width: 1.8;
 }
 
-/* Without motion, one still ring in the module's mineral says the same. */
-@media (prefers-reduced-motion: reduce) {
-  .dial__wave {
-    animation: none;
-    scale: 0.75;
-    opacity: 0.7;
-  }
-  .dial__wave + .dial__wave {
-    display: none;
-  }
+.dial__tip {
+  fill: var(--mod);
 }
 
-/* A stone that needs you keeps its mineral; only its ripple turns persimmon, and a thin ring marks the stone. */
-.dial--signal .dial__stone {
+.dial--signal .dial__tip {
+  fill: var(--signal);
+}
+
+.dial__tick {
+  stroke: var(--mod);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+
+.dial__tick-dot {
+  fill: color-mix(in oklab, var(--mod) 45%, var(--ground));
+}
+
+.dial__lane {
+  fill: none;
+  stroke-linecap: butt;
+}
+
+.dial__lane--on {
+  stroke: var(--mod);
+  stroke-width: 5;
+}
+
+.dial__lane--done {
+  stroke: color-mix(in oklab, var(--mod) 38%, var(--ground));
+  stroke-width: 5;
+}
+
+.dial__lane--off {
+  stroke: var(--grid-major);
+  stroke-width: 1.6;
+}
+
+.dial__lane--fault {
+  stroke: var(--signal);
+  stroke-width: 5;
+}
+
+/* A quiet channel (nothing running, nothing open) is drawn with a lighter pen; the busy ones hold the eye. */
+.dial--quiet .dial__record {
+  opacity: 0.55;
+}
+
+/* A channel that needs you: the alarm pen marks its rim and its newest record. */
+.dial--signal .dial__rim {
+  stroke: var(--signal);
+  stroke-width: 1.6;
+}
+
+.dial--signal .dial__now {
   stroke: var(--signal);
   stroke-width: 2;
 }
 
+/* Off or unavailable: a blank disc with a pale rim, no graticule. */
+.dial--off .dial__rim {
+  stroke: var(--pen-off);
+  stroke-dasharray: 3 4;
+}
+
+.dial--off .dial__grid {
+  display: none;
+}
+
+.dial--off .dial__hub {
+  stroke: none;
+}
+
+/* The pen draws each channel's record onto its disc once, as the page opens; afterwards it updates in place. */
+@media (prefers-reduced-motion: no-preference) {
+  .dial__record {
+    animation: dial-draw var(--dur-sweep) var(--ease) backwards;
+    animation-delay: calc(var(--i, 0) * 70ms + 120ms);
+  }
+  .dial__trace[pathLength] {
+    stroke-dasharray: 1;
+    animation: dial-pen var(--dur-sweep) var(--ease) backwards;
+    animation-delay: calc(var(--i, 0) * 70ms + 120ms);
+  }
+}
+
+@keyframes dial-draw {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes dial-pen {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+/* Something at work: the pen tip pulses where it writes. */
+.dial__pulse {
+  fill: var(--mod);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dial-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes dial-pulse {
+  50% {
+    opacity: 0.25;
+    scale: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dial__pulse {
+    animation: none;
+  }
+}
+
+/* ---------- the reading, in the hub ---------- */
+
 .dial__text {
   position: absolute;
-  inset: 23%;
+  inset: 28%;
   display: grid;
   place-content: center;
   justify-items: center;
+  grid-template-columns: 100%;
   text-align: center;
-  color: var(--on-stone);
+  color: var(--ink);
   line-height: 1;
   pointer-events: none;
 }
 
-.dial--off .dial__text {
-  color: var(--ink-2);
-}
-
 .dial__value {
-  font-family: var(--f-display);
+  font-family: var(--f-mono);
   font-weight: var(--weight-body);
   font-size: 15cqi;
-  letter-spacing: -0.01em;
-  font-variant-numeric: lining-nums tabular-nums;
+  letter-spacing: var(--track-display);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.dial--off .dial__value {
-  font-style: italic;
-  font-size: 11cqi;
 }
 
 .dial--named .dial__value {
   font-size: 13cqi;
 }
 
+.dial--signal .dial__value {
+  color: var(--signal-text);
+}
+
+.dial--off .dial__value {
+  font-family: var(--f-sans);
+  font-weight: var(--weight-light);
+  font-style: italic;
+  font-size: 11cqi;
+  color: var(--ink-2);
+}
+
 .dial__label {
-  margin-bottom: 2.2cqi;
-  font-size: max(9px, 3.6cqi);
+  margin-top: 2.6cqi;
+  font-size: max(9px, 3.4cqi);
   font-weight: var(--weight-strong);
   letter-spacing: var(--track-caps-wide);
   text-indent: var(--track-caps-wide);
   text-transform: uppercase;
-  color: var(--on-stone-2);
+  color: var(--ink);
 }
 
 .dial--off .dial__label {
@@ -162,32 +248,37 @@
 
 .dial__sub {
   margin-top: 2cqi;
-  font-size: max(11px, 5cqi);
-  color: var(--on-stone-2);
-  white-space: nowrap;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* On a stone the line sits below the middle, where the circle is narrower: a long name wraps to a second line,
-   kept inside the rim, rather than being cut. */
-.dial--named .dial__text {
-  grid-template-columns: 100%;
-}
-
-.dial--named .dial__sub {
+  padding-top: 2cqi;
+  border-top: 1px solid var(--rule-soft);
+  font-size: max(11px, 4.4cqi);
+  color: var(--ink-2);
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  max-width: 82%;
-  white-space: normal;
-  line-height: 1.15;
+  max-width: 100%;
+  line-height: 1.2;
+  overflow: hidden;
   overflow-wrap: anywhere;
 }
 
-.dial--off .dial__sub {
+.dial--signal .dial__sub {
+  color: var(--signal-text);
+}
+
+/* How much time the disc holds, printed at its foot like the range on a chart. */
+.dial__span {
+  position: absolute;
+  left: 50%;
+  bottom: -0.2em;
+  translate: -50% 0;
+  padding: 0 var(--sp-3);
+  background: var(--ground);
+  font-family: var(--f-mono);
+  font-size: max(10px, 3.2cqi);
+  line-height: 1.4;
   color: var(--ink-2);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .dial__caption {
@@ -195,10 +286,20 @@
   color: var(--ink-2);
 }
 
-/* A small stone has room for its name and value only. */
+/* A small disc has room for its name and reading only. */
 @container (max-width: 190px) {
   .dial__sub,
-  .dial--named .dial__sub {
+  .dial__span {
     display: none;
+  }
+}
+
+/* At night the record needs more weight to hold against dark paper. */
+@media (prefers-color-scheme: dark) {
+  .dial__trace {
+    stroke-width: 2;
+  }
+  .dial--quiet .dial__record {
+    opacity: 0.75;
   }
 }

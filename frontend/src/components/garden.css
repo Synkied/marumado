@@ -1,4 +1,4 @@
-/* ---------- the garden: home, every pinned module as a stone in raked gravel ---------- */
+/* ---------- home: every pinned module as a circular chart laid on the recorder's table ---------- */
 
 .garden {
   display: flex;
@@ -16,52 +16,45 @@
   min-height: 0;
   overflow: hidden;
   container-type: size;
-  /* One stone's full ripple width; each spot scales it by its own --s. */
+  /* One chart's diameter at size 1; each spot scales it by its own --s. */
   --base: min(34cqw, 62cqh);
 }
 
-.garden__rake {
+/* The graticule: the chart paper's fine grid, with a major division every fifth line. */
+.garden__grid {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
 
-.garden__rake path {
+.garden__minor {
   fill: none;
-  stroke: var(--rake);
-  stroke-width: 0.9;
+  stroke: var(--grid);
+  stroke-width: 0.6;
 }
 
-.garden__stones {
+.garden__major {
+  fill: none;
+  stroke: var(--grid-major);
+  stroke-width: 0.8;
+}
+
+.garden__charts {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-/* Placed by left/top, not translate, so no spot makes a stacking context: every stone's ripples (.dial__bed)
-   then lie beneath every stone (.dial__body), wherever the stones are set. */
 .garden__spot {
-  --w: calc(var(--base) * var(--s) * 0.54);
+  --w: calc(var(--base) * var(--s));
   position: absolute;
   left: calc(var(--x) * 100% - var(--w) / 2);
   top: calc(var(--y) * 100% - var(--w) / 2);
 }
 
-.garden .dial__bed {
-  z-index: 0;
-}
-
-.garden .dial__body {
-  z-index: 1;
-}
-
-.garden .dial__text {
-  z-index: 2;
-}
-
-/* A spot is only as large as its stone, so the ripples (drawn outside it) never steal another stone's click. */
-.stone {
-  --dial-size: calc(var(--base) * var(--s));
+/* The whole disc is the target: choosing it opens its module. */
+.chart {
+  --dial-size: var(--w);
   display: block;
   width: var(--w);
   aspect-ratio: 1;
@@ -71,31 +64,24 @@
   text-decoration: none;
 }
 
-/* Only the stone itself takes the pointer; its ripples are gravel, so they never steal a neighbour's press. */
-.stone .dial {
+.chart .dial {
   pointer-events: none;
-  position: absolute;
-  left: calc(50% - var(--dial-size) / 2);
-  top: calc(50% - var(--dial-size) / 2);
 }
 
-/* Stones can be picked up and set down anywhere on the gravel (desktop; on phones they lie in columns). */
+/* Charts can be picked up and laid down anywhere on the table (desktop; on phones they lie in columns). */
 @media (min-width: 861px) {
-  .stone {
+  .chart {
     touch-action: none;
     -webkit-user-drag: none;
     user-select: none;
   }
-  .garden__spot.is-lifted .stone {
+  .garden__spot.is-lifted .chart {
     cursor: grabbing;
-  }
-  .garden__spot.is-lifted .dial__ripple {
-    stroke: var(--ink-3);
   }
 }
 
-/* The rim grip that sizes a stone: a small pebble on its lower-right edge, shown while the stone is near the hand. */
-.stone__grip {
+/* The rim grip that sizes a chart: a small ring on its lower-right edge, shown while the chart is near the hand. */
+.chart__grip {
   position: absolute;
   z-index: 3;
   left: calc(50% + var(--w) * 0.3536 - 8px);
@@ -112,57 +98,55 @@
   transition: opacity var(--dur-quick) ease-out;
 }
 
-.garden__spot:hover .stone__grip,
-.garden__spot:focus-within .stone__grip,
-.garden__spot.is-lifted .stone__grip {
+.garden__spot:hover .chart__grip,
+.garden__spot:focus-within .chart__grip,
+.garden__spot.is-lifted .chart__grip {
   opacity: 1;
 }
 
-.stone__grip:hover,
-.stone__grip:focus-visible {
+.chart__grip:hover,
+.chart__grip:focus-visible {
   border-color: var(--ink);
   background: var(--ink);
 }
 
-.stone__grip:focus-visible {
+.chart__grip:focus-visible {
   outline: 1.5px solid var(--focus);
   outline-offset: 2px;
 }
 
-.stone .dial__ripple {
-  transition: stroke var(--dur-base) ease-out;
+/* Hovered or carried, a chart's rim and hub darken: it is the one in hand. */
+.chart .dial__rim,
+.chart .dial__hub {
+  transition: stroke var(--dur-quick) ease-out;
 }
 
-.stone:hover .dial__ripple {
+.chart:hover .dial:not(.dial--signal) .dial__rim,
+.garden__spot.is-lifted .dial:not(.dial--signal) .dial__rim {
+  stroke: var(--mod);
+  stroke-width: 1.6;
+}
+
+.chart:hover .dial__hub {
   stroke: var(--ink-3);
 }
 
-.stone:hover .dial__stone {
-  fill: color-mix(in oklab, var(--tint, var(--stone)) 86%, var(--ground));
-}
-
-.stone:hover .dial--quiet .dial__stone {
-  fill: color-mix(in oklab, var(--tint, var(--stone)) calc(var(--quiet) + 10%), var(--ground));
-}
-
-.stone:focus-visible {
+.chart:focus-visible {
   outline: 1.5px solid var(--focus);
-  outline-offset: calc(var(--dial-size) * 0.05);
-  border-radius: 50%;
+  outline-offset: 4px;
 }
 
-/* Stones settle into the gravel once, in reading order, as the page opens. */
+/* Charts are laid on the table once, in reading order, as the page opens; then each pen draws its record. */
 @media (prefers-reduced-motion: no-preference) {
   .garden__spot {
-    animation: stone-set var(--dur-slow) var(--ease) backwards;
+    animation: chart-set var(--dur-base) var(--ease) backwards;
     animation-delay: calc(var(--i) * 70ms);
   }
 }
 
-@keyframes stone-set {
+@keyframes chart-set {
   from {
     opacity: 0;
-    scale: 0.96;
   }
 }
 
@@ -180,7 +164,7 @@
   min-height: var(--control);
   padding: 0 var(--sp-7);
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-control);
   background: var(--ground);
   color: var(--ink-2);
   font-size: var(--text-md);
@@ -193,19 +177,18 @@
 
 .garden__save,
 .garden__save:hover {
-  background: var(--stone);
-  color: var(--on-stone);
+  background: var(--solid);
+  color: var(--on-solid);
 }
 
 .garden__note {
   align-self: center;
   margin-right: var(--sp-4);
   font-size: var(--text-md);
-  font-style: italic;
   color: var(--ink-2);
 }
 
-/* Phones and narrow windows: the stones lie in two staggered columns down the gravel. */
+/* Phones and narrow windows: the charts lie in two staggered columns down the table. */
 @media (max-width: 860px) {
   .garden {
     height: auto;
@@ -214,39 +197,38 @@
     flex: none;
     container-type: inline-size;
     padding: var(--sp-4) 0 var(--sp-22);
-    --base: 64cqw;
+    --base: 46cqw;
   }
-  .garden__stones {
+  .garden__charts {
     position: relative;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    row-gap: var(--sp-2);
+    row-gap: var(--sp-6);
   }
+  /* The size set by hand on desktop doesn't apply here: each chart takes its column. */
   .garden__spot {
+    --w: calc(var(--base) * 0.92);
     position: relative;
     left: auto;
     top: auto;
     translate: none;
     display: grid;
     place-items: center;
-    aspect-ratio: 1;
-    --s: 0.74;
   }
-  .stone__grip {
+  .chart__grip {
     display: none;
   }
   .garden__spot:first-child {
-    --s: 1;
+    --w: calc(var(--base) * 1.62);
     grid-column: 1 / -1;
-    aspect-ratio: auto;
-    height: calc(var(--base) * 0.88);
+    padding-bottom: var(--sp-6);
   }
   .garden__spot:nth-child(odd):not(:first-child) {
-    translate: 0 36%;
+    translate: 0 40%;
   }
 }
 
-/* ---------- the menu a long press or right-click opens: set a stone here, or lift one out ---------- */
+/* ---------- the menu a long press or right-click opens: lay a chart here, or take one off ---------- */
 
 .garden__menu {
   position: absolute;
@@ -292,13 +274,12 @@
 .garden__menu-item:hover:not(:disabled),
 .garden__menu-item:focus-visible {
   outline: none;
-  background: var(--stone);
-  color: var(--on-stone);
+  background: var(--solid);
+  color: var(--on-solid);
 }
 
 .garden__menu-item:disabled {
   color: var(--ink-2);
-  font-style: italic;
   cursor: default;
 }
 
@@ -306,8 +287,8 @@
   flex: none;
   width: 12px;
   height: 12px;
+  border: 2px solid var(--mod);
   border-radius: 50%;
-  background: var(--tint, var(--stone));
 }
 
 .garden__menu-empty {

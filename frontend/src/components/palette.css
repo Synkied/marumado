@@ -82,8 +82,8 @@
 }
 
 .palette__item.is-sel {
-  background: var(--stone);
-  color: var(--on-stone);
+  background: var(--solid);
+  color: var(--on-solid);
 }
 
 .palette__icon {
@@ -107,7 +107,7 @@
 }
 
 .palette__item.is-sel .palette__sub {
-  color: var(--on-stone-2);
+  color: var(--on-solid-2);
 }
 
 .palette__empty {

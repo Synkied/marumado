@@ -80,7 +80,7 @@
 
 .codeview .cm-panel.cm-search {
   padding: var(--sp-4) var(--sp-5);
-  font-family: var(--f-display);
+  font-family: var(--f-sans);
 }
 
 .codeview .cm-panel.cm-search input,
@@ -90,7 +90,7 @@
   color: var(--ink);
   background: transparent;
   border: 1px solid var(--rule-soft);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-control);
   padding: var(--sp-1) var(--sp-5);
 }
 

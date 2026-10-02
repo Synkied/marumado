@@ -6,43 +6,45 @@ import { Dial } from './Dial'
 import { Icon } from './Icon'
 import './garden.css'
 
-/* Where each pinned module's stone lies, in reading order: x and y as fractions of the garden, s as its size.
-   The first pin is the principal stone; the others gather in uneven groups around it, never on a grid.
-   Any prefix of the list stays balanced, and no stone ever lies inside another's ripples (checked from
-   1000×560 up to 2400×1150). */
+/* Where each pinned module's chart lies, in reading order: x and y as fractions of the table, s as its size.
+   The first pin is the principal chart; the others gather in uneven groups around it, never on a grid.
+   Any prefix of the list stays balanced, and no two charts overlap (checked from 1000×560 up to 2400×1150). */
 const SLOTS: [number, number, number][] = [
-  [0.27, 0.44, 1.0],
-  [0.63, 0.25, 0.64],
-  [0.82, 0.66, 0.78],
-  [0.07, 0.8, 0.5],
-  [0.5, 0.8, 0.54],
-  [0.93, 0.2, 0.44],
-  [0.43, 0.12, 0.36],
-  [0.64, 0.58, 0.4],
-  [0.08, 0.17, 0.38],
-  [0.96, 0.92, 0.36],
-  [0.34, 0.92, 0.34],
+  [0.229, 0.36, 0.98],
+  [0.535, 0.27, 0.68],
+  [0.814, 0.39, 0.74],
+  [0.139, 0.8, 0.44],
+  [0.392, 0.79, 0.46],
+  [0.639, 0.77, 0.52],
+  [0.868, 0.79, 0.46],
+  [0.94, 0.11, 0.34],
+  [0.5, 0.6, 0.34],
+  [0.71, 0.1, 0.32],
+  [0.05, 0.09, 0.28],
 ]
 
-const RAKE_GAP = 13
+const MINOR = 16 // px between the graticule's fine lines
+const MAJOR = 5 // fine lines per major division
 
-/** The raked gravel: long, slightly wavering lines, redrawn to the garden's size. */
-function Rake({ width, height }: { width: number; height: number }) {
+/** The chart table's graticule: fine lines every 16px, a major division every fifth, aligned to the table's centre. */
+function Graticule({ width, height }: { width: number; height: number }) {
   if (!width || !height) return null
-  const lines: string[] = []
-  const step = 24
-  for (let y = RAKE_GAP / 2, i = 0; y < height + RAKE_GAP; y += RAKE_GAP, i++) {
-    let d = ''
-    for (let x = -step; x <= width + step; x += step) {
-      // Two slow waves, so the rake looks drawn by hand rather than by a sine.
-      const dy = 2.6 * Math.sin(x / 260 + i * 0.07) + 1.4 * Math.sin(x / 97 + i * 0.19)
-      d += `${d ? 'L' : 'M'}${x} ${(y + dy).toFixed(1)}`
-    }
-    lines.push(d)
-  }
+  const span = MINOR * MAJOR
+  // Centred, so the grid sits square to the table whatever its size.
+  const ox = (width / 2) % span
+  const oy = (height / 2) % span
   return (
-    <svg className="garden__rake" width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
-      <path d={lines.join('')} />
+    <svg className="garden__grid" width={width} height={height} aria-hidden="true">
+      <defs>
+        <pattern id="graticule-minor" width={MINOR} height={MINOR} patternUnits="userSpaceOnUse" x={ox} y={oy}>
+          <path d={`M${MINOR} 0V${MINOR}M0 ${MINOR}H${MINOR}`} className="garden__minor" />
+        </pattern>
+        <pattern id="graticule-major" width={span} height={span} patternUnits="userSpaceOnUse" x={ox} y={oy}>
+          <path d={`M${span} 0V${span}M0 ${span}H${span}`} className="garden__major" />
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#graticule-minor)" />
+      <rect width="100%" height="100%" fill="url(#graticule-major)" />
     </svg>
   )
 }
@@ -63,23 +65,23 @@ function useSize<T extends HTMLElement>() {
   return [ref, size] as const
 }
 
-const GAP = 10 // px of gravel kept between two stones
-const STEP = 0.01 // how far Shift + an arrow key moves a stone, as a fraction of the garden
-const SIZES = [0.3, 1.15] // the smallest and largest a stone can be set, as a share of --base
-const GROW = 0.04 // how much + or − changes a stone's size
-const NEW_SIZE = 0.5 // a stone newly set in the garden
+const GAP = 10 // px of paper kept between two charts
+const STEP = 0.01 // how far Shift + an arrow key moves a chart, as a fraction of the table
+const SIZES = [0.24, 1.1] // the smallest and largest a chart can be set, as a share of --base
+const GROW = 0.04 // how much + or − changes a chart's size
+const NEW_SIZE = 0.4 // a chart newly laid on the table
 const LONG_PRESS = 500 // ms
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 const narrow = () => window.matchMedia('(max-width: 860px)').matches
 
 type Drag = { id: ModuleId; kind: 'move' | 'size'; pointer: number; px: number; py: number; from: Place; moved: boolean }
-/** The menu a long press or right-click opens: on a stone, or on empty gravel at x, y (px in the garden). */
-type Menu = { x: number; y: number; stone?: ModuleId }
+/** The menu a long press or right-click opens: on a chart, or on empty paper at x, y (px in the table). */
+type Menu = { x: number; y: number; chart?: ModuleId }
 
-/** Home: every pinned module as a stone in a raked dry garden. Drag a stone to set it where you like, drag its rim
-    grip to size it, long-press (or right-click) the gravel to set a new stone or a stone to lift it out, and save the
-    arrangement when it's right. Choosing a stone opens its module. */
+/** Home: every pinned module as a circular chart laid on the recorder's table. Drag a chart to set it where you like,
+    drag its rim grip to size it, long-press (or right-click) the paper to lay a new chart or a chart to take it off, and
+    save the layout when it's right. Choosing a chart opens its module. */
 export function Garden({ arrangement, onArrange }: { arrangement: Arrangement; onArrange: () => void }) {
   const { pins, places, dirty, edit, save, discard } = arrangement
   const summaries = useSummaries()
@@ -92,31 +94,31 @@ export function Garden({ arrangement, onArrange }: { arrangement: Arrangement; o
   const menuRef = useRef<HTMLDivElement>(null)
 
   const { width: W, height: H } = size
-  // Mirrors garden.css: one stone's ripple width is --base × its size, and the stone itself is 54% of that.
+  // Mirrors garden.css: a chart's diameter is --base × its size.
   const base = Math.min(0.34 * W, 0.62 * H)
-  const radius = (s: number) => base * s * 0.27
-  const stones = pins.map((id, i) => {
+  const radius = (s: number) => base * s * 0.5
+  const charts = pins.map((id, i) => {
     const [x, y, s] = SLOTS[i % SLOTS.length]
     const at = lifted?.id === id ? lifted.at : (places[id] ?? { x, y })
     return { id, i, at: { ...at, s: at.s ?? s } as Required<Place> }
   })
-  const placed = (id: ModuleId) => stones.find((st) => st.id === id)?.at
+  const placed = (id: ModuleId) => charts.find((st) => st.id === id)?.at
 
-  /** Keeps a stone wholly on the gravel, at a size the garden can hold. */
+  /** Keeps a chart wholly on the table, at a size the table can hold. */
   const inBounds = (at: Required<Place>): Required<Place> => {
     const s = clamp(at.s, SIZES[0], Math.min(SIZES[1], Math.min(W, H) / 2 / radius(1)))
     const r = radius(s)
     return { x: clamp(at.x, r / W, 1 - r / W), y: clamp(at.y, r / H, 1 - r / H), s }
   }
 
-  /** Where a set-down stone comes to rest: on the gravel, and nudged clear of any stone it was dropped onto or grown into. */
+  /** Where a set-down chart comes to rest: on the table, and nudged clear of any chart it was dropped onto or grown into. */
   const settle = (id: ModuleId, at: Required<Place>): Required<Place> => {
     const { s } = inBounds(at)
     const r = radius(s)
     let px = at.x * W
     let py = at.y * H
     for (let pass = 0; pass < 4; pass++) {
-      for (const o of stones) {
+      for (const o of charts) {
         if (o.id === id) continue
         const ox = o.at.x * W
         const oy = o.at.y * H
@@ -138,9 +140,9 @@ export function Garden({ arrangement, onArrange }: { arrangement: Arrangement; o
 
   const set = (id: ModuleId, at: Required<Place>) => edit({ places: { ...places, [id]: settle(id, at) } })
 
-  // Adding or lifting a stone changes which authored slot the others would fall back to, so every stone is
+  // Adding or removing a chart changes which authored slot the others would fall back to, so every chart is
   // first held where it lies now.
-  const held = (): Places => Object.fromEntries(stones.map((st) => [st.id, st.at]))
+  const held = (): Places => Object.fromEntries(charts.map((st) => [st.id, st.at]))
 
   const lift = (id: ModuleId) => {
     const next = held()
@@ -154,7 +156,7 @@ export function Garden({ arrangement, onArrange }: { arrangement: Arrangement; o
     setMenu(null)
   }
 
-  /** Where the stone under a drag is now: moved with the pointer, or sized so its rim follows the pointer. */
+  /** Where the chart under a drag is now: moved with the pointer, or sized so its rim follows the pointer. */
   const follow = (d: Drag, e: ReactPointerEvent): Required<Place> => {
     const from = { ...d.from, s: d.from.s ?? placed(d.id)!.s }
     if (d.kind === 'move') return inBounds({ ...from, x: from.x + (e.clientX - d.px) / W, y: from.y + (e.clientY - d.py) / H })
@@ -191,16 +193,16 @@ export function Garden({ arrangement, onArrange }: { arrangement: Arrangement; o
     press.current = null
   }
 
-  const stoneMenu = (id: ModuleId) => {
+  const chartMenu = (id: ModuleId) => {
     const at = placed(id)!
-    setMenu({ stone: id, x: at.x * W, y: at.y * H })
+    setMenu({ chart: id, x: at.x * W, y: at.y * H })
   }
 
   const handlers = (id: ModuleId, kind: Drag['kind']) => ({
     onPointerDown: (e: ReactPointerEvent) => {
       if (e.button !== 0) return
       swallowClick.current = false
-      if (kind === 'move') pressStart(e, () => stoneMenu(id))
+      if (kind === 'move') pressStart(e, () => chartMenu(id))
       if (!W || narrow()) return
       if (kind === 'size') e.preventDefault()
       // Captured at once: a grip is small, and the first move already leaves it.
@@ -283,33 +285,33 @@ export function Garden({ arrangement, onArrange }: { arrangement: Arrangement; o
           if ((e.target as Element).closest('.garden__menu')) return
           e.preventDefault()
           pressEnd()
-          const stone = (e.target as Element).closest<HTMLElement>('[data-stone]')?.dataset.stone as ModuleId | undefined
-          if (stone) stoneMenu(stone)
+          const chart = (e.target as Element).closest<HTMLElement>('[data-chart]')?.dataset.chart as ModuleId | undefined
+          if (chart) chartMenu(chart)
           else setMenu(inGarden(e))
         }}
       >
-        <Rake {...size} />
-        <ul className="garden__stones">
-          {stones.map(({ id, i, at }) => {
+        <Graticule {...size} />
+        <ul className="garden__charts">
+          {charts.map(({ id, i, at }) => {
             const s = summaries[id]
             const m = meta(id)
             const tone = s?.off ? 'off' : s?.fault ? 'signal' : 'ink'
             const reading = [s?.value, s?.caption, s?.subject].filter(Boolean).join(', ')
-            // A stone that needs you is never quiet, whatever its numbers say; one still waiting for them is.
+            // A chart that needs you is never quiet, whatever its numbers say; one still waiting for them is.
             const quiet = !s || (!!s.quiet && !s.fault && !s.off)
             return (
               <li
                 key={id}
-                data-stone={id}
+                data-chart={id}
                 className={`garden__spot${lifted?.id === id ? ' is-lifted' : ''}`}
                 style={{ '--x': at.x, '--y': at.y, '--s': at.s, '--i': i } as CSSProperties}
               >
                 <a
-                  className={`stone mod-${id}${s?.fault ? ' is-fault' : ''}${s?.off ? ' is-off' : ''}`}
+                  className={`chart mod-${id}${s?.fault ? ' is-fault' : ''}${s?.off ? ' is-off' : ''}`}
                   href={`#/m/${id}`}
                   draggable={false}
                   aria-label={reading ? `${m.label}: ${reading}` : m.label}
-                  title="Drag to move this stone (or Shift + arrow keys); + and − size it; long-press to lift it out"
+                  title="Drag to move this chart (or Shift + arrow keys); + and − size it; long-press to take it off"
                   {...handlers(id, 'move')}
                   onClick={(e) => {
                     // The click that ends a drag or a long press doesn't open the module.
@@ -332,13 +334,14 @@ export function Garden({ arrangement, onArrange }: { arrangement: Arrangement; o
                     caption={s?.subject ?? s?.caption}
                     quiet={quiet}
                     busy={!!s?.busy && !s.off}
+                    chart={s?.chart}
                   />
                 </a>
-                {/* A grip on the rim: drag it out to grow the stone, in to shrink it. */}
+                {/* A grip on the rim: drag it out to grow the chart, in to shrink it. */}
                 <button
-                  className="stone__grip"
+                  className="chart__grip"
                   type="button"
-                  aria-label={`Resize the ${m.label} stone`}
+                  aria-label={`Resize the ${m.label} chart`}
                   title="Drag to resize; arrow keys also work"
                   {...handlers(id, 'size')}
                   onKeyDown={(e) => resizeKey(id, e, { ArrowUp: 1, ArrowRight: 1, '+': 1, '=': 1, ArrowDown: -1, ArrowLeft: -1, '-': -1 })}
@@ -352,26 +355,26 @@ export function Garden({ arrangement, onArrange }: { arrangement: Arrangement; o
             ref={menuRef}
             className="garden__menu"
             role="menu"
-            aria-label={menu.stone ? meta(menu.stone).label : 'Set a stone here'}
-            // Opens toward the open side of the garden, so it never runs off the gravel.
+            aria-label={menu.chart ? meta(menu.chart).label : 'Add a chart here'}
+            // Opens toward the open side of the table, so it never runs off it.
             style={{
               left: clamp(menu.x, 8, Math.max(8, W - 228)),
               ...(menu.y > H / 2 ? { bottom: H - menu.y } : { top: menu.y }),
             }}
           >
-            {menu.stone ? (
+            {menu.chart ? (
               <>
-                <p className="garden__menu-title">{meta(menu.stone).label}</p>
-                <a className="garden__menu-item" role="menuitem" href={`#/m/${menu.stone}`} onClick={() => setMenu(null)}>
+                <p className="garden__menu-title">{meta(menu.chart).label}</p>
+                <a className="garden__menu-item" role="menuitem" href={`#/m/${menu.chart}`} onClick={() => setMenu(null)}>
                   Open
                 </a>
-                <button className="garden__menu-item" role="menuitem" type="button" disabled={pins.length === 1} onClick={() => lift(menu.stone!)}>
-                  Lift out of the garden
+                <button className="garden__menu-item" role="menuitem" type="button" disabled={pins.length === 1} onClick={() => lift(menu.chart!)}>
+                  Take off home
                 </button>
               </>
             ) : (
               <>
-                <p className="garden__menu-title">Set a stone here</p>
+                <p className="garden__menu-title">Add a chart here</p>
                 {unpinned.length ? (
                   unpinned.map((m) => (
                     <button key={m.id} className={`garden__menu-item mod-${m.id}`} role="menuitem" type="button" onClick={() => add(m.id, menu.x, menu.y)}>
@@ -380,33 +383,33 @@ export function Garden({ arrangement, onArrange }: { arrangement: Arrangement; o
                     </button>
                   ))
                 ) : (
-                  <p className="garden__menu-empty">Every module already lies in the garden.</p>
+                  <p className="garden__menu-empty">Every module is already on home.</p>
                 )}
               </>
             )}
           </div>
         )}
       </div>
-      {/* Below the gravel, never on it, so it can't cover a stone however many are pinned. */}
+      {/* Below the table, never on it, so it can't cover a chart however many are pinned. */}
       <div className="garden__foot">
         {dirty ? (
           <>
-            <span className="garden__note">Unsaved arrangement</span>
-            <button className="garden__arrange" type="button" onClick={discard} title="Put the garden back as it was last saved">
+            <span className="garden__note">Unsaved layout</span>
+            <button className="garden__arrange" type="button" onClick={discard} title="Put the charts back as they were last saved">
               Discard
             </button>
             <button className="garden__arrange garden__save" type="button" onClick={save}>
-              Save arrangement
+              Save layout
             </button>
           </>
         ) : (
           Object.keys(places).length > 0 && (
-            <button className="garden__arrange" type="button" onClick={() => edit({ places: {} })} title="Put every stone back where it first lay, at its first size">
-              Reset stones
+            <button className="garden__arrange" type="button" onClick={() => edit({ places: {} })} title="Put every chart back where it first lay, at its first size">
+              Reset layout
             </button>
           )
         )}
-        <button className="garden__arrange" type="button" onClick={onArrange} title="Choose which modules lie in the garden">
+        <button className="garden__arrange" type="button" onClick={onArrange} title="Choose which modules are on home">
           <Icon name="sliders" size={16} /> Arrange
         </button>
       </div>

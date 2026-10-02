@@ -252,7 +252,7 @@ function ProjectDetail({ p }: { p: Project }) {
             <h3>
               {t === 'online' ? 'Live' : 'Local'} response time · {p.status[t].uptime_percent}% up
             </h3>
-            <DotChart values={p.status[t].latency} tone={p.status[t].latest?.ok === false ? 'signal' : 'ink'} label={`${t} latency`} unit=" ms" />
+            <DotChart values={p.status[t].latency} tone={p.status[t].latest?.ok === false ? 'signal' : 'ink'} label={`${t} latency`} unit=" ms" span={`${p.status[t].latency.length} min`} />
           </section>
         ) : null,
       )}

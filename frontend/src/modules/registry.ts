@@ -1,9 +1,24 @@
 import type { IconName } from '../components/Icon'
 import { ago } from '../lib/format'
 import { pace, skillMap, tracked } from '../lib/growth'
+import { downsample, niceMax } from '../lib/chart'
+import type { HistoryPoint } from '../lib/types'
 import type { ModuleId } from '../lib/hub'
 import { useHub } from '../lib/hub'
 import { useMachines } from '../lib/machines'
+
+/** One item on a lanes chart: on (running, working, up), done, off (idle, stopped), or fault (needs you). */
+export type Lane = 'on' | 'done' | 'off' | 'fault'
+
+/** What a channel's pen has drawn on its disc.
+    trace: readings 0..1, oldest first, a null where there was none (a gap); ticks: event counts per slot;
+    lanes: one arc per item. `span` is how much time the disc holds, printed at its foot. */
+export type Chart =
+  | { kind: 'trace'; values: (number | null)[]; span: string }
+  | { kind: 'ticks'; values: number[]; span: string }
+  | { kind: 'lanes'; items: Lane[] }
+
+const minutes = (history: HistoryPoint[]) => (history.length > 1 ? `${Math.max(1, Math.round((history[history.length - 1].t - history[0].t) / 60))} min` : 'now')
 
 export type Summary = {
   value: string
@@ -11,12 +26,14 @@ export type Summary = {
   caption?: string
   fault: boolean
   off?: boolean
-  /** Nothing to look at right now (nothing running, nothing open): the stone pales but keeps its mineral. */
+  /** Nothing to look at right now (nothing running, nothing open): the pen draws lighter. */
   quiet?: boolean
-  /** Something is at work (an agent, a task, a busy CPU): ripples spread slowly from the stone. */
+  /** Something is at work (an agent, a task, a busy CPU): the pen tip pulses. */
   busy?: boolean
-  /** The one thing that matters most, by name ("zen-designer · working"), shown on the stone in the garden. */
+  /** The one thing that matters most, by name ("zen-designer · working"), shown on the disc on the home table. */
   subject?: string
+  /** The channel's recent record, drawn around its disc. */
+  chart?: Chart
 }
 
 /** A first name, and how many more stand behind it: "web", "web +2". */
@@ -40,9 +57,33 @@ export const MODULES: ModuleMeta[] = [
 
 export const meta = (id: ModuleId) => MODULES.find((m) => m.id === id)!
 
+/** Commits per week summed over every project, oldest first. */
+function weeklyCommits(projects: { detected: { weekly_commits?: number[] } }[]): number[] {
+  const weeks = Math.max(0, ...projects.map((p) => p.detected.weekly_commits?.length ?? 0))
+  const out = Array<number>(weeks).fill(0)
+  for (const p of projects) {
+    const w = p.detected.weekly_commits ?? []
+    w.forEach((n, i) => (out[weeks - w.length + i] += n))
+  }
+  return out
+}
+
+/** Every live URL's latency, aligned on the newest check (one a minute): the slowest site at each minute, scaled to
+    a round top, and a gap wherever any site failed. */
+function latencyTrace(series: (number | null)[][]): Chart {
+  const n = Math.max(0, ...series.map((s) => s.length))
+  const values: (number | null)[] = []
+  for (let i = 0; i < n; i++) {
+    const at = series.map((s) => s[s.length - n + i]).filter((v) => v !== undefined)
+    values.push(at.some((v) => v === null) ? null : Math.max(0, ...(at as number[])))
+  }
+  const top = niceMax(Math.max(0, ...values.filter((v): v is number => v != null)))
+  return { kind: 'trace', values: values.map((v) => (v == null ? null : v / top)), span: `${n} min` }
+}
+
 /** One dial's worth of state for every module. */
 export function useSummaries(): Record<ModuleId, Summary | null> {
-  const { system, projects, ports, docker, agents, tasks, skills, alerts } = useHub()
+  const { system, history, projects, ports, docker, agents, tasks, skills, alerts } = useHub()
   const { machines } = useMachines()
   const faulty = new Set(alerts.map((a) => a.module))
 
@@ -58,6 +99,8 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
       fault: faulty.has('projects'),
       quiet: !running.length,
       subject: running.length ? `${names(running.map((p) => p.name))} running` : latest ? `${latest.name} · ${ago(latest.detected.last_commit_at)}` : undefined,
+      // Commits per week across every project, as event ticks round the rim.
+      chart: { kind: 'ticks', values: weeklyCommits(code), span: '12 wk' },
     }
   }
 
@@ -69,6 +112,7 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
         fault: faulty.has('machine'),
         quiet: system.cpu.percent < 15 && system.memory.percent < 70,
         busy: system.cpu.percent >= 50,
+        chart: { kind: 'trace', values: downsample(history.map((h) => h.cpu / 100), 180), span: minutes(history) },
       }
     : null
 
@@ -85,6 +129,7 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
           fault: faulty.has('urls'),
           quiet: !down.length,
           subject: down.length ? `${names(down)} down` : undefined,
+          chart: latencyTrace(checked.map((p) => p.status.online.latency)),
         }
       : { value: '—', fraction: null, caption: 'no live URLs yet', fault: false, quiet: true }
   }
@@ -99,6 +144,7 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
       fault: false,
       quiet: !linked.length,
       subject: linked.length ? names(linked.map((p) => `:${p.port} ${p.project!.name}`)) : undefined,
+      chart: { kind: 'lanes', items: [...ports].sort((a, b) => a.port - b.port).map((p) => (p.project ? 'on' : 'off')) },
     }
   }
 
@@ -113,6 +159,7 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
           fault: faulty.has('docker'),
           quiet: !running.length,
           subject: running.length ? names(running.map((c) => c.compose_project || c.name)) : undefined,
+          chart: { kind: 'lanes', items: docker.containers.map((c) => (c.health === 'unhealthy' ? 'fault' : c.status === 'running' ? 'on' : 'off')) },
         }
       : { value: 'OFF', fraction: null, caption: 'not available', fault: false, off: true }
   }
@@ -125,6 +172,7 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
         fault: false,
         quiet: system.cpu.load[0] / system.host.cores_logical < 0.3,
         busy: system.cpu.load[0] / system.host.cores_logical >= 0.7,
+        chart: { kind: 'trace', values: downsample(history.map((h) => h.mem / 100), 180), span: `mem · ${minutes(history)}` },
       }
     : null
 
@@ -148,6 +196,7 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
               : live.length
                 ? 'all resting'
                 : undefined,
+          chart: { kind: 'lanes', items: live.map((a) => (a.status === 'blocked' ? 'fault' : a.status === 'working' ? 'on' : 'off')) },
         }
       : { value: 'OFF', fraction: null, caption: 'Herdr not running', fault: false, off: true }
   }
@@ -177,6 +226,14 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
       quiet: !open.length,
       busy: working.length > 0,
       subject: first?.title,
+      // The latest tasks, oldest first: done ones faded, the ones at work inked, the ones that need you in the alarm pen.
+      chart: {
+        kind: 'lanes',
+        items: [...tasks]
+          .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+          .slice(-24)
+          .map((t) => (t.state === 'blocked' || t.state === 'failed' ? 'fault' : t.state === 'working' || t.state === 'starting' ? 'on' : t.state === 'done' || t.state === 'review' ? 'done' : 'off')),
+      },
     }
   }
 
@@ -191,6 +248,7 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
       caption: faulty.has('momentum') ? 'push slipping' : undecided ? `${undecided} to decide` : 'moving',
       fault: faulty.has('momentum'),
       quiet: !moving && !undecided,
+      chart: { kind: 'lanes', items: judged.map((p) => (faulty.has('momentum') && p.focus === 'push' && pace(p) !== 'moving' ? 'fault' : pace(p) === 'moving' ? 'on' : pace(p) === 'slowing' ? 'done' : 'off')) },
     }
   }
 
@@ -206,6 +264,7 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
       caption: learning ? `active · ${learning} to learn` : 'active',
       fault: false,
       quiet: !active && !learning,
+      chart: { kind: 'lanes', items: used.map((r) => (r.use === 'active' ? 'on' : r.use === 'cooling' ? 'done' : 'off')) },
     }
   }
 
@@ -220,6 +279,7 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
       fault: faulty.has('machines'),
       quiet: !down.length,
       subject: down.length ? `${names(down.map((m) => m.name))} unreachable` : undefined,
+      chart: { kind: 'lanes', items: machines.map((m) => (m.state === 'down' ? 'fault' : m.state === 'up' ? 'on' : 'off')) },
     }
   }
 
