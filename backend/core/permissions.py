@@ -1,16 +1,21 @@
-import hmac
-
-from django.conf import settings
+from rest_framework.exceptions import Throttled
 from rest_framework.permissions import BasePermission
+
+from . import auth
 
 
 class MarumadoToken(BasePermission):
-    """Open when MARUMADO_TOKEN is unset (localhost use); otherwise require the bearer token."""
+    """A logged-in browser (session cookie), or `Authorization: Bearer <token>`. Always required, localhost included."""
 
     def has_permission(self, request, view):
-        token = settings.MARUMADO_TOKEN
-        if not token:
-            return True
-        header = request.headers.get('Authorization', '')
-        given = header.removeprefix('Bearer ').strip() or request.query_params.get('token', '')
-        return hmac.compare_digest(given, token)
+        address = request.META.get('REMOTE_ADDR', '')
+        given = auth.bearer(request.headers.get('Authorization', ''))
+        try:
+            if given is not None:
+                return auth.try_token(address, given)
+            auth.check_locked(address)
+        except auth.Locked as exc:
+            raise Throttled(detail=str(exc))
+        if not auth.session_ok(request.session):
+            return False
+        return request.method in auth.SAFE_METHODS or request.headers.get(auth.CSRF_HEADER) == '1'

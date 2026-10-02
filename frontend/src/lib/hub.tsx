@@ -30,6 +30,7 @@ type Hub = {
   refreshProjects: () => void
   refreshDocker: () => void
   refreshSkills: () => void
+  refreshAgents: () => void
 }
 
 const HubContext = createContext<Hub | null>(null)
@@ -184,6 +185,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
     refreshProjects: projects.refresh,
     refreshDocker: docker.refresh,
     refreshSkills: skills.refresh,
+    refreshAgents: agents.refresh,
   }
   return <HubContext.Provider value={value}>{children}</HubContext.Provider>
 }

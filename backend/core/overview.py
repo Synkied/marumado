@@ -30,7 +30,7 @@ def _cached_agents() -> dict:
 
 def _agents_digest() -> dict:
     data = _cached_agents()
-    live = data['agents']
+    live = [a for a in data['agents'] if a['kind'] != 'terminal']
     blocked = []
     for a in live:
         if a['status'] == 'blocked':

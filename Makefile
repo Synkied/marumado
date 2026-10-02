@@ -3,7 +3,7 @@ COMPOSE ?= docker compose
 SERVICE := marumado
 
 .DEFAULT_GOAL := help
-.PHONY: help env mounts up down restart build rebuild logs ps shell scan migrate secret token clean dev
+.PHONY: help env mounts up down restart build rebuild logs ps shell scan migrate secret token access-token clean dev
 
 help: ## List the shortcuts
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  \033[1m%-9s\033[0m %s\n", $$1, $$2}'
@@ -48,6 +48,9 @@ migrate: ## Apply database migrations
 
 secret: ## Print a random secret key
 	@openssl rand -hex 32 2>/dev/null || python3 -c "import secrets;print(secrets.token_hex(32))"
+
+access-token: ## Print the access token the browser asks for
+	$(COMPOSE) exec $(SERVICE) python manage.py token
 
 token: ## Print a random access token for MARUMADO_TOKEN
 	@openssl rand -hex 16 2>/dev/null || python3 -c "import secrets;print(secrets.token_hex(16))"

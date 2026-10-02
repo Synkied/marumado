@@ -3,7 +3,7 @@ import '@xterm/xterm/css/xterm.css'
 import '@fontsource/ubuntu-mono/400.css'
 import '@fontsource/ubuntu-mono/700.css'
 import { useEffect, useRef, useState } from 'react'
-import { apiPath, getToken } from '../lib/api'
+import { apiPath } from '../lib/api'
 import './terminal.css'
 
 type Link = { state: 'connecting' | 'live' | 'closed'; message: string; takeover: boolean }
@@ -125,8 +125,6 @@ export function Terminal({ paneId, control, phone = false, fit: fitWanted = fals
     const send = (msg: object) => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify(msg))
     const connect = () => {
       const q = new URLSearchParams()
-      const token = getToken()
-      if (token) q.set('token', token)
       if (attempt.takeover || refit) q.set('takeover', '1')
       const g = fit ? grid() : null
       if (g) {

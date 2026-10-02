@@ -3,6 +3,7 @@ import { Dial } from './components/Dial'
 import { Icon } from './components/Icon'
 import { Palette } from './components/Palette'
 import { TokenGate } from './components/TokenGate'
+import { logOut } from './lib/api'
 import { bytes } from './lib/format'
 import { CPU_BUDGET, MEM_BUDGET, useHub, type ModuleId } from './lib/hub'
 import { useMachines } from './lib/machines'
@@ -70,6 +71,16 @@ function StreamingToggle() {
       <Icon name={on ? 'eye-off' : 'eye'} size={18} />
       <span className="sr-only">Streaming mode</span>
       {on && <span className="stream__text">Streaming</span>}
+    </button>
+  )
+}
+
+/** Log this browser out; the next visit asks for the access token again. */
+function LockButton() {
+  return (
+    <button className="stream" type="button" onClick={logOut} title="Log out: this browser will ask for the access token again">
+      <Icon name="lock" size={18} />
+      <span className="sr-only">Log out</span>
     </button>
   )
 }
@@ -229,7 +240,7 @@ function ArrangeSheet({ pins, setPins, onDone }: { pins: ModuleId[]; setPins: (p
 
 type ActiveItem = { key: string; icon: string; label: string; href: string; state: 'on' | 'fault'; title: string }
 
-/** What is live right now, in the top bar: for now, agents that are working or waiting on you. */
+/** What is live right now, in the top bar: for now, agents that are working or waiting on you. Always shown, so the bar doesn't shift. */
 function ActiveNow() {
   const { agents } = useHub()
   const items = useMemo<ActiveItem[]>(
@@ -247,23 +258,26 @@ function ActiveNow() {
         })),
     [agents],
   )
-  if (!items.length) return null
   return (
     <section className="active" aria-labelledby="active-title">
       <h2 className="active__title" id="active-title">
         Active
       </h2>
-      <ul className="active__tiles">
-        {items.map((it) => (
-          <li className={`tile${it.state === 'fault' ? ' is-fault' : ''}`} key={it.key}>
-            <a className="tile__main" href={it.href} title={`${it.label} (${it.title})`}>
-              <Icon name={it.icon} size={18} />
-              <span className="tile__name">{it.label}</span>
-              <span className={`tile__live${it.state === 'fault' ? ' tile__live--fault' : ''}`}>{it.state === 'fault' ? 'needs you' : 'working'}</span>
-            </a>
-          </li>
-        ))}
-      </ul>
+      {items.length ? (
+        <ul className="active__tiles">
+          {items.map((it) => (
+            <li className={`tile${it.state === 'fault' ? ' is-fault' : ''}`} key={it.key}>
+              <a className="tile__main" href={it.href} title={`${it.label} (${it.title})`}>
+                <Icon name={it.icon} size={18} />
+                <span className="tile__name">{it.label}</span>
+                <span className={`tile__live${it.state === 'fault' ? ' tile__live--fault' : ''}`}>{it.state === 'fault' ? 'needs you' : 'working'}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <span className="active__empty">No agents working</span>
+      )}
     </section>
   )
 }
@@ -293,7 +307,8 @@ function useSidebarOpen(): [boolean, () => void] {
 
 export default function App() {
   const route = useRoute()
-  const [pins, setPins] = usePins()
+  const { current } = useMachines()
+  const [pins, setPins] = usePins(current)
   const [arranging, setArranging] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const narrow = useIsNarrow()
@@ -324,6 +339,7 @@ export default function App() {
             <Wordmark />
             <MachinePicker />
             <StreamingToggle />
+            <LockButton />
           </div>
           <ActiveNow />
           <button className="search" type="button" onClick={() => setPaletteOpen(true)}>

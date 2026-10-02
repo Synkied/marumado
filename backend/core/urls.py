@@ -9,6 +9,7 @@ router.register('skills', views.SkillViewSet, basename='skill')
 router.register('machines', views.MachineViewSet, basename='machine')
 
 urlpatterns = [
+    path('auth', views.auth_view),
     path('overview', views.overview_view),
     path('system', views.system),
     path('system/history', views.history),
@@ -24,8 +25,10 @@ urlpatterns = [
     path('files', views.file_list),
     path('files/read', views.file_read),
     path('agents', views.agents),
+    path('agents/terminal', views.agent_terminal),
     path('agents/<str:pane_id>/output', views.agent_output),
     path('agents/<str:pane_id>/input', views.agent_input),
+    path('agents/<str:pane_id>/close', views.agent_close),
     path('machines/<int:pk>/retry', views.machine_retry),  # before the proxy, which takes every other path
     path('machines/<int:pk>/<path:rest>', views.machine_proxy),
     *router.urls,

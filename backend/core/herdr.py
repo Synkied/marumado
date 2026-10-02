@@ -1,4 +1,4 @@
-"""The coding agents running in Herdr (https://herdr.dev): list them, read them, and stream their terminal.
+"""The coding agents (and plain terminals) running in Herdr (https://herdr.dev): list them, read them, open a terminal, and stream it.
 
 Listing and reading never touch an agent. The live terminal (core/terminal.py) types into it only in
 `control` mode (as does send(), the phone-sized prompt box), which MARUMADO_HERDR_TERMINAL can turn down to `observe` or `off`.
@@ -110,7 +110,8 @@ def _run(*args: str, text: bool = False):
 def agents() -> dict:
     """Every live agent with its state and what its terminal says it is doing."""
     try:
-        listed = _run('agent', 'list')['agents']
+        # Every pane, so plain shells (from New terminal, say) can be watched too.
+        listed = _run('pane', 'list')['panes']
         workspaces = {w['workspace_id']: w.get('label') or '' for w in _run('workspace', 'list')['workspaces']}
     except (RuntimeError, ValueError, KeyError, OSError) as exc:
         return {'available': False, 'error': str(exc), 'where': where(), 'terminal': terminal_mode(), 'agents': []}
@@ -119,7 +120,7 @@ def agents() -> dict:
         rows.append({
             'pane_id': a['pane_id'],
             'name': a.get('name') or '',
-            'kind': a.get('agent') or 'agent',
+            'kind': a.get('agent') or 'terminal',
             'status': a.get('agent_status') or 'unknown',
             'title': a.get('terminal_title_stripped') or '',
             'cwd': a.get('foreground_cwd') or a.get('cwd') or '',
@@ -169,6 +170,25 @@ def send(pane_id: str, text: str = '', keys: tuple[str, ...] = ()) -> None:
         # Not a recognised agent (a plain shell, say): type the text and press Enter.
         _run('pane', 'send-text', pane_id, text, text=True)
         _run('pane', 'send-keys', pane_id, 'enter', text=True)
+
+
+def new_terminal(near: str = '') -> dict:
+    """Open a shell in a new Herdr tab: beside pane `near` (its workspace and folder), or in a new workspace."""
+    if near:
+        if not PANE_ID.match(near):
+            raise ValueError('Not a Herdr pane id.')
+        pane = _run('pane', 'get', near)['pane']
+        cwd = pane.get('foreground_cwd') or pane.get('cwd') or ''
+        made = _run('tab', 'create', '--workspace', pane['workspace_id'], *(['--cwd', cwd] if cwd else []), '--no-focus')
+    else:
+        made = _run('workspace', 'create', '--no-focus')
+    return {'pane_id': made['root_pane']['pane_id']}
+
+def close(pane_id: str) -> None:
+    """Close a pane, and whatever runs in it (an agent too)."""
+    if not PANE_ID.match(pane_id):
+        raise ValueError('Not a Herdr pane id.')
+    _run('pane', 'close', pane_id)
 
 
 def terminal_command(pane_id: str, cols: int, rows: int, control: bool, takeover: bool = False) -> tuple[list[str], dict | None]:

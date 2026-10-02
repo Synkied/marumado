@@ -654,8 +654,37 @@ function useFitPreference(): [boolean, (on: boolean) => void] {
   return [fit, set]
 }
 
+/** Opens a shell in a new Herdr tab, beside the pane being watched, and switches to it. */
+function NewTerminal({ near }: { near?: string }) {
+  const { refreshAgents } = useHub()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const open = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const made = await api<{ pane_id: string }>('agents/terminal', { method: 'POST', json: { near } })
+      refreshAgents()
+      go(`#/m/agents/${made.pane_id}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't open a terminal.")
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <button className="btn" type="button" onClick={open} disabled={busy} title={error || 'Open a shell in a new Herdr tab, in the same folder'}>
+        {busy ? 'Opening…' : 'New terminal'}
+      </button>
+      {error && <span className="signal-text" role="alert">{error}</span>}
+    </>
+  )
+}
+
 function AgentsSheet({ sub }: { sub?: string }) {
-  const { agents, projects } = useHub()
+  const { agents, projects, refreshAgents } = useHub()
+  const [closeError, setCloseError] = useState('')
   const narrow = useIsNarrow()
   const [view, setView] = useState<'text' | 'screen'>('text')
   const [fit, setFit] = useFitPreference()
@@ -671,23 +700,37 @@ function AgentsSheet({ sub }: { sub?: string }) {
   if (!agents.available || !current) {
     return (
       <div className="sheet">
-        <SheetHead id="agents" />
+        <SheetHead id="agents">
+          {mode === 'control' && agents.available && <NewTerminal near={current?.pane_id} />}
+        </SheetHead>
         {!agents.available ? (
           <p className="notice">
             <strong>Herdr isn&rsquo;t reachable <Redacted text={agents.where} />.</strong> <Redacted text={agents.error} /> If your agents run on another machine or VM, set <code>MARUMADO_HERDR_SMOLVM</code> (the smolvm machine name), <code>MARUMADO_HERDR_EXEC</code> or <code>MARUMADO_HERDR_SSH</code> in .env.
           </p>
         ) : (
-          <p className="sheet__lede">Herdr is running <Redacted text={agents.where} />, with no coding agents open.</p>
+          <p className="sheet__lede">Herdr is running <Redacted text={agents.where} />, with nothing open.</p>
         )}
       </div>
     )
   }
 
   const project = projectFor(current)
+  const closePane = async () => {
+    setCloseError('')
+    try {
+      await api(`agents/${encodeURIComponent(current.pane_id)}/close`, { method: 'POST' })
+      refreshAgents()
+      go('#/m/agents')
+    } catch (err) {
+      setCloseError(err instanceof Error ? `Couldn't close it: ${err.message}` : "Couldn't close it.")
+    }
+  }
   return (
     <div className="sheet sheet--fill agents">
       <aside className="agents__side">
-        <SheetHead id="agents" />
+        <SheetHead id="agents">
+          {mode === 'control' && agents.available && <NewTerminal near={current?.pane_id} />}
+        </SheetHead>
         <nav className="agent-tabs" aria-label="Agents">
           {list.map((a) => {
             const lamp = a.status === 'blocked' ? ' row__lamp--fault' : a.status === 'working' ? ' row__lamp--on' : ''
@@ -734,7 +777,13 @@ function AgentsSheet({ sub }: { sub?: string }) {
               {full ? 'Exit full screen' : 'Full screen'}
             </button>
           )}
+          {mode === 'control' && (
+            <ConfirmButton className="agent-fit" confirmLabel={current.kind === 'terminal' ? 'Confirm close' : `Close and end ${current.kind}`} onConfirm={closePane}>
+              Close
+            </ConfirmButton>
+          )}
         </div>
+        {closeError && <p className="notice signal-text">{closeError}</p>}
         {narrow && mode !== 'off' && (
           <div className="seg" role="group" aria-label="View">
             <button type="button" className="seg__btn" aria-pressed={view === 'text'} onClick={() => setView('text')}>

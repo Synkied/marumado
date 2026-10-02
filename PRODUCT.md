@@ -44,7 +44,7 @@ It runs *on* the machine it describes, on every machine, and any one of them can
 - Skills: derived on the client from project stacks plus notable libraries (`detected.libs`, from package.json and Python requirements; mapping in `discovery.LIB_SKILLS`). Active within 30 days of a commit, cooling to 120, rusty after. The `Skill` model only stores the owner's plan (learn / grow / not a skill) and notes. Views: a card grid (default) or a list, per browser.
 - Docker may be absent. The UI must treat "unavailable" as a normal state, not an error.
 - Port→process mapping can be unavailable (sandboxed or containerized hosts, macOS without root). Missing PIDs must degrade gracefully.
-- Security: open on localhost. Any non-localhost bind (phone or teammates) should set `MARUMADO_TOKEN`; destructive actions (kill, container stop) exist, so they need confirmation in the UI.
+- Security: an access token is always required, localhost included (`MARUMADO_TOKEN`, or one generated on first run in `data/access-token`). Browsers trade it once for an HttpOnly session cookie; changes made with the cookie need the `X-Marumado` header; other Marumados send it as a bearer token. Wrong guesses are rate-limited per address. Destructive actions (kill, container stop) exist, so they also need confirmation in the UI.
 - **Open decision:** the user wants Marumado to grow into a hub for "many other things". No single area dominates. The structure must accept new modules without a redesign, and no module should be privileged as the permanent home.
 
 ## Evidence on Hand

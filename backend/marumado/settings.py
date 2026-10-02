@@ -145,9 +145,15 @@ MARUMADO_PROJECT_ROOTS = [
     Path(p.strip()).expanduser()
     for p in re.split(r'[,:]', env('PROJECT_DIRS') or env('PROJECT_ROOTS', '/projects')) if p.strip()
 ]
-# Optional shared secret. When set, every API call needs `Authorization: Bearer <token>`.
-# Set it whenever Marumado listens on anything other than localhost.
-MARUMADO_TOKEN = env('TOKEN', '')
+# The access token, always required (see core/auth.py). When unset, one is made on first run and kept in
+# data/access-token. Browsers log in with it once; other Marumados send `Authorization: Bearer <token>`.
+MARUMADO_TOKEN = env('TOKEN', '').strip()
+
+# The browser's login. Cookies ignore ports, so the port keeps two Marumados (or another Django app) on one host apart.
+SESSION_COOKIE_NAME = f"marumado_{env('PORT', '7878')}"
+SESSION_COOKIE_AGE = 30 * 24 * 3600
+SESSION_COOKIE_SAMESITE = 'Strict'
+SESSION_COOKIE_HTTPONLY = True
 MARUMADO_SAMPLE_SECONDS = float(env('SAMPLE_SECONDS', '2'))
 MARUMADO_HISTORY_POINTS = int(env('HISTORY_POINTS', '900'))  # 30 min at 2s
 MARUMADO_UPTIME_SECONDS = float(env('UPTIME_SECONDS', '60'))

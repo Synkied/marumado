@@ -16,7 +16,7 @@ One hub for every project on this machine, and for the machine itself.
 - **Machines**: watch other machines from this one. Each runs its own Marumado (bound to 127.0.0.1); this one reaches them through SSH tunnels it keeps open. The picker next to the wordmark switches every module to another machine, and the Machines module lists them all with their CPU, memory, and fullest disk. A machine that stops answering, or runs out of disk or memory, shows up under "needs you" whichever machine you're looking at. See [Other machines](#other-machines).
 
 
-Press `/` (or ⌘K / Ctrl+K) anywhere to search projects, processes, ports, and containers. **Arrange** chooses which modules sit on the home panel.
+Press `/` (or ⌘K / Ctrl+K) anywhere to search projects, processes, ports, and containers. **Arrange** chooses which modules sit on the home panel, separately for each machine.
 
 ## Run it with Docker (recommended)
 
@@ -40,16 +40,24 @@ MARUMADO_MOUNTS=/home/me                        # visible only, so folders insid
 
 After changing them, run `make up` (or `make restart`).
 
+### Access token
+
+Marumado always asks for an access token, on localhost too: it can stop processes and containers, and type into your agents. Each browser asks for it once, then stays logged in for 30 days with an HttpOnly cookie. The lock button in the top bar logs that browser out.
+
+- Without `MARUMADO_TOKEN` in `.env`, Marumado makes a random token on first run and keeps it in its data folder. `make access-token` prints it (`uv run python manage.py token` without Docker).
+- To choose your own, set `MARUMADO_TOKEN=$(make token)` in `.env` and run `make restart`. Changing it logs every browser out.
+- After 10 different wrong tokens in 15 minutes, an address is locked out for the rest of those 15 minutes.
+
 ### Opening it to your phone or teammates
 
-In `.env`, set `MARUMADO_BIND=0.0.0.0` and `MARUMADO_TOKEN=$(make token)`, then run `make up`. Browsers ask for the token once. Never expose Marumado without a token: it can stop processes and containers, and type into your agents.
+In `.env`, set `MARUMADO_BIND=0.0.0.0`, then run `make up`. Everyone who opens it needs the access token, so only share it with people who may do everything you can. Over the LAN it travels as plain HTTP, so on networks you don't trust, reach Marumado through an SSH tunnel, a VPN (Tailscale, WireGuard) or an HTTPS reverse proxy instead.
 
 ### Other machines
 
-1. Run Marumado on the other machine too (`make up`), leaving `MARUMADO_BIND` at 127.0.0.1. Give it a `MARUMADO_TOKEN` if other people can log into that machine.
+1. Run Marumado on the other machine too (`make up`), leaving `MARUMADO_BIND` at 127.0.0.1. Note its access token (`make access-token` there).
 2. Make sure `ssh you@that-machine` works from this one with key login and no password prompt, and connect once by hand to trust its host key.
 3. If this Marumado runs in Docker, set `MARUMADO_SSH_DIR=~/.ssh` in `.env` and run `make up`, so the container gets your SSH keys and config. Changes you make to them on the host are picked up on the next connection.
-4. In the app: **Machines → Add machine**, with the SSH target (`you@host`, `ssh://you@host:2222` for a non-standard SSH port, or a `~/.ssh/config` alias), its Marumado port, and its token.
+4. In the app: **Machines → Add machine**, with the SSH target (`you@host`, `ssh://you@host:2222` for a non-standard SSH port, or a `~/.ssh/config` alias), its Marumado port, and its access token.
 
 Nothing is opened to the network: the other Marumado stays on its localhost, and SSH is the only way in.
 

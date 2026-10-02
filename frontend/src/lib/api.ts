@@ -1,5 +1,3 @@
-const TOKEN_KEY = 'marumado.token'
-
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -8,20 +6,11 @@ export class ApiError extends Error {
   }
 }
 
-export function getToken(): string {
-  try {
-    return localStorage.getItem(TOKEN_KEY) ?? ''
-  } catch {
-    return ''
-  }
-}
-
-export function setToken(token: string) {
-  try {
-    localStorage.setItem(TOKEN_KEY, token)
-  } catch {
-    /* private mode: token lives for this page only */
-  }
+// Older versions kept the token in this browser; the login is now an HttpOnly cookie.
+try {
+  localStorage.removeItem('marumado.token')
+} catch {
+  /* nothing stored */
 }
 
 export type MachineId = 'local' | number
@@ -33,15 +22,15 @@ export function setApiMachine(id: MachineId) {
   machine = id
 }
 
-/** `path` as seen from the chosen machine. The list of machines always comes from this Marumado. */
+/** `path` as seen from the chosen machine. The list of machines and the login always belong to this Marumado. */
 export function apiPath(path: string): string {
-  return machine === 'local' || path === 'machines' || path.startsWith('machines/') || path.startsWith('machines?') ? path : `machines/${machine}/${path}`
+  return machine === 'local' || path === 'auth' || path === 'machines' || path.startsWith('machines/') || path.startsWith('machines?') ? path : `machines/${machine}/${path}`
 }
 
 export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
   const headers = new Headers(init.headers)
-  const token = getToken()
-  if (token) headers.set('Authorization', `Bearer ${token}`)
+  // Proves the request comes from Marumado's own pages (see backend core/auth.py).
+  headers.set('X-Marumado', '1')
   let body = init.body
   if (init.json !== undefined) {
     headers.set('Content-Type', 'application/json')
@@ -58,4 +47,14 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
     throw new ApiError(res.status, detail)
   }
   return data as T
+}
+
+/** Trade the access token for this browser's login cookie. */
+export function logIn(token: string): Promise<void> {
+  return api('auth', { method: 'POST', json: { token } })
+}
+
+export async function logOut() {
+  await api('auth', { method: 'DELETE' }).catch(() => undefined)
+  window.location.reload()
 }

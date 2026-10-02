@@ -1,4 +1,4 @@
-"""Live Herdr terminal over a WebSocket: /api/agents/<pane_id>/terminal?token=&takeover=1[&cols=&rows=]
+"""Live Herdr terminal over a WebSocket: /api/agents/<pane_id>/terminal?takeover=1[&cols=&rows=]
 
 The browser gets Herdr's own messages untouched (`terminal.frame` with base64 ANSI, `terminal.closed`),
 plus `{"type": "error", "message": ...}` when the stream can't start. It may send `terminal.input` and
@@ -10,14 +10,15 @@ Phones are the exception (control mode, `cols` and `rows` given): the pane takes
 it watches, follows its `terminal.resize` messages, and gets its layout size back when the phone leaves.
 """
 import asyncio
-import hmac
 import json
 import re
+from http.cookies import SimpleCookie
+from importlib import import_module
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from django.conf import settings
 
-from . import herdr, machines
+from . import auth, herdr, machines
 
 PATH = re.compile(r'^/api/agents/(?P<pane>w\d+:p\d+)/terminal$')
 # The same terminal on another machine, relayed through its tunnel to its own Marumado.
@@ -33,11 +34,30 @@ def _clamp(value, low: int, high: int, default: int) -> int:
         return default
 
 
+def _headers(scope) -> dict[str, str]:
+    return {k.decode('latin-1').lower(): v.decode('latin-1') for k, v in scope['headers']}
+
+
 def _same_origin(scope) -> bool:
     """Browsers let any page open a WebSocket to localhost, so only accept Marumado's own pages."""
-    headers = {k.decode('latin-1').lower(): v.decode('latin-1') for k, v in scope['headers']}
+    headers = _headers(scope)
     origin = headers.get('origin')
     return origin is None or urlsplit(origin).netloc == headers.get('host', '')
+
+
+def _authorized(scope) -> bool:
+    """A logged-in browser (session cookie), or another Marumado relaying with `Authorization: Bearer`. Raises auth.Locked."""
+    headers = _headers(scope)
+    address = (scope.get('client') or ('',))[0]
+    given = auth.bearer(headers.get('authorization', ''))
+    if given is not None:
+        return auth.try_token(address, given)
+    auth.check_locked(address)
+    morsel = SimpleCookie(headers.get('cookie', '')).get(settings.SESSION_COOKIE_NAME)
+    if morsel is None:
+        return False
+    session = import_module(settings.SESSION_ENGINE).SessionStore(morsel.value)
+    return auth.session_ok(session)
 
 
 def _command(message: dict, fit: bool) -> dict | None:
@@ -68,8 +88,12 @@ async def handle(scope, receive, send):
     query = {k: v[-1] for k, v in parse_qs(scope.get('query_string', b'').decode()).items()}
     await send({'type': 'websocket.accept'})
 
-    if settings.MARUMADO_TOKEN and not hmac.compare_digest(query.get('token', ''), settings.MARUMADO_TOKEN):
-        return await _refuse(send, 'This Marumado needs its access token.')
+    try:
+        authorized = await asyncio.to_thread(_authorized, scope)
+    except auth.Locked as exc:
+        return await _refuse(send, str(exc))
+    if not authorized:
+        return await _refuse(send, 'Log in to this Marumado again: its access token is needed.')
     if remote:
         return await _relay(int(remote['machine']), remote['rest'], query, receive, send)
     mode = herdr.terminal_mode()
@@ -175,12 +199,10 @@ async def _relay(machine_id: int, rest: str, query: dict, receive, send):
         return await _refuse(send, 'No such machine.')
     if not tunnel.local_port or tunnel.state != 'up':
         return await _refuse(send, tunnel.error or f'Still connecting to {tunnel.name}.')
-    query = {k: v for k, v in query.items() if k != 'token'}
-    if tunnel.token:
-        query['token'] = tunnel.token
     url = f'ws://127.0.0.1:{tunnel.local_port}/api/{rest}?{urlencode(query)}'
+    headers = {'Authorization': f'Bearer {tunnel.token}'} if tunnel.token else None
     try:
-        upstream = await connect(url, max_size=None, open_timeout=10)
+        upstream = await connect(url, max_size=None, open_timeout=10, additional_headers=headers)
     except (OSError, TimeoutError, WebSocketException) as exc:
         return await _refuse(send, f"Couldn't open the terminal on {tunnel.name}: {exc}")
 

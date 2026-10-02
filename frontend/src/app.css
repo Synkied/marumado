@@ -1376,6 +1376,13 @@ button.chip:hover {
   color: var(--ink-2);
 }
 
+.active__empty {
+  flex: none;
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
 .active__tiles {
   list-style: none;
   margin: 0;

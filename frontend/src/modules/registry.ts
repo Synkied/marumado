@@ -81,7 +81,7 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
 
   let agentsSum: Summary | null = null
   if (agents) {
-    const live = agents.agents
+    const live = agents.agents.filter((a) => a.kind !== 'terminal')
     const working = live.filter((a) => a.status === 'working').length
     const blocked = live.filter((a) => a.status === 'blocked').length
     agentsSum = agents.available

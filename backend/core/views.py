@@ -4,14 +4,37 @@ from pathlib import Path
 
 from django.http import HttpResponse
 from rest_framework import status, viewsets
-from rest_framework.decorators import action, api_view
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from . import discovery, files, herdr, machines, monitor, opener, overview
+from . import auth, discovery, files, herdr, machines, monitor, opener, overview
 from .models import Machine, Project, ScanRoot, Skill, UptimeCheck
 from .serializers import MachineSerializer, ProjectSerializer, SkillSerializer, UptimeCheckSerializer
 
 RECENT_CHECKS = 30
+
+
+@api_view(['GET', 'POST', 'DELETE'])
+@permission_classes([AllowAny])
+def auth_view(request):
+    """GET: is this browser logged in. POST {token}: log in with the access token. DELETE: log out."""
+    if request.method == 'GET':
+        return Response({'authenticated': auth.session_ok(request.session)})
+    if request.headers.get(auth.CSRF_HEADER) != '1':
+        return Response({'detail': f'Missing the {auth.CSRF_HEADER} header.'}, status=403)
+    if request.method == 'DELETE':
+        request.session.flush()
+        return HttpResponse(status=204)
+    given = request.data.get('token') if isinstance(request.data, dict) else None
+    try:
+        ok = isinstance(given, str) and auth.try_token(request.META.get('REMOTE_ADDR', ''), given.strip())
+    except auth.Locked as exc:
+        return Response({'detail': str(exc)}, status=429)
+    if not ok:
+        return Response({'detail': "That isn't this Marumado's access token."}, status=403)
+    auth.log_in(request.session)
+    return HttpResponse(status=204)
 
 
 def _runtime(projects: list[Project]) -> dict[int, dict]:
@@ -344,6 +367,36 @@ def file_read(request):
 @api_view(['GET'])
 def agents(request):
     return Response(herdr.agents())
+
+
+@api_view(['POST'])
+def agent_terminal(request):
+    """Open a shell in a new Herdr tab, beside pane `near` if given (MARUMADO_HERDR_TERMINAL=control only)."""
+    if herdr.terminal_mode() != 'control':
+        return Response({'detail': 'Opening terminals is turned off (MARUMADO_HERDR_TERMINAL).'}, status=403)
+    near = request.data.get('near') or ''
+    if not isinstance(near, str):
+        return Response({'detail': 'near is a pane id.'}, status=400)
+    try:
+        return Response(herdr.new_terminal(near), status=status.HTTP_201_CREATED)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    except (RuntimeError, KeyError) as exc:
+        return Response({'detail': str(exc)}, status=502)
+
+
+@api_view(['POST'])
+def agent_close(request, pane_id: str):
+    """Close an agent's or terminal's pane in Herdr (MARUMADO_HERDR_TERMINAL=control only)."""
+    if herdr.terminal_mode() != 'control':
+        return Response({'detail': 'Closing terminals is turned off (MARUMADO_HERDR_TERMINAL).'}, status=403)
+    try:
+        herdr.close(pane_id)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    except (RuntimeError, KeyError) as exc:
+        return Response({'detail': str(exc)}, status=502)
+    return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @api_view(['POST'])
