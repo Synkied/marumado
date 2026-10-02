@@ -35,7 +35,8 @@ export function DotChart({ values, tone = 'ink', height = 64, max, label, unit =
       </div>
       <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" style={{ height }} aria-hidden="true">
         <line className="dotchart__base" x1="0" x2={w} y1={height - 0.5} y2={height - 0.5} />
-        {pts.map((p, i) => p && <circle key={i} className={`dotchart__dot dotchart__dot--${tone}`} cx={p.x} cy={p.y} r="1.5" />)}
+        {/* Each sample is a zero-length round-capped stroke, so it stays a round pebble however wide the chart is stretched. */}
+        {pts.map((p, i) => p && <line key={i} className={`dotchart__dot dotchart__dot--${tone}`} x1={p.x} x2={p.x} y1={p.y} y2={p.y} />)}
       </svg>
       {label && (
         <figcaption className="sr-only">

@@ -3,7 +3,7 @@ import { api, ApiError } from './api'
 import { daysSince, PUSH_GRACE_DAYS } from './growth'
 import type { MachineId } from './api'
 import { useMachines } from './machines'
-import type { Agents, Docker, HistoryPoint, Machine, Port, Project, Skill, System } from './types'
+import type { Agents, Docker, HistoryPoint, Machine, Port, Project, Skill, System, Task } from './types'
 import { usePoll } from './usePoll'
 
 export type Alert = {
@@ -15,7 +15,7 @@ export type Alert = {
   href: string
 }
 
-export type ModuleId = 'projects' | 'machine' | 'urls' | 'ports' | 'docker' | 'processes' | 'agents' | 'momentum' | 'skills' | 'machines'
+export type ModuleId = 'projects' | 'machine' | 'urls' | 'ports' | 'docker' | 'processes' | 'agents' | 'tasks' | 'momentum' | 'skills' | 'machines'
 
 type Hub = {
   system?: System
@@ -24,6 +24,7 @@ type Hub = {
   ports?: Port[]
   docker?: Docker
   agents?: Agents
+  tasks?: Task[]
   skills?: Skill[]
   alerts: Alert[]
   error: ApiError | Error | null
@@ -31,6 +32,7 @@ type Hub = {
   refreshDocker: () => void
   refreshSkills: () => void
   refreshAgents: () => void
+  refreshTasks: () => void
 }
 
 const HubContext = createContext<Hub | null>(null)
@@ -81,7 +83,7 @@ function machineAlerts(machines: Machine[] = [], current: MachineId): Alert[] {
   return out
 }
 
-function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: Project[], docker?: Docker, agents?: Agents): Alert[] {
+function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: Project[], docker?: Docker, agents?: Agents, tasks?: Task[]): Alert[] {
   const out: Alert[] = []
   for (const p of projects ?? []) {
     const latest = p.status.online.latest
@@ -116,6 +118,11 @@ function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: 
       out.push({ id: `agent:${a.pane_id}`, module: 'agents', title: `${a.name || a.kind} in ${where} is waiting for you`, detail: a.title || 'Approval or question', href: '#/m/agents' })
     }
   }
+  for (const t of tasks ?? []) {
+    if (t.state === 'failed') {
+      out.push({ id: `task:${t.id}`, module: 'tasks', title: `Task “${t.title}” failed`, detail: 'Open it to see why, then assign it again or move it back to do', href: `#/m/tasks/${t.id}` })
+    }
+  }
   // A project marked "push" that hasn't moved is a promise slipping.
   for (const p of projects ?? []) {
     const days = daysSince(p.detected.last_commit_at)
@@ -139,6 +146,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const docker = usePoll<Docker>('docker', 5000)
   const agents = usePoll<Agents>('agents', 4000)
   const skills = usePoll<Skill[]>('skills', 30000)
+  const tasks = usePoll<Task[]>('tasks', 5000)
   const [history, setHistory] = useState<HistoryPoint[]>([])
   const lastT = useRef(0)
 
@@ -168,8 +176,8 @@ export function HubProvider({ children }: { children: ReactNode }) {
   }, [system.data])
 
   const alerts = useMemo(
-    () => [...deriveAlerts(system.data, history, projects.data, docker.data, agents.data), ...machineAlerts(machines, current)],
-    [system.data, history, projects.data, docker.data, agents.data, machines, current],
+    () => [...deriveAlerts(system.data, history, projects.data, docker.data, agents.data, tasks.data), ...machineAlerts(machines, current)],
+    [system.data, history, projects.data, docker.data, agents.data, tasks.data, machines, current],
   )
 
   const value: Hub = {
@@ -179,6 +187,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
     ports: ports.data,
     docker: docker.data,
     agents: agents.data,
+    tasks: tasks.data,
     skills: skills.data,
     alerts,
     error: system.error ?? projects.error,
@@ -186,6 +195,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
     refreshDocker: docker.refresh,
     refreshSkills: skills.refresh,
     refreshAgents: agents.refresh,
+    refreshTasks: tasks.refresh,
   }
   return <HubContext.Provider value={value}>{children}</HubContext.Provider>
 }

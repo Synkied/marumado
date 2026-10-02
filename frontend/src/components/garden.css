@@ -1,0 +1,318 @@
+/* ---------- the garden: home, every pinned module as a stone in raked gravel ---------- */
+
+.garden {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 480px;
+  max-height: 1300px;
+}
+
+.garden__bed {
+  position: relative;
+  user-select: none;
+  -webkit-touch-callout: none;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  container-type: size;
+  /* One stone's full ripple width; each spot scales it by its own --s. */
+  --base: min(34cqw, 62cqh);
+}
+
+.garden__rake {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.garden__rake path {
+  fill: none;
+  stroke: var(--rake);
+  stroke-width: 0.9;
+}
+
+.garden__stones {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Placed by left/top, not translate, so no spot makes a stacking context: every stone's ripples (.dial__bed)
+   then lie beneath every stone (.dial__body), wherever the stones are set. */
+.garden__spot {
+  --w: calc(var(--base) * var(--s) * 0.54);
+  position: absolute;
+  left: calc(var(--x) * 100% - var(--w) / 2);
+  top: calc(var(--y) * 100% - var(--w) / 2);
+}
+
+.garden .dial__bed {
+  z-index: 0;
+}
+
+.garden .dial__body {
+  z-index: 1;
+}
+
+.garden .dial__text {
+  z-index: 2;
+}
+
+/* A spot is only as large as its stone, so the ripples (drawn outside it) never steal another stone's click. */
+.stone {
+  --dial-size: calc(var(--base) * var(--s));
+  display: block;
+  width: var(--w);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  position: relative;
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Only the stone itself takes the pointer; its ripples are gravel, so they never steal a neighbour's press. */
+.stone .dial {
+  pointer-events: none;
+  position: absolute;
+  left: calc(50% - var(--dial-size) / 2);
+  top: calc(50% - var(--dial-size) / 2);
+}
+
+/* Stones can be picked up and set down anywhere on the gravel (desktop; on phones they lie in columns). */
+@media (min-width: 861px) {
+  .stone {
+    touch-action: none;
+    -webkit-user-drag: none;
+    user-select: none;
+  }
+  .garden__spot.is-lifted .stone {
+    cursor: grabbing;
+  }
+  .garden__spot.is-lifted .dial__ripple {
+    stroke: var(--ink-3);
+  }
+}
+
+/* The rim grip that sizes a stone: a small pebble on its lower-right edge, shown while the stone is near the hand. */
+.stone__grip {
+  position: absolute;
+  z-index: 3;
+  left: calc(50% + var(--w) * 0.3536 - 8px);
+  top: calc(50% + var(--w) * 0.3536 - 8px);
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1.5px solid var(--ink-2);
+  border-radius: 50%;
+  background: var(--ground);
+  cursor: nwse-resize;
+  touch-action: none;
+  opacity: 0;
+  transition: opacity var(--dur-quick) ease-out;
+}
+
+.garden__spot:hover .stone__grip,
+.garden__spot:focus-within .stone__grip,
+.garden__spot.is-lifted .stone__grip {
+  opacity: 1;
+}
+
+.stone__grip:hover,
+.stone__grip:focus-visible {
+  border-color: var(--ink);
+  background: var(--ink);
+}
+
+.stone__grip:focus-visible {
+  outline: 1.5px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.stone .dial__ripple {
+  transition: stroke var(--dur-base) ease-out;
+}
+
+.stone:hover .dial__ripple {
+  stroke: var(--ink-3);
+}
+
+.stone:hover .dial__stone {
+  fill: color-mix(in oklab, var(--tint, var(--stone)) 86%, var(--ground));
+}
+
+.stone:hover .dial--quiet .dial__stone {
+  fill: color-mix(in oklab, var(--tint, var(--stone)) calc(var(--quiet) + 10%), var(--ground));
+}
+
+.stone:focus-visible {
+  outline: 1.5px solid var(--focus);
+  outline-offset: calc(var(--dial-size) * 0.05);
+  border-radius: 50%;
+}
+
+/* Stones settle into the gravel once, in reading order, as the page opens. */
+@media (prefers-reduced-motion: no-preference) {
+  .garden__spot {
+    animation: stone-set var(--dur-slow) var(--ease) backwards;
+    animation-delay: calc(var(--i) * 70ms);
+  }
+}
+
+@keyframes stone-set {
+  from {
+    opacity: 0;
+    scale: 0.96;
+  }
+}
+
+.garden__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--gutter) 0;
+}
+
+.garden__arrange {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-4);
+  min-height: var(--control);
+  padding: 0 var(--sp-7);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--ground);
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  letter-spacing: var(--track-snug);
+}
+
+.garden__arrange:hover {
+  color: var(--ink);
+}
+
+.garden__save,
+.garden__save:hover {
+  background: var(--stone);
+  color: var(--on-stone);
+}
+
+.garden__note {
+  align-self: center;
+  margin-right: var(--sp-4);
+  font-size: var(--text-md);
+  font-style: italic;
+  color: var(--ink-2);
+}
+
+/* Phones and narrow windows: the stones lie in two staggered columns down the gravel. */
+@media (max-width: 860px) {
+  .garden {
+    height: auto;
+  }
+  .garden__bed {
+    flex: none;
+    container-type: inline-size;
+    padding: var(--sp-4) 0 var(--sp-22);
+    --base: 64cqw;
+  }
+  .garden__stones {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    row-gap: var(--sp-2);
+  }
+  .garden__spot {
+    position: relative;
+    left: auto;
+    top: auto;
+    translate: none;
+    display: grid;
+    place-items: center;
+    aspect-ratio: 1;
+    --s: 0.74;
+  }
+  .stone__grip {
+    display: none;
+  }
+  .garden__spot:first-child {
+    --s: 1;
+    grid-column: 1 / -1;
+    aspect-ratio: auto;
+    height: calc(var(--base) * 0.88);
+  }
+  .garden__spot:nth-child(odd):not(:first-child) {
+    translate: 0 36%;
+  }
+}
+
+/* ---------- the menu a long press or right-click opens: set a stone here, or lift one out ---------- */
+
+.garden__menu {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  min-width: 200px;
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+  padding: var(--sp-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--ground-raised);
+  box-shadow: var(--shadow-float);
+}
+
+.garden__menu-title {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-5) var(--sp-4);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.garden__menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-height: var(--control);
+  padding: 0 var(--sp-5);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-lg);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.garden__menu-item:hover:not(:disabled),
+.garden__menu-item:focus-visible {
+  outline: none;
+  background: var(--stone);
+  color: var(--on-stone);
+}
+
+.garden__menu-item:disabled {
+  color: var(--ink-2);
+  font-style: italic;
+  cursor: default;
+}
+
+.garden__menu-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--tint, var(--stone));
+}
+
+.garden__menu-empty {
+  margin: 0;
+  padding: 0 var(--sp-5) var(--sp-4);
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}

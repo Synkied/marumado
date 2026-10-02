@@ -7,6 +7,7 @@ router = DefaultRouter(trailing_slash=False)
 router.register('projects', views.ProjectViewSet, basename='project')
 router.register('skills', views.SkillViewSet, basename='skill')
 router.register('machines', views.MachineViewSet, basename='machine')
+router.register('tasks', views.TaskViewSet, basename='task')
 
 urlpatterns = [
     path('auth', views.auth_view),

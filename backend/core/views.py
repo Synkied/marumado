@@ -8,9 +8,9 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from . import auth, discovery, files, herdr, machines, monitor, opener, overview
-from .models import Machine, Project, ScanRoot, Skill, UptimeCheck
-from .serializers import MachineSerializer, ProjectSerializer, SkillSerializer, UptimeCheckSerializer
+from . import auth, discovery, files, herdr, machines, monitor, opener, overview, tasks
+from .models import Machine, Project, ScanRoot, Skill, Task, UptimeCheck
+from .serializers import MachineSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
 
 RECENT_CHECKS = 30
 
@@ -18,9 +18,9 @@ RECENT_CHECKS = 30
 @api_view(['GET', 'POST', 'DELETE'])
 @permission_classes([AllowAny])
 def auth_view(request):
-    """GET: is this browser logged in. POST {token}: log in with the access token. DELETE: log out."""
+    """GET: is this browser logged in. POST {token}: log in with the password or the access token. DELETE: log out."""
     if request.method == 'GET':
-        return Response({'authenticated': auth.session_ok(request.session)})
+        return Response({'authenticated': auth.session_ok(request.session), 'password': bool(auth.password_hash())})
     if request.headers.get(auth.CSRF_HEADER) != '1':
         return Response({'detail': f'Missing the {auth.CSRF_HEADER} header.'}, status=403)
     if request.method == 'DELETE':
@@ -28,11 +28,11 @@ def auth_view(request):
         return HttpResponse(status=204)
     given = request.data.get('token') if isinstance(request.data, dict) else None
     try:
-        ok = isinstance(given, str) and auth.try_token(request.META.get('REMOTE_ADDR', ''), given.strip())
+        ok = isinstance(given, str) and auth.try_login(request.META.get('REMOTE_ADDR', ''), given.strip())
     except auth.Locked as exc:
         return Response({'detail': str(exc)}, status=429)
     if not ok:
-        return Response({'detail': "That isn't this Marumado's access token."}, status=403)
+        return Response({'detail': "That isn't this Marumado's password or access token."}, status=403)
     auth.log_in(request.session)
     return HttpResponse(status=204)
 
@@ -132,6 +132,55 @@ class ProjectViewSet(viewsets.ModelViewSet):
 class SkillViewSet(viewsets.ModelViewSet):
     serializer_class = SkillSerializer
     queryset = Skill.objects.all()
+
+
+class TaskViewSet(viewsets.ModelViewSet):
+    """The to-do list. A task can be handed to a coding agent in Herdr, which Marumado then follows (core/tasks.py)."""
+
+    serializer_class = TaskSerializer
+    queryset = Task.objects.select_related('project')
+
+    def retrieve(self, request, pk=None):
+        task = self.get_object()
+        return Response({**TaskSerializer(task).data, 'events': TaskEventSerializer(task.events.all(), many=True).data})
+
+    def perform_create(self, serializer):
+        task = serializer.save()
+        tasks.event(task, 'created', 'Added to the list')
+
+    @action(detail=True, methods=['post'])
+    def assign(self, request, pk=None):
+        """{pane_id}: give it to that open agent. {kind}: start a new agent of that kind in the project's folder."""
+        if herdr.terminal_mode() != 'control':
+            return Response({'detail': 'Giving tasks to agents is turned off (MARUMADO_HERDR_TERMINAL).'}, status=403)
+        task = self.get_object()
+        if task.live:
+            return Response({'detail': 'An agent is already on it. Mark it done or move it back to do first.'}, status=409)
+        pane_id, kind = request.data.get('pane_id') or '', request.data.get('kind') or ''
+        if not isinstance(pane_id, str) or not isinstance(kind, str):
+            return Response({'detail': 'Send pane_id or kind.'}, status=400)
+        try:
+            tasks.assign(task, pane_id, kind)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        except RuntimeError as exc:
+            return Response({'detail': str(exc)}, status=502)
+        return self.retrieve(request, pk)
+
+    @action(detail=True, methods=['post'])
+    def done(self, request, pk=None):
+        tasks.mark_done(self.get_object())
+        return self.retrieve(request, pk)
+
+    @action(detail=True, methods=['post'])
+    def review(self, request, pk=None):
+        tasks.to_review(self.get_object())
+        return self.retrieve(request, pk)
+
+    @action(detail=True, methods=['post'])
+    def reopen(self, request, pk=None):
+        tasks.reopen(self.get_object())
+        return self.retrieve(request, pk)
 
 
 class MachineViewSet(viewsets.ModelViewSet):

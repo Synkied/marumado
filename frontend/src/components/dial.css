@@ -1,17 +1,19 @@
 .dial {
   display: grid;
   justify-items: center;
-  gap: 10px;
+  gap: var(--sp-4);
 }
 
+/* The face is the stone plus its ripples; the stone itself is 54% of it. */
 .dial__face {
   position: relative;
-  width: var(--dial-size, clamp(96px, min(12.5vw, 14.5vh), 200px));
+  width: var(--dial-size, clamp(120px, min(16vw, 22vh), 300px));
   aspect-ratio: 1;
+  container-type: inline-size;
 }
 
 .dial--md .dial__face {
-  --dial-size: clamp(104px, 9.5vw, 150px);
+  --dial-size: clamp(110px, 10vw, 170px);
 }
 
 .dial__face svg {
@@ -22,67 +24,181 @@
   overflow: visible;
 }
 
-.dial__rim {
-  fill: var(--ground-raised);
-  stroke: var(--rule-soft);
-  stroke-width: 0.8;
+/* Gravel raked around the stone: it covers the straight rake lines beneath, as in a real garden. */
+.dial__apron {
+  fill: var(--ground);
 }
 
-.dial__track {
+.dial__ripple {
   fill: none;
-  stroke: var(--track);
-  stroke-width: 6;
-}
-
-.dial__track--off {
-  stroke: var(--ink-3);
-  stroke-width: 2.4;
-  stroke-dasharray: 5 5;
+  stroke: var(--rake);
+  stroke-width: 0.9;
 }
 
 .dial__arc {
   fill: none;
   stroke: var(--mod, var(--ink));
-  stroke-width: 6;
-  stroke-linecap: butt;
-  transition: stroke-dashoffset 1100ms var(--ease);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--dur-sweep) var(--ease);
 }
 
 .dial__arc.is-settled {
-  transition: stroke 300ms ease-out;
+  transition: stroke var(--dur-base) ease-out;
 }
 
 .dial--signal .dial__arc {
   stroke: var(--signal);
 }
 
-.dial__pip {
-  fill: var(--ink-2);
+.dial__stone {
+  fill: var(--tint, var(--stone));
+  transition: fill var(--dur-base) ease-out;
 }
 
-.dial__value {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-family: var(--f-dot);
-  font-weight: 900;
-  font-size: calc(var(--dial-size, clamp(96px, min(12.5vw, 14.5vh), 200px)) * 0.26);
-  letter-spacing: -0.02em;
-  line-height: 1;
+.dial--off .dial__stone {
+  fill: var(--stone-off);
+}
+
+/* A quiet module (nothing running, nothing open) pales into the gravel but keeps its mineral, so it is still found
+   at a glance; the stones with something going on are the ones that hold the eye. */
+.dial--quiet .dial__stone {
+  fill: color-mix(in oklab, var(--tint, var(--stone)) var(--quiet), var(--ground));
+}
+
+.dial--quiet .dial__text,
+.dial--quiet .dial__label,
+.dial--quiet .dial__sub {
   color: var(--ink);
 }
 
-.dial--signal .dial__value {
-  color: var(--signal-text);
+/* Work in progress: two rings spread from the stone and fade, slowly, one after the other. */
+.dial__wave {
+  fill: none;
+  stroke: var(--mod, var(--ink));
+  stroke-width: 1.4;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dial-wave 3.6s cubic-bezier(0.3, 0.4, 0.4, 1) infinite;
+}
+
+@keyframes dial-wave {
+  from {
+    scale: 0.6;
+    opacity: 0.85;
+  }
+  to {
+    scale: 1;
+    opacity: 0;
+  }
+}
+
+/* Without motion, one still ring in the module's mineral says the same. */
+@media (prefers-reduced-motion: reduce) {
+  .dial__wave {
+    animation: none;
+    scale: 0.75;
+    opacity: 0.7;
+  }
+  .dial__wave + .dial__wave {
+    display: none;
+  }
+}
+
+/* A stone that needs you keeps its mineral; only its ripple turns persimmon, and a thin ring marks the stone. */
+.dial--signal .dial__stone {
+  stroke: var(--signal);
+  stroke-width: 2;
+}
+
+.dial__text {
+  position: absolute;
+  inset: 23%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  text-align: center;
+  color: var(--on-stone);
+  line-height: 1;
+  pointer-events: none;
+}
+
+.dial--off .dial__text {
+  color: var(--ink-2);
+}
+
+.dial__value {
+  font-family: var(--f-display);
+  font-weight: var(--weight-body);
+  font-size: 15cqi;
+  letter-spacing: -0.01em;
+  font-variant-numeric: lining-nums tabular-nums;
+  white-space: nowrap;
 }
 
 .dial--off .dial__value {
-  color: var(--ink-3);
+  font-style: italic;
+  font-size: 11cqi;
+}
+
+.dial--named .dial__value {
+  font-size: 13cqi;
+}
+
+.dial__label {
+  margin-bottom: 2.2cqi;
+  font-size: max(9px, 3.6cqi);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps-wide);
+  text-indent: var(--track-caps-wide);
+  text-transform: uppercase;
+  color: var(--on-stone-2);
+}
+
+.dial--off .dial__label {
+  color: var(--ink-2);
+}
+
+.dial__sub {
+  margin-top: 2cqi;
+  font-size: max(11px, 5cqi);
+  color: var(--on-stone-2);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* On a stone the line sits below the middle, where the circle is narrower: a long name wraps to a second line,
+   kept inside the rim, rather than being cut. */
+.dial--named .dial__text {
+  grid-template-columns: 100%;
+}
+
+.dial--named .dial__sub {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  max-width: 82%;
+  white-space: normal;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.dial--off .dial__sub {
+  color: var(--ink-2);
 }
 
 .dial__caption {
-  font-family: var(--f-mono);
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--ink-2);
+}
+
+/* A small stone has room for its name and value only. */
+@container (max-width: 190px) {
+  .dial__sub,
+  .dial--named .dial__sub {
+    display: none;
+  }
 }

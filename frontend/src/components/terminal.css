@@ -4,9 +4,9 @@
   flex: 1 1 0;
   min-height: 320px;
   display: flex;
-  padding: 8px;
-  border-radius: var(--radius);
-  background: #111110;
+  padding: var(--sp-4);
+  border-radius: var(--radius-lg);
+  background: var(--term-bg);
   border: 1px solid var(--rule-soft);
   overflow: hidden;
 }
@@ -22,7 +22,7 @@
 }
 
 .term:focus-within {
-  border-color: var(--c-agents);
+  border-color: var(--ink-3);
 }
 
 .term__veil {
@@ -31,27 +31,27 @@
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 14px;
-  padding: 24px;
-  background: rgb(17 17 16 / 0.72);
-  color: #ecece8;
+  gap: var(--sp-7);
+  padding: var(--sp-12);
+  background: color-mix(in srgb, var(--term-bg) 72%, transparent);
+  color: var(--term-fg);
   font-family: var(--f-mono);
-  font-size: 14px;
+  font-size: var(--text-lg);
   text-align: center;
 }
 
 .term--connecting .term__veil {
-  background: rgb(17 17 16 / 0.4);
+  background: color-mix(in srgb, var(--term-bg) 40%, transparent);
 }
 
 .btn--light {
-  border-color: #ecece8;
-  color: #ecece8;
+  border-color: var(--term-fg);
+  color: var(--term-fg);
 }
 
 .btn--light:hover:not(:disabled) {
-  background: #ecece8;
-  color: #111110;
+  background: var(--term-fg);
+  color: var(--term-bg);
 }
 
 /* The pane keeps Herdr's size; its scaled screen sits centred in the box. */

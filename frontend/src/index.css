@@ -1,83 +1,16 @@
-@import '@fontsource/chakra-petch/500.css';
-@import '@fontsource/chakra-petch/600.css';
-@import '@fontsource/chakra-petch/700.css';
-@import '@fontsource/fira-code/400.css';
-@import '@fontsource/fira-code/500.css';
-@import '@fontsource/doto/800.css';
-@import '@fontsource/doto/900.css';
+@import './tokens.css';
 
 :root {
-  --ground: #e9e9e6;
-  --ground-raised: #f1f1ee;
-  --ink: #111110;
-  --ink-2: #565653;
-  --ink-3: #8b8b87;
-  --track: #d3d3cf;
-  --rule: #111110;
-  --rule-soft: #c4c4c0;
-  --signal: #ff4f00;
-  --signal-text: #b33600; /* 5:1 on the ground, so small 'needs you' text passes AA */
-  --on-signal: #111110;
-  --focus: #ff4f00;
-
-  /* One colour per module, like the coloured encoders on a synth. Red-orange stays reserved for "needs you". */
-  --c-projects: #2a66db;
-  --c-machine: #00864e;
-  --c-urls: #8549c8;
-  --c-ports: #007b95;
-  --c-docker: #b72e82;
-  --c-processes: #8d6f13;
-  --c-agents: #577a00;
-  --c-momentum: #0b7a68;
-  --c-skills: #5b4fd0;
-  --c-machines: #4d6a86;
-  --on-mod: #ffffff;
-
-  --f-display: 'Chakra Petch', ui-sans-serif, sans-serif;
-  --f-mono: 'Fira Code', ui-monospace, monospace;
-  --f-dot: 'Doto', 'Fira Code', ui-monospace, monospace;
-
-  --gutter: clamp(16px, 2.2vw, 36px);
-  --radius: 14px;
-  --ease: cubic-bezier(0.16, 1, 0.3, 1);
-
-  color-scheme: light;
   background: var(--ground);
   color: var(--ink);
   font-family: var(--f-display);
-  font-weight: 500;
-  font-size: 16px;
+  font-weight: var(--weight-body);
+  font-size: var(--text-xl);
   line-height: 1.45;
   font-variant-numeric: tabular-nums;
+  font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ground: #0e0e0d;
-    --ground-raised: #171716;
-    --ink: #ecece8;
-    --ink-2: #a6a6a1;
-    --ink-3: #6f6f6b;
-    --track: #2b2b29;
-    --rule: #ecece8;
-    --rule-soft: #2f2f2d;
-    --signal: #ff5a14;
-    --signal-text: #ff7a40;
-    --c-projects: #7cafff;
-    --c-machine: #48cd8c;
-    --c-urls: #c398ff;
-    --c-ports: #00c9e8;
-    --c-docker: #f587c2;
-    --c-processes: #d3ac41;
-    --c-agents: #a6d454;
-    --c-momentum: #3fd3b4;
-    --c-skills: #a69dff;
-    --c-machines: #9dbad6;
-    --on-mod: #111110;
-    color-scheme: dark;
-  }
 }
 
 *,
@@ -97,14 +30,14 @@ body {
 }
 
 ::selection {
-  background: var(--signal);
-  color: var(--on-signal);
+  background: var(--stone);
+  color: var(--on-stone);
 }
 
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 3px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 a {
@@ -132,7 +65,7 @@ button:disabled {
 
 input,
 textarea {
-  caret-color: var(--signal);
+  caret-color: var(--ink);
 }
 
 input::placeholder,
@@ -166,7 +99,7 @@ textarea::placeholder {
   }
   /* Still mark that the page changed, with a short fade instead of movement. */
   .sheet {
-    animation: sheet-fade 160ms ease-out 1 !important;
+    animation: sheet-fade var(--dur-quick) ease-out 1 !important;
   }
 }
 

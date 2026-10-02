@@ -110,3 +110,84 @@ class Machine(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class Task(models.Model):
+    """Something to do, which can be handed to a coding agent in Herdr and followed (core/tasks.py)."""
+
+    TODO = 'todo'
+    STARTING = 'starting'
+    WORKING = 'working'
+    BLOCKED = 'blocked'
+    REVIEW = 'review'
+    DONE = 'done'
+    FAILED = 'failed'
+    STATES = [
+        (TODO, 'To do'),
+        (STARTING, 'Starting'),  # being handed to the agent, or sent but not picked up yet
+        (WORKING, 'Working'),
+        (BLOCKED, 'Needs you'),  # the agent is waiting on an approval or a question
+        (REVIEW, 'To review'),  # the agent finished its turn; the owner checks its work
+        (DONE, 'Done'),
+        (FAILED, 'Failed'),
+    ]
+
+    title = models.CharField(max_length=200)
+    # What the agent is told, after the title.
+    notes = models.TextField(blank=True, default='')
+    project = models.ForeignKey(Project, null=True, blank=True, on_delete=models.SET_NULL, related_name='tasks')
+    state = models.CharField(max_length=10, choices=STATES, default=TODO)
+    # The Herdr pane of the agent it was given to, and what that agent was.
+    pane_id = models.CharField(max_length=40, blank=True, default='')
+    agent_name = models.CharField(max_length=40, blank=True, default='')
+    agent_kind = models.CharField(max_length=20, blank=True, default='')
+    # The agent's last seen Herdr state (idle, working, blocked, done, unknown) and terminal title.
+    agent_state = models.CharField(max_length=10, blank=True, default='')
+    agent_title = models.CharField(max_length=200, blank=True, default='')
+    # Whether the agent is still being watched.
+    live = models.BooleanField(default=False)
+    # The task is still to be sent: the new agent stopped on a question first (trusting the folder, say).
+    prompt_pending = models.BooleanField(default=False)
+    # The project's git HEAD when the agent got the task, to show what changed since.
+    git_start = models.CharField(max_length=64, blank=True, default='')
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return self.title
+
+
+class TaskEvent(models.Model):
+    """One thing that happened to a task: assigned, a change of the agent's state, what it changed..."""
+
+    KINDS = [
+        ('created', 'Created'),
+        ('assigned', 'Assigned'),
+        ('prompt', 'Prompt sent'),
+        ('state', 'Agent state'),
+        ('activity', 'Activity'),  # the agent's terminal title changed
+        ('changes', 'Changes'),  # commits and files changed in the project since the start
+        ('closed', 'Pane closed'),
+        ('error', 'Error'),
+        ('done', 'Marked done'),
+        ('reopened', 'Reopened'),
+        ('moved', 'Moved'),  # put under review by hand
+    ]
+
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='events')
+    at = models.DateTimeField(auto_now_add=True, db_index=True)
+    kind = models.CharField(max_length=10, choices=KINDS)
+    # For `state`: the agent's state from this moment on.
+    state = models.CharField(max_length=10, blank=True, default='')
+    text = models.CharField(max_length=500, blank=True, default='')
+    # The end of the agent's terminal at that moment.
+    output = models.TextField(blank=True, default='')
+    data = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ['at', 'id']

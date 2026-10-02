@@ -1,0 +1,217 @@
+/* Marumado's design tokens: every value a retheme changes, in one place.
+ * Components use these and nothing else for colour, type, spacing, corners and motion.
+ * The world is a dry garden (karesansui) seen from above: raked gravel, dark stones, one moss green for
+ * "all clear" and one persimmon for "needs you". Each module's stone is its own mineral: muted pigments, so a module
+ * can be found at a glance. Pigment hues keep clear of moss (olive) and persimmon (orange), which only ever mean state.
+ * Fonts: swap the @fontsource imports below together with the --f-* families.
+ * The one value CSS can't take from a variable is the phone breakpoint, 860px, written into app.css's media queries. */
+
+@import '@fontsource-variable/source-serif-4/opsz.css';
+@import '@fontsource-variable/source-code-pro/wght.css';
+
+/* 丸窓 in the wordmark: only the two Noto Serif JP chunks that hold those glyphs ship (SIL OFL, see assets/fonts). */
+@font-face {
+  font-family: 'Marumado Kanji';
+  font-display: swap;
+  src: url('./assets/fonts/noto-serif-jp-maru.woff2') format('woff2');
+  unicode-range: U+4E38;
+}
+
+@font-face {
+  font-family: 'Marumado Kanji';
+  font-display: swap;
+  src: url('./assets/fonts/noto-serif-jp-mado.woff2') format('woff2');
+  unicode-range: U+7A93;
+}
+
+:root {
+  /* Colour roles. Text is ink, ink-2 or signal-text; ink-3 is for strokes only. */
+  --ground: #e4e2dc; /* raked gravel */
+  --ground-raised: #ecebe6; /* fresh, unraked sand: fields, open cards, the search palette */
+  --ink: #252421;
+  --ink-2: #5c5a54; /* 5.3:1 on the ground */
+  --ink-3: #9a978f;
+  --track: #d2cfc7;
+  --rake: #cbc8bf; /* the raked lines and ripple rings in the gravel */
+  --rule: #b9b6ad;
+  --rule-soft: #d0cdc5;
+  --stone: #3a3936; /* a module's stone */
+  --stone-off: #d3d0c9; /* a module that is off or unavailable: a pale stone */
+  --on-stone: #f1efe9;
+  --on-stone-2: #bdbab2;
+  --moss: #5d6b3a; /* all clear, alive, working */
+  --signal: #c2502b; /* persimmon: needs you, and nothing else */
+  --signal-text: #a3411f; /* 5.1:1 on the ground, so small 'needs you' text passes AA */
+  --on-signal: #f6f2ea;
+  --focus: #252421;
+
+  /* One mineral per module, like stones gathered from different rivers. A .mod-<id> class sets --mod (and --tint,
+     which colours the stone itself); outside a module everything falls back to ink and charcoal stone. */
+  --c-projects: oklch(0.44 0.085 262); /* indigo (ai) */
+  --c-urls: oklch(0.5 0.08 228); /* pale indigo (asagi) */
+  --c-machine: oklch(0.47 0.065 195); /* celadon slate */
+  --c-docker: oklch(0.48 0.07 165); /* jade */
+  --c-agents: oklch(0.46 0.08 300); /* wisteria (fuji) */
+  --c-skills: oklch(0.45 0.075 325); /* plum (ume) */
+  --c-ports: oklch(0.47 0.08 355); /* deep rose (enji) */
+  --c-tasks: oklch(0.5 0.075 72); /* ochre (kuchiba) */
+  --c-momentum: oklch(0.52 0.07 92); /* mustard (karashi) */
+  --c-processes: oklch(0.45 0.03 60); /* umber grey */
+  --c-machines: oklch(0.46 0.035 245); /* blue slate */
+  --mod: var(--ink);
+  --on-mod: var(--ground);
+  --quiet: 30%; /* how much of its mineral a quiet stone keeps */
+
+  /* Syntax colours for the read-only code viewer: earth pigments, all at text contrast on the ground. */
+  --syn-keyword: #4b5878;
+  --syn-string: #4f5d2c;
+  --syn-number: #81601b;
+  --syn-function: #3a5468;
+  --syn-type: #3f6660;
+  --syn-property: #7a4a5b;
+  --syn-tag: #8a4a2c;
+
+  /* The live terminal stays dark in both themes, since agents draw for dark terminals. */
+  --term-bg: #1b1b19;
+  --term-fg: #e6e3db;
+  --term-selection: #e6e3db4d;
+  --term-black: #2f2e2b;
+  --term-bright-black: #6f6c65;
+  --term-white: #d6d3cb;
+  --term-bright-white: #ffffff;
+  --term-red: #e0703f;
+  --term-bright-red: #f08f64;
+  --term-green: #9db06a;
+  --term-bright-green: #b8c98a;
+  --term-yellow: #d2ad55;
+  --term-bright-yellow: #e7c877;
+  --term-blue: #86a4c8;
+  --term-bright-blue: #a9c1de;
+  --term-magenta: #b896b8;
+  --term-bright-magenta: #cfb2cf;
+  --term-cyan: #7fb2ac;
+  --term-bright-cyan: #a2cbc6;
+
+  /* Type. One serif with optical sizes carries everything: light and open at display sizes, sturdier in text.
+     Mono is only for data and measurement: paths, ports, PIDs, logs, code. */
+  --f-display: 'Source Serif 4 Variable', 'Source Serif 4', ui-serif, Georgia, serif;
+  --f-mono: 'Source Code Pro Variable', 'Source Code Pro', ui-monospace, monospace;
+  --f-cjk: 'Marumado Kanji', 'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif CJK JP', 'Noto Serif JP', serif;
+
+  --weight-light: 300;
+  --weight-body: 400;
+  --weight-strong: 560;
+  --weight-heavy: 640;
+
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 14px; /* sub-lines and most UI text */
+  --text-lg: 15px;
+  --text-xl: 16px; /* body, row names, inputs (16px keeps iOS from zooming in on focus) */
+  --text-2xl: 21px;
+  --text-3xl: 28px;
+  --text-crumb: clamp(16px, 1.6vw, 20px);
+  --text-wordmark: clamp(19px, 1.5vw, 23px);
+  --text-display-xs: clamp(20px, 1.6vw, 26px);
+  --text-display-sm: clamp(26px, 2.4vw, 40px);
+  --text-display: clamp(32px, 3.2vw, 50px);
+
+  --track-display: -0.01em;
+  --track-title: 0;
+  --track-snug: 0.04em;
+  --track-caps: 0.16em; /* small labels in tracked caps, like the names on the stones */
+  --track-caps-wide: 0.22em;
+  --track-wordmark: 0.14em;
+
+  /* Spacing on a 2px grid: --sp-N is N × --space. Change --space to make the whole UI denser or roomier. */
+  --space: 2px;
+  --sp-1: calc(1 * var(--space));
+  --sp-2: calc(2 * var(--space));
+  --sp-3: calc(3 * var(--space));
+  --sp-4: calc(4 * var(--space));
+  --sp-5: calc(5 * var(--space));
+  --sp-6: calc(6 * var(--space));
+  --sp-7: calc(7 * var(--space));
+  --sp-8: calc(8 * var(--space));
+  --sp-9: calc(9 * var(--space));
+  --sp-10: calc(10 * var(--space));
+  --sp-12: calc(12 * var(--space));
+  --sp-14: calc(14 * var(--space));
+  --sp-16: calc(16 * var(--space));
+  --sp-18: calc(18 * var(--space));
+  --sp-22: calc(22 * var(--space));
+  --gutter: clamp(16px, 2.6vw, 48px);
+
+  /* Control heights. Every control is at least --touch tall on a phone. */
+  --control-sm: 30px;
+  --control: 40px;
+  --touch: 44px;
+
+  /* Elevation: flat everywhere, except what floats over the page (the search palette). */
+  --shadow-float: 0 30px 70px -28px rgb(40 38 32 / 0.38);
+
+  /* Corners. Pills for small controls, soft rectangles for containers, circles stay 50%. */
+  --radius-xs: 3px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 22px;
+  --radius-pill: 999px;
+
+  /* Motion. Quick for hover and state, base for surfaces, slow for one-off sweeps. Nothing bounces. */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-quick: 160ms;
+  --dur-base: 260ms;
+  --dur-enter: 420ms;
+  --dur-slow: 700ms;
+  --dur-sweep: 1400ms;
+
+  color-scheme: light;
+}
+
+/* The garden at night: dark gravel, moonlit stones. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #191917;
+    --ground-raised: #22211f;
+    --ink: #e6e3db;
+    --ink-2: #a9a59c;
+    --ink-3: #6b6861;
+    --track: #2f2e2b;
+    --rake: #2c2b28;
+    --rule: #45433f;
+    --rule-soft: #2f2e2b;
+    --stone: #cfcbc1;
+    --stone-off: #34332f;
+    --on-stone: #1b1b19;
+    --on-stone-2: #57554f;
+    --moss: #93a666;
+    --signal: #e0703f;
+    --signal-text: #ec8a5c;
+    --on-signal: #191917;
+    --focus: #e6e3db;
+    /* Moonlit minerals: the same hues, pale. */
+    --c-projects: oklch(0.72 0.049 262);
+    --c-urls: oklch(0.74 0.045 228);
+    --c-machine: oklch(0.73 0.038 195);
+    --c-docker: oklch(0.73 0.042 165);
+    --c-agents: oklch(0.72 0.045 300);
+    --c-skills: oklch(0.72 0.042 325);
+    --c-ports: oklch(0.72 0.045 355);
+    --c-tasks: oklch(0.75 0.049 72);
+    --c-momentum: oklch(0.76 0.049 92);
+    --c-processes: oklch(0.72 0.017 60);
+    --c-machines: oklch(0.72 0.021 245);
+    --quiet: 46%;
+    --syn-keyword: #9eaed0;
+    --syn-string: #a8ba7a;
+    --syn-number: #d6b26a;
+    --syn-function: #8fb0c9;
+    --syn-type: #8cbcb4;
+    --syn-property: #cf9fb1;
+    --syn-tag: #e09a77;
+    --shadow-float: 0 30px 70px -24px rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}

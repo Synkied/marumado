@@ -3,7 +3,7 @@
 .codeview {
   min-height: 0;
   border: 1px solid var(--rule-soft);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--ground-raised);
 }
@@ -13,7 +13,7 @@
   max-height: inherit;
   background: transparent;
   color: var(--ink);
-  font-size: 14px;
+  font-size: var(--text-lg);
 }
 
 .codeview .cm-editor.cm-focused {
@@ -30,7 +30,7 @@
 }
 
 .codeview .cm-content {
-  padding: 10px 0;
+  padding: var(--sp-5) 0;
   caret-color: var(--signal);
 }
 
@@ -79,19 +79,19 @@
 }
 
 .codeview .cm-panel.cm-search {
-  padding: 8px 10px;
+  padding: var(--sp-4) var(--sp-5);
   font-family: var(--f-display);
 }
 
 .codeview .cm-panel.cm-search input,
 .codeview .cm-panel.cm-search button {
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--ink);
   background: transparent;
   border: 1px solid var(--rule-soft);
-  border-radius: 999px;
-  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  padding: var(--sp-1) var(--sp-5);
 }
 
 .codeview .cm-panel.cm-search input[type='checkbox'] {

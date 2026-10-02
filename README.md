@@ -46,7 +46,8 @@ Marumado always asks for an access token, on localhost too: it can stop processe
 
 - Without `MARUMADO_TOKEN` in `.env`, Marumado makes a random token on first run and keeps it in its data folder. `make access-token` prints it (`uv run python manage.py token` without Docker).
 - To choose your own, set `MARUMADO_TOKEN=$(make token)` in `.env` and run `make restart`. Changing it logs every browser out.
-- After 10 different wrong tokens in 15 minutes, an address is locked out for the rest of those 15 minutes.
+- To log in with something easier to remember, run `make password` and pick a password (stored hashed in the data folder). The access token keeps working, so a forgotten password never locks you out: log in with the token, or run `make password` again. `make password ARGS=--clear` removes it. Setting or changing it logs every browser out. Each machine has its own: set one wherever you open Marumado in a browser.
+- After 10 different wrong passwords or tokens in 15 minutes, an address is locked out for the rest of those 15 minutes.
 
 ### Opening it to your phone or teammates
 

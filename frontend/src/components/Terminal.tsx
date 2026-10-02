@@ -8,28 +8,17 @@ import './terminal.css'
 
 type Link = { state: 'connecting' | 'live' | 'closed'; message: string; takeover: boolean }
 
-const THEME = {
-  background: '#111110',
-  foreground: '#ecece8',
-  cursor: '#ecece8',
-  cursorAccent: '#111110',
-  selectionBackground: '#ecece84d',
-  black: '#2b2b29',
-  brightBlack: '#6f6f6b',
-  white: '#d6d6d1',
-  brightWhite: '#ffffff',
-  red: '#ff6a3d',
-  brightRed: '#ff8a63',
-  green: '#48cd8c',
-  brightGreen: '#7be0ad',
-  yellow: '#d3ac41',
-  brightYellow: '#ecc964',
-  blue: '#7cafff',
-  brightBlue: '#a5c8ff',
-  magenta: '#c398ff',
-  brightMagenta: '#d9bcff',
-  cyan: '#00c9e8',
-  brightCyan: '#5fdff2',
+// xterm takes plain colours, so the theme is read from the --term-* tokens when a terminal opens.
+const THEME_TOKENS = {
+  background: 'bg', foreground: 'fg', cursor: 'fg', cursorAccent: 'bg', selectionBackground: 'selection',
+  black: 'black', brightBlack: 'bright-black', white: 'white', brightWhite: 'bright-white',
+  red: 'red', brightRed: 'bright-red', green: 'green', brightGreen: 'bright-green',
+  yellow: 'yellow', brightYellow: 'bright-yellow', blue: 'blue', brightBlue: 'bright-blue',
+  magenta: 'magenta', brightMagenta: 'bright-magenta', cyan: 'cyan', brightCyan: 'bright-cyan',
+}
+
+function theme(css: CSSStyleDeclaration) {
+  return Object.fromEntries(Object.entries(THEME_TOKENS).map(([key, token]) => [key, css.getPropertyValue(`--term-${token}`).trim()]))
 }
 
 // Narrower than the app's Fira Code, so a wide pane fits the browser with bigger text.
@@ -63,7 +52,7 @@ export function Terminal({ paneId, control, phone = false, fit: fitWanted = fals
     const scaled = !fit && !pan
     const css = getComputedStyle(document.documentElement)
     const term = new XTerm({
-      theme: THEME,
+      theme: theme(css),
       fontFamily: css.getPropertyValue('--f-mono').trim() || 'monospace',
       fontSize: phone ? 12 : fit ? 15 : 13,
       lineHeight: 1.15,

@@ -402,6 +402,11 @@ def _rescan_step(now: float):
     _rescanned = True
 
 
+def _tasks_step(now: float):
+    from . import tasks
+    tasks.watch(now)
+
+
 def ensure_started():
     global _started
     if _started:
@@ -416,6 +421,7 @@ def ensure_started():
         ('ports+docker', lambda: 5, _slow_step),
         ('uptime', lambda: settings.MARUMADO_UPTIME_SECONDS, lambda now: run_uptime_checks()),
         ('rescan', lambda: 3600, _rescan_step),
+        ('tasks', lambda: 4, _tasks_step),
     ]
     from . import machines
     machines.sync()

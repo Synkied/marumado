@@ -168,7 +168,60 @@ export type Agent = {
 /** control: the browser terminal types into agents; observe: it only watches; off: polled output only. */
 export type TerminalMode = 'control' | 'observe' | 'off'
 
-export type Agents = { available: boolean; error: string; where: string; terminal: TerminalMode; agents: Agent[] }
+/** `kinds`: the agents Herdr can start (for Tasks), most common first. */
+export type Agents = { available: boolean; error: string; where: string; terminal: TerminalMode; kinds?: string[]; agents: Agent[] }
+
+/** todo → starting (being handed over) → working ⇄ blocked (needs you) → review (agent finished its turn) → done; or failed. */
+export type TaskState = 'todo' | 'starting' | 'working' | 'blocked' | 'review' | 'done' | 'failed'
+
+export type Task = {
+  id: number
+  title: string
+  /** what the agent is told, after the title */
+  notes: string
+  project: number | null
+  project_name: string
+  state: TaskState
+  pane_id: string
+  agent_name: string
+  agent_kind: string
+  /** the agent's last seen Herdr state */
+  agent_state: AgentStatus | ''
+  /** what the agent's terminal title last said it was doing */
+  agent_title: string
+  /** still followed by Marumado */
+  live: boolean
+  /** not sent yet: the new agent asked something first (trusting the folder, say); sent once that is answered */
+  prompt_pending: boolean
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type TaskEventKind = 'created' | 'assigned' | 'prompt' | 'state' | 'activity' | 'changes' | 'closed' | 'error' | 'done' | 'reopened' | 'moved'
+
+export type TaskChanges = {
+  commits: { sha: string; subject: string }[]
+  /** A added, M modified, D deleted, R renamed, ? new and not in git yet */
+  files: { status: string; path: string }[]
+  file_count: number
+  stat: string
+}
+
+export type TaskEvent = {
+  id: number
+  at: string
+  kind: TaskEventKind
+  /** for `state`: the agent's state from then on (`starting`: a new agent coming up) */
+  state: AgentStatus | 'starting' | ''
+  text: string
+  /** the end of the agent's terminal at that moment */
+  output: string
+  data: Partial<TaskChanges>
+}
+
+export type TaskDetail = Task & { events: TaskEvent[] }
 
 /** What the owner wants to do with a skill. The skill itself comes from project stacks and libraries. */
 export type SkillIntent = '' | 'learn' | 'grow' | 'ignore'

@@ -8,6 +8,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 
@@ -88,14 +89,28 @@ def _command(args: tuple[str, ...], interactive: bool = False) -> tuple[list[str
     return [binary, *args], {**os.environ, **extra}
 
 
-def _run(*args: str, text: bool = False):
+def _run(*args: str, text: bool = False, timeout: float = TIMEOUT + 4):
     cmd, environ = _command(args)
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT + 4, env=environ)
+        # A session of its own, so a timeout kills everything it started: VM exec tools leave helpers holding
+        # the output pipes, which would otherwise keep us waiting on them forever.
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, env=environ, start_new_session=True)
     except FileNotFoundError:
         raise RuntimeError(f'{cmd[0]} is not installed.')
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        try:
+            proc.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
         raise RuntimeError(f'Herdr did not answer in time ({where()}).')
+    out = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
     if out.returncode != 0:
         try:
             message = json.loads(out.stderr)['error']['message']
@@ -114,7 +129,7 @@ def agents() -> dict:
         listed = _run('pane', 'list')['panes']
         workspaces = {w['workspace_id']: w.get('label') or '' for w in _run('workspace', 'list')['workspaces']}
     except (RuntimeError, ValueError, KeyError, OSError) as exc:
-        return {'available': False, 'error': str(exc), 'where': where(), 'terminal': terminal_mode(), 'agents': []}
+        return {'available': False, 'error': str(exc), 'where': where(), 'terminal': terminal_mode(), 'kinds': AGENT_KINDS, 'agents': []}
     rows = []
     for a in listed:
         rows.append({
@@ -127,7 +142,7 @@ def agents() -> dict:
             'workspace': workspaces.get(a.get('workspace_id'), ''),
             'focused': bool(a.get('focused')),
         })
-    return {'available': True, 'error': '', 'where': where(), 'terminal': terminal_mode(), 'agents': rows}
+    return {'available': True, 'error': '', 'where': where(), 'terminal': terminal_mode(), 'kinds': AGENT_KINDS, 'agents': rows}
 
 
 def read(pane_id: str, lines: int = 80) -> str:
@@ -183,6 +198,64 @@ def new_terminal(near: str = '') -> dict:
     else:
         made = _run('workspace', 'create', '--no-focus')
     return {'pane_id': made['root_pane']['pane_id']}
+
+# The agents `herdr agent start` can launch, most common first.
+AGENT_KINDS = ['claude', 'codex', 'gemini', 'opencode', 'cursor', 'copilot', 'amp', 'pi', 'devin', 'agy', 'cline', 'omp',
+               'mastracode', 'kimi', 'kiro', 'droid', 'grok', 'hermes', 'kilo', 'qodercli', 'qwen', 'letta', 'maki', 'muse']
+AGENT_NAME = re.compile(r'^[a-z][a-z0-9_-]{0,31}$')
+START_SECONDS = 120  # how long a new agent may take to start before the task fails
+LAUNCH_WAIT = 10  # how long `agent start` waits for it; after that the monitor follows it
+
+
+def open_workspace(cwd: str = '', label: str = '') -> dict:
+    """A new Herdr workspace (in `cwd`, when that folder exists where Herdr runs): {pane_id, cwd} of its shell."""
+    made = _run('workspace', 'create', *(['--cwd', cwd] if cwd else []), *(['--label', label[:60]] if label else []), '--no-focus')
+    pane = made['root_pane']
+    return {'pane_id': pane['pane_id'], 'cwd': pane.get('cwd') or ''}
+
+
+def launch_agent(name: str, kind: str, pane_id: str) -> bool:
+    """Start a `kind` agent named `name` in the shell in `pane_id`. True when it is ready for input already;
+    False when it is still starting (or stopped on a startup question): Herdr carries on without us."""
+    if kind not in AGENT_KINDS:
+        raise ValueError('Herdr cannot start that kind of agent.')
+    if not AGENT_NAME.match(name):
+        raise ValueError('Not a valid agent name.')
+    if not PANE_ID.match(pane_id):
+        raise ValueError('Not a Herdr pane id.')
+    try:
+        _run('agent', 'start', name, '--kind', kind, '--pane', pane_id, '--timeout', str(LAUNCH_WAIT * 1000),
+             timeout=LAUNCH_WAIT + 10)
+    except RuntimeError as exc:
+        message = str(exc).lower()
+        if 'not ready' in message or 'not_ready' in message or 'timed out' in message or 'did not answer' in message:
+            return False
+        raise
+    return True
+
+
+class Blocked(RuntimeError):
+    """The agent is waiting on an approval or a question, so it can't take a prompt."""
+
+
+def prompt_task(pane_id: str, text: str) -> bool:
+    """Submit a task to an agent and wait for it to start on it (working, or blocked on a question).
+    False when it was sent but no activity followed within a few seconds: the agent may still pick it up."""
+    if not PANE_ID.match(pane_id):
+        raise ValueError('Not a Herdr pane id.')
+    if not text.strip() or len(text) > MAX_PROMPT:
+        raise ValueError('The task is empty.' if not text.strip() else 'That task is too long to send.')
+    try:
+        _run('agent', 'prompt', pane_id, text, '--wait', '--until', 'working', '--until', 'blocked', '--timeout', '20000', timeout=30)
+    except RuntimeError as exc:
+        message = str(exc)
+        if 'stalled' in message or 'timeout' in message.lower() or 'did not answer' in message:
+            return False
+        if 'blocked' in message:
+            raise Blocked('The agent is waiting on a question.')
+        raise
+    return True
+
 
 def close(pane_id: str) -> None:
     """Close a pane, and whatever runs in it (an agent too)."""

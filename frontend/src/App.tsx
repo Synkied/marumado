@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Dial } from './components/Dial'
+import { Garden } from './components/Garden'
 import { Icon } from './components/Icon'
 import { Palette } from './components/Palette'
 import { TokenGate } from './components/TokenGate'
@@ -9,22 +10,24 @@ import { CPU_BUDGET, MEM_BUDGET, useHub, type ModuleId } from './lib/hub'
 import { useMachines } from './lib/machines'
 import { useStreaming } from './lib/streaming'
 import { useIsNarrow } from './lib/useIsNarrow'
+import { useArrangement } from './lib/garden'
 import { usePins } from './lib/pins'
 import { go, useRoute } from './lib/route'
 import { MODULES, meta, useSummaries, type Summary } from './modules/registry'
 import { SheetFor } from './modules/sheets'
+import { OverviewSheet } from './modules/overview'
 import './app.css'
 
 function Wordmark() {
   return (
     <a className="wordmark" href="#/" aria-label="Marumado home">
       <svg className="wordmark__mark" viewBox="0 0 32 32" aria-hidden="true">
-        <circle cx="9" cy="9" r="6" />
-        <circle cx="23" cy="9" r="6" />
-        <circle cx="9" cy="23" r="6" />
-        <circle cx="23" cy="23" r="6" />
+        <circle className="wordmark__ring" cx="16" cy="16" r="14.5" />
+        <circle className="wordmark__ring" cx="16" cy="16" r="11" />
+        <circle cx="16" cy="16" r="7" />
       </svg>
-      <span className="wordmark__text">MARUMADO</span>
+      <span className="wordmark__text">marumado</span>
+      <span className="wordmark__kanji" lang="ja">丸窓</span>
     </a>
   )
 }
@@ -70,7 +73,10 @@ function StreamingToggle() {
     >
       <Icon name={on ? 'eye-off' : 'eye'} size={18} />
       <span className="sr-only">Streaming mode</span>
-      {on && <span className="stream__text">Streaming</span>}
+      {/* Labelled in both states so the button keeps its width; the fill and the eye say on or off. */}
+      <span className="stream__text" aria-hidden="true">
+        Streaming
+      </span>
     </button>
   )
 }
@@ -123,10 +129,8 @@ function StatusBadge() {
   const label = offline ? (currentMachine && !currentMachine.local ? `${currentMachine.name} unreachable` : 'Backend offline') : count ? `${count} ${count === 1 ? 'thing needs' : 'things need'} you` : 'All clear'
   return (
     <a className={`badge${count || offline ? ' badge--alert' : ''}`} href="#/alerts" aria-label={label}>
-      <span className="badge__disc">
-        <span className="badge__value">{offline ? '!' : count || 'OK'}</span>
-      </span>
-      <span className="badge__caption">{offline ? 'OFFLINE' : count ? 'NEEDS YOU' : 'ALL CLEAR'}</span>
+      <span className="badge__dot" aria-hidden="true" />
+      <span className="badge__caption">{offline ? 'offline' : count ? `${count} ${count === 1 ? 'needs' : 'need'} you` : 'all clear'}</span>
       {/* The one thing announced as it changes; the sheets themselves stay quiet while they refresh. */}
       <span className="sr-only" aria-live="polite">
         {label}
@@ -137,7 +141,6 @@ function StatusBadge() {
 
 function ModuleCell({ id, active, s }: { id: ModuleId; active: boolean; s: Summary | null }) {
   const m = meta(id)
-  const index = String(MODULES.findIndex((x) => x.id === id) + 1).padStart(2, '0')
   const tone = s?.off ? 'off' : s?.fault ? 'signal' : 'ink'
   const reading = [s?.value, s?.caption].filter(Boolean).join(', ')
   return (
@@ -147,11 +150,7 @@ function ModuleCell({ id, active, s }: { id: ModuleId; active: boolean; s: Summa
       aria-current={active ? 'page' : undefined}
       title={reading ? `${m.label}: ${reading}` : m.label}
     >
-      <span className="cell__label">
-        <span className="cell__index">{index}</span>
-        {m.label.toUpperCase()}
-      </span>
-      <Icon name={m.icon} size={34} className="cell__icon" />
+      <span className="cell__label">{m.label}</span>
       <Dial value={s?.value ?? '··'} fraction={s?.fraction ?? null} tone={tone} caption={s?.caption} />
     </a>
   )
@@ -309,6 +308,7 @@ export default function App() {
   const route = useRoute()
   const { current } = useMachines()
   const [pins, setPins] = usePins(current)
+  const arrangement = useArrangement(current, pins, setPins)
   const [arranging, setArranging] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const narrow = useIsNarrow()
@@ -350,16 +350,24 @@ export default function App() {
           <StatusBadge />
         </header>
 
-        <main className={`main${narrow || sidebarOpen ? '' : ' main--rail'}`}>
-          <DialPanel
-            pins={pins}
-            active={narrow ? undefined : activeModule}
-            perRow={narrow ? 2 : 1}
-            onEdit={() => setArranging(true)}
-            open={narrow || sidebarOpen}
-            onToggle={toggleSidebar}
-          />
-          <section className={`side${activeModule && !arranging ? ` mod-${activeModule}` : ''}`}>
+        {home && !arranging ? (
+          <main className="main main--home">
+            <Garden arrangement={arrangement} onArrange={() => setArranging(true)} />
+            <section className="side side--home">
+              <OverviewSheet />
+            </section>
+          </main>
+        ) : (
+          <main className={`main${narrow || sidebarOpen ? '' : ' main--rail'}`}>
+            <DialPanel
+              pins={pins}
+              active={narrow ? undefined : activeModule}
+              perRow={narrow ? 2 : 1}
+              onEdit={() => setArranging(true)}
+              open={narrow || sidebarOpen}
+              onToggle={toggleSidebar}
+            />
+            <section className={`side${activeModule && !arranging ? ` mod-${activeModule}` : ''}`}>
               {narrow && !arranging && !home && (
                 <button className="side__back" type="button" onClick={() => go('#/')}>
                   <Icon name="back" size={18} /> Home
@@ -367,7 +375,8 @@ export default function App() {
               )}
               {arranging ? <ArrangeSheet pins={pins} setPins={setPins} onDone={() => setArranging(false)} /> : <SheetFor route={route} />}
             </section>
-        </main>
+          </main>
+        )}
 
         {paletteOpen && <Palette onClose={() => setPaletteOpen(false)} />}
       </div>

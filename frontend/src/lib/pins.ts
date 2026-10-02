@@ -3,7 +3,7 @@ import type { MachineId } from './api'
 import type { ModuleId } from './hub'
 
 const KEY = 'marumado.pins'
-export const DEFAULT_PINS: ModuleId[] = ['projects', 'machine', 'agents', 'urls', 'ports', 'docker']
+export const DEFAULT_PINS: ModuleId[] = ['projects', 'machine', 'agents', 'tasks', 'urls', 'ports', 'docker']
 
 function parse(key: string): ModuleId[] | null {
   try {

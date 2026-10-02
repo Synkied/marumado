@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { ApiError, logIn } from '../lib/api'
 import { useHub } from '../lib/hub'
 
-/** Marumado always needs its access token: ask for it once, and the browser stays logged in. */
+/** Marumado always needs its password or access token: ask for it once, and the browser stays logged in. */
 export function TokenGate({ children }: { children: ReactNode }) {
   const { error } = useHub()
   const [value, setValue] = useState('')
@@ -29,11 +29,11 @@ export function TokenGate({ children }: { children: ReactNode }) {
       >
         <h1 className="sheet__title">Marumado</h1>
         <p className="sheet__lede">
-          This Marumado is protected. Enter its access token: MARUMADO_TOKEN on the host, or the one Marumado made on first run
+          This Marumado is protected. Enter its password (set with <code>make password</code>) or its access token
           (<code>make access-token</code> prints it).
         </p>
         <label className="field">
-          Access token
+          Password or access token
           <input
             type="password"
             autoComplete="current-password"

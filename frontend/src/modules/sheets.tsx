@@ -18,6 +18,7 @@ import { MachinesSheet } from './machines'
 import { OverviewSheet } from './overview'
 import { ProjectForm, ProjectsSheet } from './projects'
 import { SheetHead } from './sheetHead'
+import { TasksSheet } from './tasks'
 
 export function SheetFor({ route }: { route: Route }) {
   if (route.kind === 'alerts') return <AlertsSheet />
@@ -38,6 +39,8 @@ export function SheetFor({ route }: { route: Route }) {
       return <ProcessesSheet />
     case 'agents':
       return <AgentsSheet sub={route.sub} />
+    case 'tasks':
+      return <TasksSheet sub={route.sub} key={route.sub ?? 'list'} />
     case 'momentum':
       return <MomentumSheet />
     case 'skills':
@@ -500,7 +503,7 @@ function ProcessesSheet() {
                 </span>
               </button>
               {open === p.pid && (
-                <div className="sheet__section" style={{ padding: '6px 0 10px' }}>
+                <div className="sheet__section" style={{ padding: 'var(--sp-3) 0 var(--sp-5)' }}>
                   <dl className="facts">
                     <dt>Command</dt>
                     <dd>
