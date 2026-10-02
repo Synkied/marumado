@@ -9,7 +9,7 @@ import time
 from django.db.models import OuterRef, Subquery
 
 from . import discovery, herdr, monitor
-from .models import Project, UptimeCheck
+from .models import Project, Task, UptimeCheck
 
 # Listing agents runs Herdr (possibly over SSH), so it is shared between requests for a few seconds.
 AGENTS_SECONDS = 8
@@ -31,17 +31,21 @@ def _cached_agents() -> dict:
 def _agents_digest() -> dict:
     data = _cached_agents()
     live = [a for a in data['agents'] if a['kind'] != 'terminal']
+    names = {s['id']: s['name'] for s in data['sources']}
     blocked = []
     for a in live:
         if a['status'] == 'blocked':
             where = next((part for part in reversed(a['cwd'].split('/')) if part), a['cwd'])
             label = a['title'] if a['title'] and a['title'] != a['kind'] else a['name'] or a['kind']
-            blocked.append({'pane_id': a['pane_id'], 'label': label, 'where': where})
+            blocked.append({'pane_id': a['pane_id'], 'source': a['source'], 'source_name': names.get(a['source'], ''),
+                            'label': label, 'where': where})
     return {
         'available': data['available'],
         'total': len(live),
         'working': sum(a['status'] == 'working' for a in live),
         'blocked': blocked,
+        'sources': len(data['sources']),
+        'unreachable': [s['name'] for s in data['sources'] if not s['available']],
     }
 
 
@@ -57,6 +61,16 @@ def _urls_digest(projects: list[Project]) -> dict:
         for r in checked if not r.ok
     ]
     return {'checked': len(checked), 'up': len(checked) - len(down), 'down': down}
+
+
+def _tasks_digest() -> dict:
+    states = list(Task.objects.exclude(state=Task.DONE).values_list('state', flat=True))
+    return {
+        'open': len(states),
+        'working': sum(s in (Task.WORKING, Task.STARTING) for s in states),
+        'blocked': sum(s == Task.BLOCKED for s in states),
+        'failed': sum(s == Task.FAILED for s in states),
+    }
 
 
 def digest() -> dict:
@@ -87,4 +101,5 @@ def digest() -> dict:
         },
         'agents': _agents_digest(),
         'ports': len(ports),
+        'tasks': _tasks_digest(),
     }

@@ -155,6 +155,8 @@ export type AgentStatus = 'working' | 'blocked' | 'idle' | 'done' | 'unknown'
 
 export type Agent = {
   pane_id: string
+  /** The source (place Herdr runs) it is in: pane ids are only unique within one. Absent from older Marumados: 0. */
+  source?: number
   name: string
   kind: string
   status: AgentStatus
@@ -168,8 +170,25 @@ export type Agent = {
 /** control: the browser terminal types into agents; observe: it only watches; off: polled output only. */
 export type TerminalMode = 'control' | 'observe' | 'off'
 
-/** `kinds`: the agents Herdr can start (for Tasks), most common first. */
-export type Agents = { available: boolean; error: string; where: string; terminal: TerminalMode; kinds?: string[]; agents: Agent[] }
+/** A place Herdr runs. 0 (`env`) is the one set in .env; the others (an SSH host, a smolvm machine) are added in the app. */
+export type AgentSource = {
+  id: number
+  name: string
+  kind: 'env' | 'ssh' | 'smolvm'
+  /** where it looks for Herdr, in words */
+  where: string
+  available: boolean
+  error: string
+  /** how many panes it has open */
+  agents: number
+}
+
+/** An agent source as saved in the app (GET /agent-sources). */
+export type SavedAgentSource = { id: number; name: string; kind: 'ssh' | 'smolvm'; target: string }
+
+/** `kinds`: the agents Herdr can start (for Tasks), most common first. `available`: at least one source answered.
+ * `sources` is absent from Marumados older than agent sources. */
+export type Agents = { available: boolean; error: string; where: string; terminal: TerminalMode; kinds?: string[]; sources?: AgentSource[]; agents: Agent[] }
 
 /** todo → starting (being handed over) → working ⇄ blocked (needs you) → review (agent finished its turn) → done; or failed. */
 export type TaskState = 'todo' | 'starting' | 'working' | 'blocked' | 'review' | 'done' | 'failed'
@@ -183,6 +202,8 @@ export type Task = {
   project_name: string
   state: TaskState
   pane_id: string
+  /** the source the agent runs in (see Agent.source) */
+  agent_source: number
   agent_name: string
   agent_kind: string
   /** the agent's last seen Herdr state */
@@ -250,6 +271,8 @@ export type Machine = {
     memory: number
     disk: { mount: string; percent: number } | null
     time: number
+    /** CPU % over the last half hour, about one point every 30s, oldest first; null where nothing was sampled */
+    trace?: (number | null)[]
   } | null
   /** its digest for the home view; null while unreachable, or from a Marumado older than /overview */
   overview: Overview | null
@@ -261,6 +284,16 @@ export type Overview = {
   projects: { total: number; running: number }
   urls: { checked: number; up: number; down: { id: number; name: string; detail: string }[] }
   docker: { available: boolean; running: number; total: number; unhealthy: string[] }
-  agents: { available: boolean; total: number; working: number; blocked: { pane_id: string; label: string; where: string }[] }
+  agents: {
+    available: boolean
+    total: number
+    working: number
+    blocked: { pane_id: string; source?: number; source_name?: string; label: string; where: string }[]
+    /** how many sources it watches, and those that don't answer (absent from older Marumados) */
+    sources?: number
+    unreachable?: string[]
+  }
   ports: number
+  /** open tasks (absent from older Marumados) */
+  tasks?: { open: number; working: number; blocked: number; failed: number }
 }

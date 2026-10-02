@@ -113,16 +113,16 @@ Every design decision lives in `frontend/src/tokens.css`: colours (light and dar
 - **Motion**: `--ease`, `--dur-quick` (hover, state), `--dur-base` (surfaces), `--dur-enter` (a sheet arriving), `--dur-slow`, `--dur-sweep` (a pen drawing a channel's record onto its disc).
 - **Elevation**: `--shadow-float`, only for what floats over the page.
 
-Rules for new CSS: no raw colours, font sizes, letter-spacing, radii or durations; spacing from `--sp-*` (1px hairlines and `em` offsets are fine); the geometry of marks (rims, rings, bands and lanes in `Dial.tsx`, the table's slots and graticule pitch in `Garden.tsx`) stays literal. CSS can't read a variable inside a media query, so the phone breakpoint (860px) is written into `app.css`.
+Rules for new CSS: no raw colours, font sizes, letter-spacing, radii or durations; spacing from `--sp-*` (1px hairlines and `em` offsets are fine); the geometry of marks (rims, rings, bands and lanes in `Dial.tsx`, the graticule pitch in `fleet.css`) stays literal. CSS can't read a variable inside a media query, so the phone breakpoint (860px) is written into `app.css`.
 
 ## Overview
 
-**Creative North Star: "The Chart Recorder." The machine writes its own record.** Marumado is a laboratory recorder: pale chart paper ruled with a faint graticule, and every module a channel drawn by its own pen. On home, each channel is a circular chart disc (the round window, 丸窓) read from twelve o'clock clockwise: the oldest record just past the top, "now" at the top where the pen sits, the current reading in the hub. On a module's page the disc unrolls into straight strip charts.
+**Creative North Star: "The Chart Recorder." The machine writes its own record.** Marumado is a laboratory recorder: pale chart paper ruled with a faint graticule, and every module a channel drawn by its own pen. Home is the recorder's overview of every machine at once: each machine a block of small reading windows laid on the paper, each with its module's pen and a small seal (its disc in miniature); persimmon, with a wash, marks only what needs you. Each module's own pen and its circular chart disc (the round window, 丸窓) live on its page and in the sidebar, where the disc unrolls into straight strip charts.
 
-It is quiet until something matters. A flat trace is calm; a spike shows as shape before any colour is needed. When something needs you, the alarm pen (persimmon) marks that channel's rim, its newest record and the status dot, and nothing else on screen changes colour. It refuses the card-grid dashboard, the gauge cluster, the dark cockpit and table-filled home screens, and it refuses skeuomorphic hardware: no metal, knobs, bevels or glow.
+It is quiet until something matters. When something needs you, the alarm pen (persimmon) marks that reading, the machine's round-window lamp and the status dot, and nothing else on screen changes colour. It refuses the card-grid dashboard, the gauge cluster, the dark cockpit and table-filled home screens, and it refuses skeuomorphic hardware: no metal, knobs, bevels or glow.
 
 **Key Characteristics:**
-- Chart paper with a fine graticule (16px, a major division every fifth line) on the home table; discs and strips carry their own.
+- Chart paper with a fine graticule (16px, a major division every fifth line) behind home; discs and strips carry their own.
 - Every module draws something even when nothing is wrong: a trace, event ticks, or one lane per item.
 - One family, two widths: Iosevka Aile for names and words, Iosevka for every value and line of code, terminals included.
 - Colour is a pen: each module's own muted ink for identity, moss for alive, persimmon for needs you.
@@ -179,9 +179,9 @@ Paper, graticule and ink; one muted pen per module; two pigments used only as si
 ## Layout
 
 - The app is a quiet top bar (the round chart mark and wordmark, machine picker, streaming and lock toggles, active agents, an underlined "/ search", CPU/RAM, the status dot and words) over the main area.
-- **Home** is the chart table: edge to edge, as tall as the window (480 to 1300px), ruled with the graticule, with the Overview of every machine below it. Each pinned module lies as a disc at an authored slot (x, y as a fraction of the table, a size scale); the principal disc sits left, the rest gather in uneven groups. No two discs overlap from 1000×560 to 2400×1150. A disc's diameter is `min(34cqw, 62cqh)` × its slot scale.
-- **A module page** swaps the table for a sidebar of small discs (a 104px rail with names under them, or a wider list with the caption beside each) next to the sheet. On wide screens the app is one viewport tall and each column scrolls on its own.
-- **Below 860px** the principal disc is laid full width on top, the rest in two staggered columns, then the Overview. A module page shows only its sheet with a Home back link. Every control is at least 44px tall.
+- **Home** is every machine, one block each, on the graticule, edge to edge (see The machine blocks).
+- **A module page** swaps home for a sidebar of small discs (a 104px rail with names under them, or a wider list with the caption beside each) next to the sheet. On wide screens the app is one viewport tall and each column scrolls on its own.
+- **Below 860px** home is the same blocks with two readings per line. A module page shows only its sheet with a Home back link. Every control is at least 44px tall.
 - Lists are rows of at least 56px separated by `rule-soft` hairlines. Card grids use `auto-fill` with a `min(100%, …)` minimum, so they never scroll sideways.
 
 ## Elevation & Depth
@@ -229,13 +229,13 @@ A module's channel as a circular chart (`Dial`). Paper disc, a graticule of thre
 
 Off is a blank disc with a dashed `pen-off` rim and "OFF" in light italic. Fault turns the rim, the "now" tick, the newest eighth of a trace and the reading persimmon. A quiet channel draws with a lighter pen; a busy one pulses its pen tip. On first load the discs are laid in reading order (a 70ms stagger) and each pen draws its record once; afterwards readings update in place.
 
-### The chart table
-Home's surface (`Garden.tsx`): the graticule (SVG patterns, centred on the table) and the pinned modules as discs. You lay it out yourself:
-- **Move:** drag a disc, or Shift + arrow keys. It stays on the table and is nudged 10px clear of any disc it lands on.
-- **Size:** drag the small ring on its lower-right rim (shown on hover or focus), or + and −. Sizes run from 0.24 to 1.1 of `--base`.
-- **Add or take off:** long-press (500ms) or right-click empty paper for a menu of the modules not yet on home; the chosen one is laid at that spot. Long-press or right-click a disc for Open and Take off home.
-- **Save:** every change is a draft, marked "Unsaved layout", until Save layout; Discard puts back the last save, Reset layout returns every disc to its authored slot. Positions and sizes are saved per machine in browser storage, and the discs on the table are the pins.
-- Arrange, Reset and Save sit in a strip below the table, never on it. On phones discs can't be moved or sized.
+### The machine blocks (home)
+Home (`modules/fleet.tsx`, readings in `modules/readouts.ts`) shows every machine as a block:
+- **Header:** the round-window lamp (a hollow ink ring when all is well, filled persimmon when something needs you, dashed while connecting), the machine's name (opens its Machine page), a context line in mono, its status ("all clear", "2 need you", "unreachable"), and Arrange and Fold buttons.
+- **Readings:** fixed-anatomy cells: the name in tracked caps in its module's pen (RAM in the Processes pen, Disk in Momentum's) with its **seal** beside it, the value large in mono (`--text-3xl`) on its own line, and under it a line of words (up to two lines) or, for CPU, its last half hour as a pen line with a dot at "now" and its budget as a dashed rule. The seal is the module's disc in miniature (36px, read from twelve o'clock): a share is one arc with a tick at its budget (CPU, RAM, Disk); parts are one arc per item, pen for on, pale for off, persimmon for needs you (URLs, Agents, Docker, Tasks, Projects; past 12 items it becomes a share). Cells are separated by a left hairline, never boxed. A reading that needs you keeps its place, on a faint persimmon wash with a 3px persimmon left rule; an absent module is pale with a dashed seal.
+- **Extensible by construction:** cells lay on `repeat(auto-fill, minmax(148px, 1fr))` (140px on phones), so they wrap onto as many lines as needed and stretch to fill each line, and every block shares the same columns: the same reading sits in the same place on every machine. Nine readings fit one line at 1440px. A new module adds an entry to `READOUTS`, built from the machine's summary and `/api/overview` digest only, so it reads the same for every machine.
+- **Per machine:** Arrange lets you show, hide and reorder a machine's readings; "Use on every machine" copies them so the blocks line up again. Saved per viewer in browser storage.
+- **Order and folding:** machines that need you (or are unreachable) rise to the top and are always open; this machine is open; calm remote machines fold to one line carrying their vitals (`CPU 8% · RAM 30% · disk 40%`), and any fold can be changed by hand. An unreachable machine is one persimmon line with Retry. Problems no reading shows are listed under the block.
 
 ### Strip charts
 On module pages (`DotChart`): the pen running across ruled paper, oldest at the left, the pen tip at "now" on the right, axis values in mono on the left and the span ("−30 min … now") under it. A channel that went quiet (a URL down) ends at its last reading, marked by a dashed persimmon break. Meters are 6px grooves in `track` with a pen fill and a budget tick.
@@ -246,7 +246,7 @@ An eye toggle next to the machine picker (on by default, and forced by `?stream`
 ## Do's and Don'ts
 
 ### Do:
-- **Do** give every new module a label, an icon and a summary (value, fraction, caption, fault, off, and a `chart`) in `registry.ts`. It joins the table on equal footing.
+- **Do** give every new module a label, an icon and a summary (value, fraction, caption, fault, off, and a `chart`) in `registry.ts`, and a reading in `readouts.ts` fed by the machine digest, so it appears on every machine's block.
 - **Do** draw real data on a disc. If a module has no history, draw its items as lanes rather than inventing a trace.
 - **Do** treat "unavailable" (Docker off, Herdr not running, a machine unreachable) as a calm, explained state: a blank disc and plain words, not an error.
 - **Do** label states in plain words for someone who isn't the owner ("1 of 4 working", "Herdr not running").
@@ -258,5 +258,5 @@ An eye toggle next to the machine picker (on by default, and forced by `?stream`
 - **Don't** set names of things in mono, or actions in uppercase.
 - **Don't** add shadows (beyond what floats), gradients, glass, bevels, knobs, metal or glow, or nested cards.
 - **Don't** add kicker labels above titles or numbered section indexes.
-- **Don't** fill the home screen with tables. Home is the chart table plus the Overview; details live in each module's sheet.
+- **Don't** give home fixed columns. Home is wrapping reading cells; details live in each module's page.
 - **Don't** animate layout properties. Use transform, opacity or stroke drawing, with a short fade under reduced motion.

@@ -8,6 +8,7 @@ router.register('projects', views.ProjectViewSet, basename='project')
 router.register('skills', views.SkillViewSet, basename='skill')
 router.register('machines', views.MachineViewSet, basename='machine')
 router.register('tasks', views.TaskViewSet, basename='task')
+router.register('agent-sources', views.AgentSourceViewSet, basename='agent-source')
 
 urlpatterns = [
     path('auth', views.auth_view),

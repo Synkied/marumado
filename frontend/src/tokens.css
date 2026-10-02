@@ -2,7 +2,8 @@
  * Components use these and nothing else for colour, type, spacing, corners and motion.
  * The world is a chart recorder: the machine writes its own record. Pale chart paper with a faint graticule, each
  * module a channel drawn by its own pen in a muted ink, one moss green for "all clear" and one persimmon alarm pen
- * for "needs you". Pen hues keep clear of moss (olive) and persimmon (orange), which only ever mean state.
+ * for "needs you", plus a still blue for "done, ready to read". Pen hues keep clear of moss (olive) and persimmon
+ * (orange), which only ever mean state.
  * Fonts: swap the @fontsource imports below together with the --f-* families.
  * The one value CSS can't take from a variable is the phone breakpoint, 860px, written into app.css's media queries. */
 
@@ -49,6 +50,7 @@
   --rim-ink: 55%; /* how much of its pen a disc's rim takes */
   --moss: #5d6b3a; /* all clear, alive, working */
   --signal: #c2502b; /* persimmon, the alarm pen: needs you, and nothing else */
+  --done: oklch(0.52 0.08 235); /* still blue: finished, ready for you to read; calmer than the alarm */
   --signal-text: #a3411f; /* 5.4:1 on the paper, so small 'needs you' text passes AA */
   --on-signal: #f6f2ea;
   --focus: #23231f;
@@ -199,6 +201,7 @@
     --rim-ink: 85%;
     --moss: #93a666;
     --signal: #e0703f;
+    --done: oklch(0.74 0.08 235);
     --signal-text: #ec8a5c;
     --on-signal: #191917;
     --focus: #e8e5dc;

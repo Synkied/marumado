@@ -4,25 +4,27 @@ import { ConfirmButton } from '../components/ConfirmButton'
 import { DotChart } from '../components/DotChart'
 import { Icon } from '../components/Icon'
 import { Meter } from '../components/Meter'
+import { agentHref, agentKey, parseAgentRef, sourceLabel, sourceOf, sourceQuery, sourcesOf } from '../lib/agents'
 import { api } from '../lib/api'
 import { bytes, duration, rate } from '../lib/format'
 import { useHub } from '../lib/hub'
 import { useMachines } from '../lib/machines'
-import { Redacted, Secret } from '../lib/streaming'
+import { Redacted, Secret, useRedact } from '../lib/streaming'
 import { go, type Route } from '../lib/route'
-import type { Agent, AgentStatus, Container, Proc, ProjectRef } from '../lib/types'
+import type { Agent, AgentSource, AgentStatus, Container, Proc, ProjectRef } from '../lib/types'
 import { useIsNarrow } from '../lib/useIsNarrow'
 import { usePoll } from '../lib/usePoll'
 import { MomentumSheet, SkillsSheet, useView, ViewSwitch } from './growth'
+import { AgentSourcesSheet } from './agentSources'
 import { MachinesSheet } from './machines'
-import { OverviewSheet } from './overview'
+import { Fleet } from './fleet'
 import { ProjectForm, ProjectsSheet } from './projects'
 import { SheetHead } from './sheetHead'
 import { TasksSheet } from './tasks'
 
 export function SheetFor({ route }: { route: Route }) {
   if (route.kind === 'alerts') return <AlertsSheet />
-  if (route.kind === 'home') return <OverviewSheet />
+  if (route.kind === 'home') return <Fleet />
   if (route.kind !== 'module') return null
   switch (route.id) {
     case 'projects':
@@ -52,7 +54,7 @@ export function SheetFor({ route }: { route: Route }) {
 
 function AlertsSheet() {
   const { alerts, system, error } = useHub()
-  const { currentMachine, machines } = useMachines()
+  const { currentMachine, machines, current, select } = useMachines()
   const targets = (machines ?? []).map((m) => m.ssh_target)
   return (
     <div className="sheet">
@@ -81,7 +83,18 @@ function AlertsSheet() {
                   <Redacted text={a.detail} secrets={targets} />
                 </span>
               </span>
-              <a className="go" href={a.href} aria-label={`Go to ${a.module}`}>
+              <a
+                className="go"
+                href={a.href}
+                aria-label={`Go to ${a.module}`}
+                onClick={(e) => {
+                  // Another machine's issue: show that machine first, so the link lands on its module.
+                  if (a.machine === undefined || a.machine === current) return
+                  e.preventDefault()
+                  select(a.machine)
+                  go(a.href)
+                }}
+              >
                 <Icon name="arrow" size={20} />
               </a>
             </li>
@@ -547,8 +560,8 @@ const AGENT_STATE: Record<AgentStatus, string> = {
 const AGENT_ORDER: AgentStatus[] = ['blocked', 'working', 'done', 'idle', 'unknown']
 
 /** Polled terminal output of one agent, for when the live terminal is turned off. */
-function AgentOutput({ paneId }: { paneId: string }) {
-  const out = usePoll<{ output: string }>(`agents/${encodeURIComponent(paneId)}/output?lines=200`, 3000)
+function AgentOutput({ paneId, source }: { paneId: string; source: number }) {
+  const out = usePoll<{ output: string }>(`agents/${encodeURIComponent(paneId)}/output?lines=200&${sourceQuery(source)}`, 3000)
   const ref = useRef<HTMLPreElement>(null)
   // Follow the newest lines, unless the reader has scrolled up to read.
   const follow = useRef(true)
@@ -579,7 +592,7 @@ const KEYS: [string, string][] = [
 ]
 
 /** Phones: a prompt box and the keys an agent's dialogs need, instead of typing into a tiny terminal. */
-function AgentComposer({ paneId }: { paneId: string }) {
+function AgentComposer({ paneId, source }: { paneId: string; source: number }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -587,7 +600,7 @@ function AgentComposer({ paneId }: { paneId: string }) {
     setBusy(true)
     setError('')
     try {
-      await api(`agents/${encodeURIComponent(paneId)}/input`, { method: 'POST', json })
+      await api(`agents/${encodeURIComponent(paneId)}/input?${sourceQuery(source)}`, { method: 'POST', json })
       if (json.text) setText('')
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't reach the agent.")
@@ -657,8 +670,8 @@ function useFitPreference(): [boolean, (on: boolean) => void] {
   return [fit, set]
 }
 
-/** Opens a shell in a new Herdr tab, beside the pane being watched, and switches to it. */
-function NewTerminal({ near }: { near?: string }) {
+/** The + on a source's heading: opens a shell in a new Herdr workspace there, and switches to it. */
+function NewTerminal({ source, sourceName }: { source: number; sourceName: string }) {
   const { refreshAgents } = useHub()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -666,9 +679,9 @@ function NewTerminal({ near }: { near?: string }) {
     setBusy(true)
     setError('')
     try {
-      const made = await api<{ pane_id: string }>('agents/terminal', { method: 'POST', json: { near } })
+      const made = await api<{ pane_id: string; source?: number }>('agents/terminal', { method: 'POST', json: { source } })
       refreshAgents()
-      go(`#/m/agents/${made.pane_id}`)
+      go(agentHref({ pane_id: made.pane_id, source: made.source ?? source }))
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't open a terminal.")
     } finally {
@@ -676,12 +689,63 @@ function NewTerminal({ near }: { near?: string }) {
     }
   }
   return (
-    <>
-      <button className="btn" type="button" onClick={open} disabled={busy} title={error || 'Open a shell in a new Herdr tab, in the same folder'}>
-        {busy ? 'Opening…' : 'New terminal'}
-      </button>
-      {error && <span className="signal-text" role="alert">{error}</span>}
-    </>
+    <button
+      className={`agent-group__add${error ? ' signal-text' : ''}`}
+      type="button"
+      onClick={open}
+      disabled={busy}
+      aria-label={`New terminal on ${sourceName}`}
+      title={error ? `Couldn't open a terminal: ${error}` : `Open a shell in a new Herdr workspace on ${sourceName}`}
+    >
+      <Icon name="plus" size={14} />
+    </button>
+  )
+}
+
+const agentLabel = (a: Agent) => (a.title && a.title !== a.kind ? a.title : a.name || a.kind)
+
+function AgentTab({ agent: a, active, sub }: { agent: Agent; active: boolean; sub: string }) {
+  const lamp = a.status === 'blocked' ? ' row__lamp--fault' : a.status === 'working' ? ' row__lamp--on' : a.status === 'done' ? ' row__lamp--done' : ''
+  return (
+    <a
+      className={`agent-tab${active ? ' is-active' : ''}${a.status === 'blocked' ? ' is-fault' : ''}`}
+      href={agentHref(a)}
+      aria-current={active ? 'page' : undefined}
+    >
+      <span className={`row__lamp${lamp}`} role="img" aria-label={a.status} />
+      <span className="agent-tab__main">
+        <span className="agent-tab__title">{agentLabel(a)}</span>
+        <span className="agent-tab__sub">
+          <span className={`agent-tab__state${a.status === 'blocked' ? ' signal-text' : ''}`}>{AGENT_STATE[a.status]}</span> {a.kind} · {sub}
+        </span>
+      </span>
+    </a>
+  )
+}
+
+/** A source's heading in the list of agents: whether it answers, its name, and how many agents it runs. */
+function SourceHeading({ source: s, agents, control }: { source: AgentSource; agents: Agent[]; control: boolean }) {
+  const redact = useRedact()
+  const live = agents.filter((a) => a.kind !== 'terminal')
+  const waiting = live.filter((a) => a.status === 'blocked').length
+  const working = live.filter((a) => a.status === 'working').length
+  const count = !s.available ? 'unreachable' : waiting ? `${waiting} need${waiting === 1 ? 's' : ''} you` : working ? `${working} of ${live.length} working` : live.length ? `${live.length} resting` : 'nothing open'
+  return (
+    <div className={`agent-group${s.available ? '' : ' is-down'}`} role="group" aria-label={`${s.name}: ${count}`}>
+      <div className="agent-group__head">
+        <span className={`row__lamp agent-group__lamp${s.available ? (working || waiting ? ' row__lamp--on' : '') : ' row__lamp--fault'}`} aria-hidden="true" />
+        <span className="agent-group__name" title={redact(s.where)}>
+          {s.name}
+        </span>
+        {control && s.available && <NewTerminal source={s.id} sourceName={s.name} />}
+      </div>
+      <span className={`agent-group__count${!s.available || waiting ? ' signal-text' : ''}`}>{count}</span>
+      {!s.available && (
+        <p className="agent-group__error" title={redact(s.error)}>
+          <Redacted text={s.error || 'Herdr is not answering.'} />
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -693,77 +757,121 @@ function AgentsSheet({ sub }: { sub?: string }) {
   const [fit, setFit] = useFitPreference()
   const [full, setFull] = useState(false)
 
+  if (sub === 'sources' || sub?.startsWith('sources/')) return <AgentSourcesSheet sub={sub.slice(8)} />
   if (!agents) return <div className="sheet__empty">Loading…</div>
   const projectFor = (a: Agent) =>
     (projects ?? []).filter((p) => p.path && (a.cwd === p.path || a.cwd.startsWith(`${p.path}/`))).sort((x, y) => y.path.length - x.path.length)[0]
-  const list = [...agents.agents].sort((a, b) => AGENT_ORDER.indexOf(a.status) - AGENT_ORDER.indexOf(b.status))
-  const current = list.find((a) => a.pane_id === sub) ?? list[0]
+  const sources = sourcesOf(agents)
+  const multi = sources.length > 1
+  // Grouped by source (in the order they are listed), then most urgent first. Even one source gets its heading,
+  // with the + that opens a terminal there. Older Marumados don't list sources: a plain list then.
+  const grouped = sources.length > 0
+  const order = (a: Agent) => (grouped ? sources.findIndex((s) => s.id === sourceOf(a)) * 10 : 0) + AGENT_ORDER.indexOf(a.status)
+  const list = [...agents.agents].sort((a, b) => order(a) - order(b))
+  const ref = parseAgentRef(sub)
+  const current = (ref && list.find((a) => a.pane_id === ref.pane && sourceOf(a) === ref.source)) || list[0]
   const mode = agents.terminal ?? 'control'
+  const sourcesLabel = `Sources${multi ? ` · ${sources.length}` : ''}`
 
   if (!agents.available || !current) {
     return (
       <div className="sheet">
         <SheetHead id="agents">
-          {mode === 'control' && agents.available && <NewTerminal near={current?.pane_id} />}
+          <a className="btn btn--quiet" href="#/m/agents/sources">
+            {sourcesLabel}
+          </a>
         </SheetHead>
         {!agents.available ? (
-          <p className="notice">
-            <strong>Herdr isn&rsquo;t reachable <Redacted text={agents.where} />.</strong> <Redacted text={agents.error} /> If your agents run on another machine or VM, set <code>MARUMADO_HERDR_SMOLVM</code> (the smolvm machine name), <code>MARUMADO_HERDR_EXEC</code> or <code>MARUMADO_HERDR_SSH</code> in .env.
-          </p>
+          <div className="notice">
+            {multi ? (
+              <>
+                <strong>None of your agent sources answer.</strong>
+                <ul className="agent-errors">
+                  {sources.map((s) => (
+                    <li key={s.id}>
+                      <strong>{s.name}</strong>: <Redacted text={s.error} />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p>
+                <strong>Herdr isn&rsquo;t reachable <Redacted text={agents.where} />.</strong> <Redacted text={agents.error} />
+              </p>
+            )}
+            <p>
+              If your agents run in VMs or on other machines, <a href="#/m/agents/sources/new">add each one as a source</a>.
+            </p>
+          </div>
         ) : (
-          <p className="sheet__lede">Herdr is running <Redacted text={agents.where} />, with nothing open.</p>
+          <>
+            <p className="sheet__lede">
+              {multi ? 'Nothing is open in Herdr on any of your sources.' : <>Herdr is running <Redacted text={agents.where} />, with nothing open.</>}
+              {mode === 'control' && grouped && ' Open a terminal with + beside a source.'}
+            </p>
+            {grouped && (
+              <div className="agent-tabs agent-tabs--empty">
+                {sources.map((s) => (
+                  <section className="agent-tabs__group" key={s.id}>
+                    <SourceHeading source={s} agents={[]} control={mode === 'control'} />
+                  </section>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     )
   }
 
   const project = projectFor(current)
+  const currentSource = sourceOf(current)
+  const currentSourceName = sourceLabel(agents, current)
   const closePane = async () => {
     setCloseError('')
     try {
-      await api(`agents/${encodeURIComponent(current.pane_id)}/close`, { method: 'POST' })
+      await api(`agents/${encodeURIComponent(current.pane_id)}/close?${sourceQuery(currentSource)}`, { method: 'POST' })
       refreshAgents()
       go('#/m/agents')
     } catch (err) {
       setCloseError(err instanceof Error ? `Couldn't close it: ${err.message}` : "Couldn't close it.")
     }
   }
+  const tab = (a: Agent) => <AgentTab key={agentKey(a)} agent={a} active={a === current} sub={projectFor(a)?.name ?? a.cwd} />
   return (
     <div className="sheet sheet--fill agents">
       <aside className="agents__side">
-        <SheetHead id="agents">
-          {mode === 'control' && agents.available && <NewTerminal near={current?.pane_id} />}
-        </SheetHead>
+        <SheetHead id="agents" />
         <nav className="agent-tabs" aria-label="Agents">
-          {list.map((a) => {
-            const lamp = a.status === 'blocked' ? ' row__lamp--fault' : a.status === 'working' ? ' row__lamp--on' : ''
-            return (
-              <a
-                key={a.pane_id}
-                className={`agent-tab${a === current ? ' is-active' : ''}${a.status === 'blocked' ? ' is-fault' : ''}`}
-                href={`#/m/agents/${a.pane_id}`}
-                aria-current={a === current ? 'page' : undefined}
-              >
-                <span className={`row__lamp${lamp}`} role="img" aria-label={a.status} />
-                <span className="agent-tab__main">
-                  <span className="agent-tab__title">{a.title && a.title !== a.kind ? a.title : a.name || a.kind}</span>
-                  <span className="agent-tab__sub">
-                    <span className={`agent-tab__state${a.status === 'blocked' ? ' signal-text' : ''}`}>{AGENT_STATE[a.status]}</span> {a.kind} · {projectFor(a)?.name ?? a.cwd}
-                  </span>
-                </span>
-              </a>
-            )
-          })}
+          {grouped
+            ? sources.map((s) => {
+                const mine = list.filter((a) => sourceOf(a) === s.id)
+                return (
+                  <section className="agent-tabs__group" key={s.id}>
+                    <SourceHeading source={s} agents={mine} control={mode === 'control'} />
+                    {mine.map(tab)}
+                  </section>
+                )
+              })
+            : list.map(tab)}
         </nav>
         <p className="agent-hint">{TERMINAL_HINT[mode]}</p>
       </aside>
       <div className={`agents__stage${full && !narrow ? ' is-full' : ''}`}>
         <div className="agent-bar">
           <p className="agent-meta">
+            {currentSourceName && (
+              <a className="agent-source" href="#/m/agents/sources" title="Where this agent runs">
+                {currentSourceName}
+              </a>
+            )}
             {current.name ? `${current.name} · ` : ''}
             {current.kind} · {project ? <a href={`#/m/projects/${project.id}`}>{project.name}</a> : <Secret label="Folder">{current.cwd}</Secret>}
             {current.workspace ? ` · ${current.workspace} ${current.pane_id}` : ` · ${current.pane_id}`}
           </p>
+          <a className="agent-fit" href="#/m/agents/sources" title="Where your agents run: add, edit or remove sources">
+            {sourcesLabel}
+          </a>
           {!narrow && mode === 'control' && (
             <button
               type="button"
@@ -798,11 +906,11 @@ function AgentsSheet({ sub }: { sub?: string }) {
           </div>
         )}
         {mode === 'off' || (narrow && view === 'text') ? (
-          <AgentOutput paneId={current.pane_id} key={current.pane_id} />
+          <AgentOutput paneId={current.pane_id} source={currentSource} key={agentKey(current)} />
         ) : (
-          <Terminal paneId={current.pane_id} control={mode === 'control'} phone={narrow} fit={fit} key={current.pane_id} />
+          <Terminal paneId={current.pane_id} source={currentSource} control={mode === 'control'} phone={narrow} fit={fit} key={agentKey(current)} />
         )}
-        {narrow && mode === 'control' && <AgentComposer paneId={current.pane_id} key={`c${current.pane_id}`} />}
+        {narrow && mode === 'control' && <AgentComposer paneId={current.pane_id} source={currentSource} key={`c${agentKey(current)}`} />}
       </div>
     </div>
   )

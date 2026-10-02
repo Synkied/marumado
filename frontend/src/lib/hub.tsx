@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { agentHref, agentKey, sourceLabel } from './agents'
 import { api, ApiError } from './api'
 import { daysSince, PUSH_GRACE_DAYS } from './growth'
 import type { MachineId } from './api'
@@ -13,6 +14,8 @@ export type Alert = {
   detail: string
   /** hash route that resolves it */
   href: string
+  /** the machine `href` is on, when it isn't the one on screen: switch to it before following the link */
+  machine?: MachineId
 }
 
 export type ModuleId = 'projects' | 'machine' | 'urls' | 'ports' | 'docker' | 'processes' | 'agents' | 'tasks' | 'momentum' | 'skills' | 'machines'
@@ -57,7 +60,11 @@ export function machineIssues(m: Machine): Issue[] {
   }
   const o = m.overview
   for (const a of o?.agents.blocked ?? []) {
-    out.push({ id: `agent:${a.pane_id}`, module: 'agents', title: `${a.label} in ${a.where} is waiting for you`, detail: 'Approval or question' })
+    const on = (o?.agents.sources ?? 1) > 1 && a.source_name ? ` on ${a.source_name}` : ''
+    out.push({ id: `agent:${agentKey(a)}`, module: 'agents', title: `${a.label} in ${a.where}${on} is waiting for you`, detail: 'Approval or question' })
+  }
+  for (const name of o?.agents.unreachable ?? []) {
+    if ((o?.agents.sources ?? 1) > 1) out.push({ id: `source:${name}`, module: 'agents', title: `Agents on ${name} can't be reached`, detail: 'Herdr or its VM is not answering' })
   }
   for (const u of o?.urls.down ?? []) {
     out.push({ id: `url:${u.id}`, module: 'urls', title: `${u.name} (live) is down`, detail: u.detail })
@@ -66,6 +73,12 @@ export function machineIssues(m: Machine): Issue[] {
     out.push({ id: `ctr:${name}`, module: 'docker', title: `${name} is unhealthy`, detail: 'Container health check failing' })
   }
   return out
+}
+
+/** Where an issue from `machineIssues` is resolved, once its machine is on screen. */
+export function issueHref(module: ModuleId, id: string): string {
+  if (id.startsWith('source:')) return '#/m/agents/sources'
+  return id.startsWith('agent:') ? `#/m/agents/${id.slice(6)}` : `#/m/${module}`
 }
 
 /** The machines not on screen: unreachable, or with something that needs you (see the home view). */
@@ -77,7 +90,7 @@ function machineAlerts(machines: Machine[] = [], current: MachineId): Alert[] {
     }
     if (m.id === current) continue
     for (const i of machineIssues(m)) {
-      out.push({ id: `machine:${m.id}:${i.id}`, module: 'machines', title: `${m.name}: ${i.title}`, detail: i.detail, href: '#/' })
+      out.push({ id: `machine:${m.id}:${i.id}`, module: 'machines', title: `${m.name}: ${i.title}`, detail: i.detail, href: issueHref(i.module, i.id), machine: m.id })
     }
   }
   return out
@@ -115,7 +128,15 @@ function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: 
   for (const a of agents?.agents ?? []) {
     if (a.status === 'blocked') {
       const where = a.cwd.split('/').filter(Boolean).pop() || a.cwd
-      out.push({ id: `agent:${a.pane_id}`, module: 'agents', title: `${a.name || a.kind} in ${where} is waiting for you`, detail: a.title || 'Approval or question', href: '#/m/agents' })
+      const on = sourceLabel(agents, a)
+      out.push({ id: `agent:${agentKey(a)}`, module: 'agents', title: `${a.name || a.kind} in ${where}${on ? ` on ${on}` : ''} is waiting for you`, detail: a.title || 'Approval or question', href: agentHref(a) })
+    }
+  }
+  // With one source, an unreachable Herdr is the Agents module being off, not an alarm. With several, one that drops is news.
+  const sources = agents?.sources ?? []
+  if (sources.length > 1) {
+    for (const s of sources.filter((x) => !x.available)) {
+      out.push({ id: `source:${s.id}`, module: 'agents', title: `Agents on ${s.name} can't be reached`, detail: s.error || 'Herdr is not answering', href: '#/m/agents/sources' })
     }
   }
   for (const t of tasks ?? []) {

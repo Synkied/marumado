@@ -1,20 +1,28 @@
 """The coding agents (and plain terminals) running in Herdr (https://herdr.dev): list them, read them, open a terminal, and stream it.
+Herdr may run in several places at once (sources: the one set in .env, plus VMs and servers added in the app).
 
 Listing and reading never touch an agent. The live terminal (core/terminal.py) types into it only in
 `control` mode (as does send(), the phone-sized prompt box), which MARUMADO_HERDR_TERMINAL can turn down to `observe` or `off`.
 """
 import json
+import logging
 import os
 import re
 import shlex
 import shutil
 import signal
 import subprocess
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 
 from marumado.settings import env
 
 from . import sshhome
+
+log = logging.getLogger(__name__)
 
 PANE_ID = re.compile(r'^w\d+:p\d+$')
 TIMEOUT = 4
@@ -31,17 +39,93 @@ TIMEOUT = 4
 #   MARUMADO_HERDR_SOCKET  Herdr's API socket, when it isn't the default one (e.g. mounted into Docker).
 #   MARUMADO_HERDR_TERMINAL  control (default): the live terminal in the browser can type into agents;
 #                          observe: it only watches; off: no live terminal, just polled output.
+#
+# More places can be added in the app (Agents → Sources, the AgentSource model): SSH hosts and smolvm machines.
+# Every agent is listed with the source it runs in, since pane ids are only unique within one Herdr.
+
+ENV = 0  # the source set in .env
+SMOLVM_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$')
+# A source that failed is not asked again for a few seconds, so one VM that is off doesn't slow every listing.
+RETRY_SECONDS = 15
+
+
+@dataclass(frozen=True)
+class Source:
+    """One place Herdr runs. `kind`: env (configured in .env), ssh or smolvm (added in the app)."""
+    id: int
+    name: str
+    kind: str
+    target: str = ''
+
+    def where(self) -> str:
+        """A short description of where Marumado looks for Herdr."""
+        if self.kind == 'ssh':
+            return f'over SSH on {self.target}'
+        if self.kind == 'smolvm':
+            return f'in the smolvm machine {self.target}'
+        if env('HERDR_SMOLVM'):
+            return f"in the smolvm machine {env('HERDR_SMOLVM')}"
+        if env('HERDR_EXEC'):
+            return f"through {env('HERDR_EXEC').strip()}"
+        if env('HERDR_SSH'):
+            return f"over SSH on {env('HERDR_SSH')}"
+        return 'on this machine'
+
+
+def _env_source() -> Source:
+    name = env('HERDR_SMOLVM') or env('HERDR_SSH') or ('VM' if env('HERDR_EXEC') else 'This machine')
+    return Source(ENV, name, 'env')
+
+
+def _local_binary() -> str | None:
+    if env('HERDR_BIN'):
+        return env('HERDR_BIN')
+    found = shutil.which('herdr')
+    if found:
+        return found
+    default = Path.home() / '.local' / 'bin' / 'herdr'
+    return str(default) if default.exists() else None
+
+
+def sources() -> list[Source]:
+    """Every place to look for agents: the one in .env, then those added in the app. The .env one is left out
+    when nothing points at it (no MARUMADO_HERDR_*, no local herdr) and other sources exist."""
+    from .models import AgentSource
+    added = [Source(s.id, s.name, s.kind, s.target) for s in AgentSource.objects.all()]
+    configured = any(env(k) for k in ('HERDR_SMOLVM', 'HERDR_EXEC', 'HERDR_SSH', 'HERDR_SOCKET'))
+    if added and not configured and not _local_binary():
+        return added
+    return [_env_source(), *added]
+
+
+def get_source(source_id: 'int | str | Source | None' = ENV) -> Source:
+    """The source with this id (a Source is passed through). Raises ValueError for an unknown one."""
+    if isinstance(source_id, Source):
+        return source_id
+    try:
+        wanted = int(source_id or ENV)
+    except (TypeError, ValueError):
+        raise ValueError('Not an agent source.')
+    if wanted == ENV:
+        return _env_source()
+    from .models import AgentSource
+    found = AgentSource.objects.filter(pk=wanted).first()
+    if found is None:
+        raise ValueError('That agent source no longer exists.')
+    return Source(found.id, found.name, found.kind, found.target)
+
+
+def valid_target(kind: str, target: str) -> bool:
+    """An SSH target or a smolvm machine name, safe to pass on the command line."""
+    if kind == 'ssh':
+        from .machines import valid_target as valid_ssh
+        return valid_ssh(target)
+    return kind == 'smolvm' and bool(SMOLVM_NAME.match(target))
 
 
 def where() -> str:
-    """A short description of where Marumado looks for Herdr."""
-    if env('HERDR_SMOLVM'):
-        return f"in the smolvm machine {env('HERDR_SMOLVM')}"
-    if env('HERDR_EXEC'):
-        return f"through {env('HERDR_EXEC').strip()}"
-    if env('HERDR_SSH'):
-        return f"over SSH on {env('HERDR_SSH')}"
-    return 'on this machine'
+    """Where the .env source looks for Herdr."""
+    return _env_source().where()
 
 
 def terminal_mode() -> str:
@@ -64,33 +148,37 @@ def _smolvm(machine: str, interactive: bool = False) -> tuple[list[str], dict | 
     return [binary, 'machine', 'exec', *(['-i'] if interactive else []), '--name', machine, '--'], None
 
 
-def _command(args: tuple[str, ...], interactive: bool = False) -> tuple[list[str], dict | None]:
-    """The command line that runs `herdr <args>` wherever Herdr lives. `interactive` keeps stdin connected."""
-    target = env('HERDR_SSH')
-    if env('HERDR_SMOLVM') or env('HERDR_EXEC') or target:
-        binary = shlex.quote(env('HERDR_BIN')) if env('HERDR_BIN') else '"$(command -v herdr || echo "$HOME/.local/bin/herdr")"'
+def _ssh(target: str, remote: str) -> list[str]:
+    sshhome.prepare()
+    return ['ssh', '-o', 'BatchMode=yes', '-o', f'ConnectTimeout={TIMEOUT - 1}', target, remote]
+
+
+def _command(src: Source, args: tuple[str, ...], interactive: bool = False) -> tuple[list[str], dict | None]:
+    """The command line that runs `herdr <args>` wherever `src` is. `interactive` keeps stdin connected."""
+    smolvm = src.target if src.kind == 'smolvm' else env('HERDR_SMOLVM') if src.kind == 'env' else ''
+    ssh = src.target if src.kind == 'ssh' else env('HERDR_SSH') if src.kind == 'env' else ''
+    exec_ = env('HERDR_EXEC') if src.kind == 'env' else ''
+    if smolvm or exec_ or ssh:
+        # MARUMADO_HERDR_BIN names the binary on the .env source only; sources added in the app find it themselves.
+        given = env('HERDR_BIN') if src.kind == 'env' else ''
+        binary = shlex.quote(given) if given else '"$(command -v herdr || echo "$HOME/.local/bin/herdr")"'
         # VM exec tools may start commands with a bare environment.
         remote = 'export HOME="${HOME:-/root}" PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}"; ' + ' '.join([binary, *map(shlex.quote, args)])
-        if env('HERDR_SMOLVM'):
-            prefix, environ = _smolvm(env('HERDR_SMOLVM'), interactive)
+        if smolvm:
+            prefix, environ = _smolvm(smolvm, interactive)
             return [*prefix, 'sh', '-c', remote], environ
-        if env('HERDR_EXEC'):
-            return [*shlex.split(env('HERDR_EXEC')), 'sh', '-c', remote], None
-        sshhome.prepare()
-        ssh = ['ssh', '-o', 'BatchMode=yes', '-o', f'ConnectTimeout={TIMEOUT - 1}', target, remote]
-        return ssh, None
-    binary = env('HERDR_BIN') or shutil.which('herdr')
+        if exec_:
+            return [*shlex.split(exec_), 'sh', '-c', remote], None
+        return _ssh(ssh, remote), None
+    binary = _local_binary()
     if not binary:
-        default = Path.home() / '.local' / 'bin' / 'herdr'
-        binary = str(default) if default.exists() else None
-    if not binary:
-        raise RuntimeError('Herdr is not installed on this machine. If it runs elsewhere, set MARUMADO_HERDR_SMOLVM, MARUMADO_HERDR_EXEC or MARUMADO_HERDR_SSH.')
+        raise RuntimeError('Herdr is not installed on this machine. If it runs elsewhere, add it under Agents → Sources, or set MARUMADO_HERDR_SMOLVM, MARUMADO_HERDR_EXEC or MARUMADO_HERDR_SSH.')
     extra = {'HERDR_SOCKET_PATH': env('HERDR_SOCKET')} if env('HERDR_SOCKET') else {}
     return [binary, *args], {**os.environ, **extra}
 
 
-def _run(*args: str, text: bool = False, timeout: float = TIMEOUT + 4):
-    cmd, environ = _command(args)
+def _run(src: Source, *args: str, text: bool = False, timeout: float = TIMEOUT + 4):
+    cmd, environ = _command(src, args)
     try:
         # A session of its own, so a timeout kills everything it started: VM exec tools leave helpers holding
         # the output pipes, which would otherwise keep us waiting on them forever.
@@ -109,31 +197,44 @@ def _run(*args: str, text: bool = False, timeout: float = TIMEOUT + 4):
             proc.communicate(timeout=2)
         except subprocess.TimeoutExpired:
             pass
-        raise RuntimeError(f'Herdr did not answer in time ({where()}).')
+        raise RuntimeError(f'Herdr did not answer in time ({src.where()}).')
     out = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
     if out.returncode != 0:
         try:
             message = json.loads(out.stderr)['error']['message']
         except (ValueError, KeyError, TypeError):
             message = out.stderr.strip().splitlines()[-1] if out.stderr.strip() else 'Herdr returned an error.'
-        if out.returncode == 255 and env('HERDR_SSH'):
-            raise RuntimeError(f"SSH to {env('HERDR_SSH')} failed: {message}")
-        raise RuntimeError(f'Herdr is not running {where()} ({message}).' if 'socket' in message.lower() or 'server' in message.lower() else message)
+        if out.returncode == 255 and cmd[0] == 'ssh':
+            raise RuntimeError(f'SSH to {cmd[-2]} failed: {message}')
+        raise RuntimeError(f'Herdr is not running {src.where()} ({message}).' if 'socket' in message.lower() or 'server' in message.lower() else message)
     return out.stdout if text else json.loads(out.stdout)['result']
 
 
-def agents() -> dict:
-    """Every live agent with its state and what its terminal says it is doing."""
+_failed_lock = threading.Lock()
+_failed: dict[Source, tuple[float, str]] = {}
+
+
+def _list(src: Source) -> dict:
+    """One source's panes, or why it can't be reached."""
+    with _failed_lock:
+        failed = _failed.get(src)
+    if failed and time.monotonic() - failed[0] < RETRY_SECONDS:
+        return {'available': False, 'error': failed[1], 'agents': []}
     try:
         # Every pane, so plain shells (from New terminal, say) can be watched too.
-        listed = _run('pane', 'list')['panes']
-        workspaces = {w['workspace_id']: w.get('label') or '' for w in _run('workspace', 'list')['workspaces']}
+        listed = _run(src, 'pane', 'list')['panes']
+        workspaces = {w['workspace_id']: w.get('label') or '' for w in _run(src, 'workspace', 'list')['workspaces']}
     except (RuntimeError, ValueError, KeyError, OSError) as exc:
-        return {'available': False, 'error': str(exc), 'where': where(), 'terminal': terminal_mode(), 'kinds': AGENT_KINDS, 'agents': []}
+        with _failed_lock:
+            _failed[src] = (time.monotonic(), str(exc))
+        return {'available': False, 'error': str(exc), 'agents': []}
+    with _failed_lock:
+        _failed.pop(src, None)
     rows = []
     for a in listed:
         rows.append({
             'pane_id': a['pane_id'],
+            'source': src.id,
             'name': a.get('name') or '',
             'kind': a.get('agent') or 'terminal',
             'status': a.get('agent_status') or 'unknown',
@@ -142,21 +243,52 @@ def agents() -> dict:
             'workspace': workspaces.get(a.get('workspace_id'), ''),
             'focused': bool(a.get('focused')),
         })
-    return {'available': True, 'error': '', 'where': where(), 'terminal': terminal_mode(), 'kinds': AGENT_KINDS, 'agents': rows}
+    return {'available': True, 'error': '', 'agents': rows}
 
 
-def read(pane_id: str, lines: int = 80) -> str:
+def forget_failures() -> None:
+    """Ask every source again on the next listing (after a source is added or changed, say)."""
+    with _failed_lock:
+        _failed.clear()
+
+
+def agents() -> dict:
+    """Every live agent in every source, with its state and what its terminal says it is doing.
+    `available`: at least one source answered. `sources`: each one, and whether it answered."""
+    try:
+        every = sources()
+    except Exception as exc:  # the database isn't ready (first start, migrations)
+        log.warning('listing agent sources failed: %s', exc)
+        every = [_env_source()]
+    with ThreadPoolExecutor(max_workers=min(8, len(every))) as pool:
+        listed = list(pool.map(_list, every))
+    rows = [a for one in listed for a in one['agents']]
+    errors = [f'{s.name}: {one["error"]}' if len(every) > 1 else one['error'] for s, one in zip(every, listed) if not one['available']]
+    return {
+        'available': any(one['available'] for one in listed),
+        'error': '; '.join(errors),
+        'where': ', '.join(s.where() for s in every),
+        'terminal': terminal_mode(),
+        'kinds': AGENT_KINDS,
+        'sources': [{'id': s.id, 'name': s.name, 'kind': s.kind, 'where': s.where(), 'available': one['available'],
+                     'error': one['error'], 'agents': len(one['agents'])} for s, one in zip(every, listed)],
+        'agents': rows,
+    }
+
+
+def read(pane_id: str, lines: int = 80, source: 'int | Source' = ENV) -> str:
     """The agent's recent terminal output, as plain text."""
+    src = get_source(source)
     if not PANE_ID.match(pane_id):
         raise ValueError('Not a Herdr pane id.')
     lines = str(max(10, min(lines, 400)))
     try:
-        out = _run('agent', 'read', pane_id, '--source', 'recent-unwrapped', '--lines', lines, text=True)
+        out = _run(src, 'agent', 'read', pane_id, '--source', 'recent-unwrapped', '--lines', lines, text=True)
     except RuntimeError as exc:
         # Full-screen agents' history can only be scrolled back while idle; show the screen meanwhile.
         if 'source visible' not in str(exc) and 'alternate-screen' not in str(exc):
             raise
-        out = _run('agent', 'read', pane_id, '--source', 'visible', text=True)
+        out = _run(src, 'agent', 'read', pane_id, '--source', 'visible', text=True)
     return '\n'.join(line.rstrip() for line in out.splitlines()).strip('\n')
 
 
@@ -164,39 +296,41 @@ KEYS = frozenset({'esc', 'tab', 'shift+tab', 'enter', 'up', 'down', 'left', 'rig
 MAX_PROMPT = 16 * 1024
 
 
-def send(pane_id: str, text: str = '', keys: tuple[str, ...] = ()) -> None:
+def send(pane_id: str, text: str = '', keys: tuple[str, ...] = (), source: 'int | Source' = ENV) -> None:
     """Type into an agent, for screens too small for the live terminal: a prompt (submitted with Enter) or a few keys."""
+    src = get_source(source)
     if not PANE_ID.match(pane_id):
         raise ValueError('Not a Herdr pane id.')
     if keys:
         if len(keys) > 16 or not set(keys) <= KEYS:
             raise ValueError('Unknown key.')
-        _run('pane', 'send-keys', pane_id, *keys, text=True)
+        _run(src, 'pane', 'send-keys', pane_id, *keys, text=True)
         return
     if not text.strip() or len(text) > MAX_PROMPT:
         raise ValueError('Write a prompt first.' if not text.strip() else 'That prompt is too long.')
     try:
-        _run('agent', 'prompt', pane_id, text, text=True)
+        _run(src, 'agent', 'prompt', pane_id, text, text=True)
     except RuntimeError as exc:
         if 'blocked' in str(exc):
             raise RuntimeError('The agent is waiting on a question: answer it with the keys.')
         if 'not found' not in str(exc) and 'not ready' not in str(exc) and 'foreground' not in str(exc):
             raise
         # Not a recognised agent (a plain shell, say): type the text and press Enter.
-        _run('pane', 'send-text', pane_id, text, text=True)
-        _run('pane', 'send-keys', pane_id, 'enter', text=True)
+        _run(src, 'pane', 'send-text', pane_id, text, text=True)
+        _run(src, 'pane', 'send-keys', pane_id, 'enter', text=True)
 
 
-def new_terminal(near: str = '') -> dict:
+def new_terminal(near: str = '', source: 'int | Source' = ENV) -> dict:
     """Open a shell in a new Herdr tab: beside pane `near` (its workspace and folder), or in a new workspace."""
+    src = get_source(source)
     if near:
         if not PANE_ID.match(near):
             raise ValueError('Not a Herdr pane id.')
-        pane = _run('pane', 'get', near)['pane']
+        pane = _run(src, 'pane', 'get', near)['pane']
         cwd = pane.get('foreground_cwd') or pane.get('cwd') or ''
-        made = _run('tab', 'create', '--workspace', pane['workspace_id'], *(['--cwd', cwd] if cwd else []), '--no-focus')
+        made = _run(src, 'tab', 'create', '--workspace', pane['workspace_id'], *(['--cwd', cwd] if cwd else []), '--no-focus')
     else:
-        made = _run('workspace', 'create', '--no-focus')
+        made = _run(src, 'workspace', 'create', '--no-focus')
     return {'pane_id': made['root_pane']['pane_id']}
 
 # The agents `herdr agent start` can launch, most common first.
@@ -207,16 +341,18 @@ START_SECONDS = 120  # how long a new agent may take to start before the task fa
 LAUNCH_WAIT = 10  # how long `agent start` waits for it; after that the monitor follows it
 
 
-def open_workspace(cwd: str = '', label: str = '') -> dict:
+def open_workspace(cwd: str = '', label: str = '', source: 'int | Source' = ENV) -> dict:
     """A new Herdr workspace (in `cwd`, when that folder exists where Herdr runs): {pane_id, cwd} of its shell."""
-    made = _run('workspace', 'create', *(['--cwd', cwd] if cwd else []), *(['--label', label[:60]] if label else []), '--no-focus')
+    src = get_source(source)
+    made = _run(src, 'workspace', 'create', *(['--cwd', cwd] if cwd else []), *(['--label', label[:60]] if label else []), '--no-focus')
     pane = made['root_pane']
     return {'pane_id': pane['pane_id'], 'cwd': pane.get('cwd') or ''}
 
 
-def launch_agent(name: str, kind: str, pane_id: str) -> bool:
+def launch_agent(name: str, kind: str, pane_id: str, source: 'int | Source' = ENV) -> bool:
     """Start a `kind` agent named `name` in the shell in `pane_id`. True when it is ready for input already;
     False when it is still starting (or stopped on a startup question): Herdr carries on without us."""
+    src = get_source(source)
     if kind not in AGENT_KINDS:
         raise ValueError('Herdr cannot start that kind of agent.')
     if not AGENT_NAME.match(name):
@@ -224,7 +360,7 @@ def launch_agent(name: str, kind: str, pane_id: str) -> bool:
     if not PANE_ID.match(pane_id):
         raise ValueError('Not a Herdr pane id.')
     try:
-        _run('agent', 'start', name, '--kind', kind, '--pane', pane_id, '--timeout', str(LAUNCH_WAIT * 1000),
+        _run(src, 'agent', 'start', name, '--kind', kind, '--pane', pane_id, '--timeout', str(LAUNCH_WAIT * 1000),
              timeout=LAUNCH_WAIT + 10)
     except RuntimeError as exc:
         message = str(exc).lower()
@@ -238,15 +374,16 @@ class Blocked(RuntimeError):
     """The agent is waiting on an approval or a question, so it can't take a prompt."""
 
 
-def prompt_task(pane_id: str, text: str) -> bool:
+def prompt_task(pane_id: str, text: str, source: 'int | Source' = ENV) -> bool:
     """Submit a task to an agent and wait for it to start on it (working, or blocked on a question).
     False when it was sent but no activity followed within a few seconds: the agent may still pick it up."""
+    src = get_source(source)
     if not PANE_ID.match(pane_id):
         raise ValueError('Not a Herdr pane id.')
     if not text.strip() or len(text) > MAX_PROMPT:
         raise ValueError('The task is empty.' if not text.strip() else 'That task is too long to send.')
     try:
-        _run('agent', 'prompt', pane_id, text, '--wait', '--until', 'working', '--until', 'blocked', '--timeout', '20000', timeout=30)
+        _run(src, 'agent', 'prompt', pane_id, text, '--wait', '--until', 'working', '--until', 'blocked', '--timeout', '20000', timeout=30)
     except RuntimeError as exc:
         message = str(exc)
         if 'stalled' in message or 'timeout' in message.lower() or 'did not answer' in message:
@@ -257,29 +394,33 @@ def prompt_task(pane_id: str, text: str) -> bool:
     return True
 
 
-def close(pane_id: str) -> None:
+def close(pane_id: str, source: 'int | Source' = ENV) -> None:
     """Close a pane, and whatever runs in it (an agent too)."""
+    src = get_source(source)
     if not PANE_ID.match(pane_id):
         raise ValueError('Not a Herdr pane id.')
-    _run('pane', 'close', pane_id)
+    _run(src, 'pane', 'close', pane_id)
 
 
-def terminal_command(pane_id: str, cols: int, rows: int, control: bool, takeover: bool = False) -> tuple[list[str], dict | None]:
+def terminal_command(pane_id: str, cols: int, rows: int, control: bool, takeover: bool = False,
+                     source: 'int | Source' = ENV) -> tuple[list[str], dict | None]:
     """`herdr terminal session control|observe`: JSON frames of ANSI on stdout, JSON commands on stdin."""
+    src = get_source(source)
     if not PANE_ID.match(pane_id):
         raise ValueError('Not a Herdr pane id.')
     args = ['terminal', 'session', 'control' if control else 'observe', pane_id, '--cols', str(cols), '--rows', str(rows)]
     if control and takeover:
         args.append('--takeover')
-    return _command(tuple(args), interactive=control)
+    return _command(src, tuple(args), interactive=control)
 
 
-def pane_size(pane_id: str) -> tuple[int, int] | None:
+def pane_size(pane_id: str, source: 'int | Source' = ENV) -> tuple[int, int] | None:
     """The pane's size in Herdr's own layout (columns, rows), which the live terminal keeps to."""
+    src = get_source(source)
     if not PANE_ID.match(pane_id):
         raise ValueError('Not a Herdr pane id.')
     try:
-        layout = _run('pane', 'layout', '--pane', pane_id)['layout']
+        layout = _run(src, 'pane', 'layout', '--pane', pane_id)['layout']
         rect = next(p['rect'] for p in layout['panes'] if p['pane_id'] == pane_id)
         return int(rect['width']), int(rect['height'])
     except (RuntimeError, ValueError, KeyError, TypeError, StopIteration):

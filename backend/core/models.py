@@ -112,6 +112,26 @@ class Machine(models.Model):
         return self.name
 
 
+class AgentSource(models.Model):
+    """Another place Herdr runs (a VM, a server), on top of the one set in .env (core/herdr.py)."""
+
+    SSH = 'ssh'
+    SMOLVM = 'smolvm'
+    KINDS = [(SSH, 'SSH'), (SMOLVM, 'smolvm machine')]
+
+    name = models.CharField(max_length=60, unique=True)
+    kind = models.CharField(max_length=10, choices=KINDS, default=SSH)
+    # ssh: user@host, ssh://user@host:port or a ~/.ssh/config alias (key login). smolvm: the machine's name.
+    target = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
 class Task(models.Model):
     """Something to do, which can be handed to a coding agent in Herdr and followed (core/tasks.py)."""
 
@@ -137,8 +157,10 @@ class Task(models.Model):
     notes = models.TextField(blank=True, default='')
     project = models.ForeignKey(Project, null=True, blank=True, on_delete=models.SET_NULL, related_name='tasks')
     state = models.CharField(max_length=10, choices=STATES, default=TODO)
-    # The Herdr pane of the agent it was given to, and what that agent was.
+    # The Herdr pane of the agent it was given to, and what that agent was. Pane ids are only unique
+    # within one Herdr: `agent_source` says which (0 is the one set in .env, otherwise an AgentSource).
     pane_id = models.CharField(max_length=40, blank=True, default='')
+    agent_source = models.PositiveIntegerField(default=0)
     agent_name = models.CharField(max_length=40, blank=True, default='')
     agent_kind = models.CharField(max_length=20, blank=True, default='')
     # The agent's last seen Herdr state (idle, working, blocked, done, unknown) and terminal title.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { Icon } from '../components/Icon'
+import { agentHref, agentKey, parseAgentRef, sourceLabel, sourcesOf } from '../lib/agents'
 import { api } from '../lib/api'
 import { ago } from '../lib/format'
 import { useHub } from '../lib/hub'
@@ -392,7 +393,7 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
         <p className="notice notice--fault">
           <strong>{agentLabel(task)} is waiting on you.</strong>{' '}
           {task.prompt_pending ? 'It asks something before it starts (trusting the folder, say). Once you answer, it gets the task.' : 'It stopped on an approval or a question.'}{' '}
-          <a href={`#/m/agents/${task.pane_id}`}>Answer it in Agents</a>.
+          <a href={agentHref({ pane_id: task.pane_id, source: task.agent_source })}>Answer it in Agents</a>.
         </p>
       )}
       {error && <p className="notice signal-text">{error}</p>}
@@ -428,6 +429,9 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
 }
 
 function AgentFacts({ task, busy, act }: { task: TaskDetail; busy: boolean; act: (path: string) => void }) {
+  const { agents } = useHub()
+  const href = agentHref({ pane_id: task.pane_id, source: task.agent_source })
+  const on = sourceLabel(agents, { source: task.agent_source })
   return (
     <section className="sheet__section">
       <h3>Agent</h3>
@@ -436,10 +440,11 @@ function AgentFacts({ task, busy, act }: { task: TaskDetail; busy: boolean; act:
         <dd>
           {task.agent_name ? `${task.agent_name} · ` : ''}
           {task.agent_kind}
+          {on && ` on ${on}`}
           {task.live && task.pane_id ? (
             <>
               {' · '}
-              <a href={`#/m/agents/${task.pane_id}`}>{task.pane_id}</a>
+              <a href={href}>{task.pane_id}</a>
             </>
           ) : (
             ' · no longer followed'
@@ -460,7 +465,7 @@ function AgentFacts({ task, busy, act }: { task: TaskDetail; busy: boolean; act:
       </dl>
       <div className="sheet__actions" style={{ justifyContent: 'start' }}>
         {task.live && task.pane_id && (
-          <a className="btn" href={`#/m/agents/${task.pane_id}`}>
+          <a className="btn" href={href}>
             <Icon name="terminal" size={16} /> Watch live
           </a>
         )}
@@ -512,13 +517,19 @@ function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => 
   const { agents, projects, refreshTasks, refreshAgents } = useHub()
   const open = (agents?.agents ?? []).filter((a) => a.kind !== 'terminal')
   const ready = open.filter((a) => a.status === 'idle' || a.status === 'done')
+  // Where a new agent can start: the sources that answer.
+  const places = sourcesOf(agents).filter((s) => s.available)
   const [how, setHow] = useState<'new' | 'open'>('new')
   const [kind, setKind] = useState(agents?.kinds?.[0] ?? 'claude')
+  const [place, setPlace] = useState<number | null>(null)
   const [pane, setPane] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const project = (projects ?? []).find((p) => p.id === task.project)
-  const chosenPane = pane || ready[0]?.pane_id || ''
+  // `pane` is `<source>/<pane id>`: the same pane id can be open in two sources.
+  const chosenPane = pane || (ready[0] ? agentKey(ready[0]) : '')
+  const chosenPlace = place ?? places[0]?.id ?? 0
+  const placeName = places.length > 1 ? places.find((s) => s.id === chosenPlace)?.name : ''
 
   if (!agents) return null
   if (!agents.available || agents.terminal !== 'control')
@@ -537,7 +548,11 @@ function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => 
     setBusy(true)
     setError('')
     try {
-      await api(`tasks/${task.id}/assign`, { method: 'POST', json: how === 'new' ? { kind } : { pane_id: chosenPane } })
+      const picked = parseAgentRef(chosenPane)
+      await api(`tasks/${task.id}/assign`, {
+        method: 'POST',
+        json: how === 'new' ? { kind, source: chosenPlace } : { pane_id: picked?.pane ?? '', source: picked?.source ?? 0 },
+      })
       onAssigned()
       refreshTasks()
       refreshAgents()
@@ -572,19 +587,35 @@ function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => 
               ))}
             </select>
           </label>
+          {places.length > 1 && (
+            <label className="field">
+              Where
+              <select value={chosenPlace} onChange={(e) => setPlace(Number(e.target.value))}>
+                {places.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <p className="sheet__lede">
-            Opens a new Herdr workspace {project?.path ? <>in <strong className="mono">{project.name}</strong>&rsquo;s folder</> : 'in Herdr’s default folder (pick a project to start there)'}, starts {kind} and gives it the task. If {kind} asks something first, the task waits under Needs you until you answer.
+            Opens a new Herdr workspace{placeName ? <> on <strong>{placeName}</strong></> : ''} {project?.path ? <>in <strong className="mono">{project.name}</strong>&rsquo;s folder</> : 'in Herdr’s default folder (pick a project to start there)'}, starts {kind} and gives it the task. If {kind} asks something first, the task waits under Needs you until you answer.
           </p>
         </>
       ) : ready.length ? (
         <label className="field">
           Agent
           <select value={chosenPane} onChange={(e) => setPane(e.target.value)}>
-            {open.map((a) => (
-              <option key={a.pane_id} value={a.pane_id} disabled={a.status === 'working' || a.status === 'blocked'}>
-                {a.name || a.kind} · {a.kind} · {a.cwd.split('/').filter(Boolean).pop() || a.cwd} · {a.status === 'working' ? 'busy' : a.status === 'blocked' ? 'waiting on you' : 'ready'}
-              </option>
-            ))}
+            {open.map((a) => {
+              const on = sourceLabel(agents, a)
+              return (
+                <option key={agentKey(a)} value={agentKey(a)} disabled={a.status === 'working' || a.status === 'blocked'}>
+                  {a.name || a.kind} · {a.kind}
+                  {on ? ` on ${on}` : ''} · {a.cwd.split('/').filter(Boolean).pop() || a.cwd} · {a.status === 'working' ? 'busy' : a.status === 'blocked' ? 'waiting on you' : 'ready'}
+                </option>
+              )
+            })}
           </select>
         </label>
       ) : (

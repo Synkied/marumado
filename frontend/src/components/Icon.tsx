@@ -7,6 +7,7 @@ const PATHS: Record<string, string> = {
   container: 'M3 13h18c-.6 4-4 7-9.2 7C6.9 20 3.6 17.4 3 13Z M5 13V10h3v3 M8 13V10h3v3 M11 13V10h3v3 M8 10V7h3v3 M11 10V7h3v3 M14 13v-3h3v3 M19.5 13c.4-1.4 1.5-2.1 2.5-2',
   processes: 'M4 5h16 M4 10h10 M4 15h13 M4 20h7',
   search: 'M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13Z M15.2 15.2 20 20',
+  chevron: 'M6 9.5l6 6 6-6',
   arrow: 'M4 12h15 M13.5 6.5 19 12l-5.5 5.5',
   external: 'M14 4h6v6 M20 4l-9 9 M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10',
   back: 'M20 12H5 M10.5 6.5 5 12l5.5 5.5',

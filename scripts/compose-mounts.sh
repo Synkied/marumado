@@ -43,8 +43,9 @@ dirs="${projects:-/projects},$(env_value MARUMADO_MOUNTS)"
   for f in "$(env_value MARUMADO_HERDR_SOCKET)" "$(env_value MARUMADO_HERDR_BIN)"; do
     if [ -n "$f" ]; then echo "      - \"$f:$f\""; fi
   done
-  # smolvm: your install and machine state, at the same paths, used as you (see core/herdr.py).
-  if [ -n "$(env_value MARUMADO_HERDR_SMOLVM)" ]; then
+  # smolvm: your install and machine state, at the same paths, used as you (see core/herdr.py). Whenever
+  # it is installed, so smolvm machines added in the app (Agents → Sources) work too.
+  if [ -n "$(env_value MARUMADO_HERDR_SMOLVM)" ] || [ -d "$HOME/.smolvm" ]; then
     data="${XDG_DATA_HOME:-$HOME/.local/share}/smolvm"
     for d in "$HOME/.smolvm:ro" "$data"; do
       [ -d "${d%:ro}" ] || echo "compose-mounts: warning: '${d%:ro}' not found; is smolvm installed?" >&2

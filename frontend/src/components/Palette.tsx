@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { agentHref, agentKey, sourceLabel } from '../lib/agents'
 import { api } from '../lib/api'
 import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
@@ -66,7 +67,9 @@ export function Palette({ onClose }: { onClose: () => void }) {
         if (hit(c.name, c.image)) out.push({ key: `c:${c.id}`, icon: 'container', label: c.name, sub: `Container · ${c.status}`, run: () => go('#/m/docker') })
       }
       for (const a of agents?.agents ?? []) {
-        if (hit(a.name, a.kind, a.title, a.cwd)) out.push({ key: `agent:${a.pane_id}`, icon: 'agent', label: a.title || a.kind, sub: `${a.kind} · ${a.status}`, run: () => go('#/m/agents') })
+        const on = sourceLabel(agents, a)
+        if (hit(a.name, a.kind, a.title, a.cwd, on))
+          out.push({ key: `agent:${agentKey(a)}`, icon: 'agent', label: a.title || a.kind, sub: `${a.kind}${on ? ` on ${on}` : ''} · ${a.status}`, run: () => go(agentHref(a)) })
       }
       for (const p of procs) out.push({ key: `proc:${p.pid}`, icon: 'processes', label: p.name, sub: `Process ${p.pid} · ${p.cpu}% CPU`, run: () => go('#/m/processes') })
       if (hit('add project new')) out.push({ key: 'a:add', icon: 'plus', label: 'Add a project', sub: 'Name, local and live URLs', run: () => go('#/m/projects/new') })

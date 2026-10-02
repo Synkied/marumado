@@ -1,8 +1,8 @@
 from rest_framework import serializers
 
 from .discovery import SCANNED_FIELDS
-from . import machines
-from .models import Machine, Project, Skill, Task, TaskEvent, UptimeCheck
+from . import herdr, machines
+from .models import AgentSource, Machine, Project, Skill, Task, TaskEvent, UptimeCheck
 
 
 class UptimeCheckSerializer(serializers.ModelSerializer):
@@ -53,6 +53,26 @@ class SkillSerializer(serializers.ModelSerializer):
         return name
 
 
+class AgentSourceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AgentSource
+        fields = ['id', 'name', 'kind', 'target']
+
+    def validate_name(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('Give it a name.')
+        return value
+
+    def validate(self, data):
+        kind = data.get('kind', self.instance.kind if self.instance else AgentSource.SSH)
+        target = data.get('target', self.instance.target if self.instance else '').strip()
+        if not herdr.valid_target(kind, target):
+            raise serializers.ValidationError({'target': 'Use user@host, ssh://user@host:port, a host name, or an alias from ~/.ssh/config.'
+                                               if kind == AgentSource.SSH else 'Use the smolvm machine name (letters, digits, . _ -).'})
+        return {**data, 'target': target}
+
+
 class MachineSerializer(serializers.ModelSerializer):
     class Meta:
         model = Machine
@@ -78,7 +98,7 @@ class TaskSerializer(serializers.ModelSerializer):
     class Meta:
         model = Task
         fields = [
-            'id', 'title', 'notes', 'project', 'project_name', 'state', 'pane_id', 'agent_name', 'agent_kind',
+            'id', 'title', 'notes', 'project', 'project_name', 'state', 'pane_id', 'agent_source', 'agent_name', 'agent_kind',
             'agent_state', 'agent_title', 'live', 'prompt_pending', 'started_at', 'finished_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [f for f in fields if f not in ('title', 'notes', 'project')]

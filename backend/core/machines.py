@@ -95,8 +95,32 @@ def _login_detail(target: str) -> str:
     return detail + (f', with keys {", ".join(keys)}' if keys else ', and found no key to offer (only an ssh-agent?)')
 
 
-def _summary(system: dict | None) -> dict | None:
-    """The few numbers the Machines module shows for every machine."""
+TRACE_SECONDS = 30 * 60
+TRACE_POINTS = 60
+
+
+def trace(points) -> list[float | None]:
+    """CPU over the last 30 minutes as TRACE_POINTS averages, oldest first; None where nothing was sampled.
+    `points` is (unix time, cpu %) pairs, oldest first."""
+    if not points:
+        return []
+    end = points[-1][0]
+    step = TRACE_SECONDS / TRACE_POINTS
+    sums = [0.0] * TRACE_POINTS
+    counts = [0] * TRACE_POINTS
+    for t, cpu in points:
+        i = TRACE_POINTS - 1 - int((end - t) // step)
+        if 0 <= i < TRACE_POINTS:
+            sums[i] += cpu
+            counts[i] += 1
+    out = [round(s / c, 1) if c else None for s, c in zip(sums, counts)]
+    # Before the first sample there is no record yet, not a gap: start where the record starts.
+    first = next(i for i, c in enumerate(counts) if c)
+    return out[first:]
+
+
+def _summary(system: dict | None, cpu_trace: list | None = None) -> dict | None:
+    """The few numbers the Machines module and the home view show for every machine."""
     if not system:
         return None
     disk = max(system.get('disks') or [], key=lambda d: d['percent'], default=None)
@@ -110,6 +134,7 @@ def _summary(system: dict | None) -> dict | None:
         'memory': system['memory']['percent'],
         'disk': {'mount': disk['mount'], 'percent': disk['percent']} if disk else None,
         'time': system['time'],
+        'trace': cpu_trace or [],
     }
 
 
@@ -127,6 +152,8 @@ class Tunnel:
         self.system: dict | None = None
         self.overview: dict | None = None
         self._overview_at = 0.0
+        # (time, cpu %) of each sample over the last half hour, for the home view's CPU line.
+        self._cpu: deque[tuple[float, float]] = deque(maxlen=TRACE_SECONDS // SAMPLE_SECONDS + 10)
         self._stop = threading.Event()
         self._wake = threading.Event()  # retry(): reconnect now
         self._proc: subprocess.Popen | None = None
@@ -163,7 +190,7 @@ class Tunnel:
             'id': self.id, 'name': self.name, 'ssh_target': self.target, 'port': self.port,
             'has_token': bool(self.token), 'local': False,
             'state': self.state, 'error': self.error, 'since': self.since,
-            'summary': _summary(self.system) if self.state == 'up' else None,
+            'summary': _summary(self.system, trace(list(self._cpu))) if self.state == 'up' else None,
             'overview': self.overview if self.state == 'up' else None,
         }
 
@@ -206,6 +233,7 @@ class Tunnel:
         while proc.poll() is None and not self._wake.is_set():
             try:
                 self.system = self._get('system').json()
+                self._cpu.append((time.time(), float(self.system['cpu']['percent'])))
                 self._set('up')
                 was_up = True
                 self._sample_overview()
@@ -315,8 +343,9 @@ def statuses() -> list[dict]:
     return [t.status() for t in tunnels]
 
 
-def local_status(system: dict | None, overview: dict | None) -> dict:
+def local_status(system: dict | None, overview: dict | None, history: list[dict] | None = None) -> dict:
+    cpu_trace = trace([(p['t'], p['cpu']) for p in history or []])
     return {
         'id': 'local', 'name': 'This machine', 'ssh_target': '', 'port': None, 'has_token': False, 'local': True,
-        'state': 'up', 'error': '', 'since': None, 'summary': _summary(system), 'overview': overview,
+        'state': 'up', 'error': '', 'since': None, 'summary': _summary(system, cpu_trace), 'overview': overview,
     }

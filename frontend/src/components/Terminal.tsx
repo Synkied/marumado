@@ -35,7 +35,20 @@ function decode(b64: string): Uint8Array {
  * On a computer it shows the pane at Herdr's size (resizing it would squeeze the Herdr TUI), with the text scaled to fit.
  * With `fit` (always on a phone that controls the pane), the pane takes the browser's size while it watches and the
  * server gives it back on leaving; a phone that only watches shows it at a readable size that scrolls both ways. */
-export function Terminal({ paneId, control, phone = false, fit: fitWanted = false }: { paneId: string; control: boolean; phone?: boolean; fit?: boolean }) {
+export function Terminal({
+  paneId,
+  source = 0,
+  control,
+  phone = false,
+  fit: fitWanted = false,
+}: {
+  paneId: string
+  /** the agent source the pane is in */
+  source?: number
+  control: boolean
+  phone?: boolean
+  fit?: boolean
+}) {
   const host = useRef<HTMLDivElement>(null)
   const [attempt, setAttempt] = useState({ n: 0, takeover: false })
   const [link, setLink] = useState<Link>({ state: 'connecting', message: '', takeover: false })
@@ -113,7 +126,7 @@ export function Terminal({ paneId, control, phone = false, fit: fitWanted = fals
     let ended = false
     const send = (msg: object) => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify(msg))
     const connect = () => {
-      const q = new URLSearchParams()
+      const q = new URLSearchParams({ source: String(source) })
       if (attempt.takeover || refit) q.set('takeover', '1')
       const g = fit ? grid() : null
       if (g) {
@@ -196,7 +209,7 @@ export function Terminal({ paneId, control, phone = false, fit: fitWanted = fals
       }
       term.dispose()
     }
-  }, [paneId, control, phone, fitWanted, attempt])
+  }, [paneId, source, control, phone, fitWanted, attempt])
 
   return (
     <div className={`term term--${link.state}${control && (phone || fitWanted) ? ' term--fit' : phone ? ' term--pan' : ''}`}>

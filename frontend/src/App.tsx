@@ -1,21 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Dial } from './components/Dial'
-import { Garden } from './components/Garden'
 import { Icon } from './components/Icon'
 import { Palette } from './components/Palette'
 import { TokenGate } from './components/TokenGate'
+import { agentHref, agentKey, sourceLabel } from './lib/agents'
 import { logOut } from './lib/api'
 import { bytes } from './lib/format'
 import { CPU_BUDGET, MEM_BUDGET, useHub, type ModuleId } from './lib/hub'
 import { useMachines } from './lib/machines'
 import { useStreaming } from './lib/streaming'
 import { useIsNarrow } from './lib/useIsNarrow'
-import { useArrangement } from './lib/garden'
 import { usePins } from './lib/pins'
 import { go, useRoute } from './lib/route'
 import { MODULES, meta, useSummaries, type Summary } from './modules/registry'
 import { SheetFor } from './modules/sheets'
-import { OverviewSheet } from './modules/overview'
+import { Fleet } from './modules/fleet'
 import './app.css'
 
 function Wordmark() {
@@ -74,10 +73,6 @@ function StreamingToggle() {
     >
       <Icon name={on ? 'eye-off' : 'eye'} size={18} />
       <span className="sr-only">Streaming mode</span>
-      {/* Labelled in both states so the button keeps its width; the fill and the eye say on or off. */}
-      <span className="stream__text" aria-hidden="true">
-        Streaming
-      </span>
     </button>
   )
 }
@@ -248,14 +243,17 @@ function ActiveNow() {
       (agents?.available ? agents.agents : [])
         .filter((a) => a.status === 'working' || a.status === 'blocked')
         .sort((a, b) => Number(b.status === 'blocked') - Number(a.status === 'blocked'))
-        .map((a) => ({
-          key: `agent:${a.pane_id}`,
-          icon: 'agent',
-          label: a.title && a.title !== a.kind ? a.title : a.name || a.kind,
-          href: `#/m/agents/${a.pane_id}`,
-          state: a.status === 'blocked' ? 'fault' : 'on',
-          title: `${a.kind} · ${a.status === 'blocked' ? 'needs you' : 'working'}`,
-        })),
+        .map((a) => {
+          const on = sourceLabel(agents, a)
+          return {
+            key: `agent:${agentKey(a)}`,
+            icon: 'agent',
+            label: a.title && a.title !== a.kind ? a.title : a.name || a.kind,
+            href: agentHref(a),
+            state: a.status === 'blocked' ? 'fault' : 'on',
+            title: `${a.kind}${on ? ` on ${on}` : ''} · ${a.status === 'blocked' ? 'needs you' : 'working'}`,
+          }
+        }),
     [agents],
   )
   return (
@@ -309,7 +307,6 @@ export default function App() {
   const route = useRoute()
   const { current } = useMachines()
   const [pins, setPins] = usePins(current)
-  const arrangement = useArrangement(current, pins, setPins)
   const [arranging, setArranging] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const narrow = useIsNarrow()
@@ -343,9 +340,9 @@ export default function App() {
             <LockButton />
           </div>
           <ActiveNow />
-          <button className="search" type="button" onClick={() => setPaletteOpen(true)}>
+          <button className="search" type="button" onClick={() => setPaletteOpen(true)} title="Search (/)">
             <Icon name="search" size={20} />
-            <span className="search__hint">/ search</span>
+            <span className="sr-only">Search</span>
           </button>
           <Vitals />
           <StatusBadge />
@@ -353,10 +350,7 @@ export default function App() {
 
         {home && !arranging ? (
           <main className="main main--home">
-            <Garden arrangement={arrangement} onArrange={() => setArranging(true)} />
-            <section className="side side--home">
-              <OverviewSheet />
-            </section>
+            <Fleet />
           </main>
         ) : (
           <main className={`main${narrow || sidebarOpen ? '' : ' main--rail'}`}>

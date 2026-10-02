@@ -1,4 +1,4 @@
-"""Live Herdr terminal over a WebSocket: /api/agents/<pane_id>/terminal?takeover=1[&cols=&rows=]
+"""Live Herdr terminal over a WebSocket: /api/agents/<pane_id>/terminal?source=<id>&takeover=1[&cols=&rows=]
 
 The browser gets Herdr's own messages untouched (`terminal.frame` with base64 ANSI, `terminal.closed`),
 plus `{"type": "error", "message": ...}` when the stream can't start. It may send `terminal.input` and
@@ -103,9 +103,11 @@ async def handle(scope, receive, send):
     pane = match['pane']
     fit = control and 'cols' in query and 'rows' in query
     try:
-        size = await asyncio.to_thread(herdr.pane_size, pane) or (120, 40)
+        # Resolved once, off the event loop (it may read the database); every call below reuses it.
+        source = await asyncio.to_thread(herdr.get_source, query.get('source'))
+        size = await asyncio.to_thread(herdr.pane_size, pane, source) or (120, 40)
         attach = (_clamp(query['cols'], 20, 400, 80), _clamp(query['rows'], 8, 200, 24)) if fit else size
-        cmd, environ = herdr.terminal_command(pane, *attach, control, takeover=query.get('takeover') == '1')
+        cmd, environ = herdr.terminal_command(pane, *attach, control, takeover=query.get('takeover') == '1', source=source)
         proc = await asyncio.create_subprocess_exec(
             *cmd, env=environ, limit=64 * 1024 * 1024,
             stdin=asyncio.subprocess.PIPE if control else asyncio.subprocess.DEVNULL,
@@ -150,7 +152,7 @@ async def handle(scope, receive, send):
         nonlocal size
         while control and not fit and proc.stdin:
             await asyncio.sleep(FOLLOW_SECONDS)
-            now = await asyncio.to_thread(herdr.pane_size, pane)
+            now = await asyncio.to_thread(herdr.pane_size, pane, source)
             if now and now != size:
                 size = now
                 try:
@@ -172,7 +174,7 @@ async def handle(scope, receive, send):
             if fit:
                 # Give the pane back its size in the Herdr TUI before letting go.
                 try:
-                    size = await asyncio.wait_for(asyncio.to_thread(herdr.pane_size, pane), 3) or size
+                    size = await asyncio.wait_for(asyncio.to_thread(herdr.pane_size, pane, source), 3) or size
                     proc.stdin.write(json.dumps({'type': 'terminal.resize', 'cols': size[0], 'rows': size[1]}).encode() + b'\n')
                     await asyncio.wait_for(proc.stdin.drain(), 2)
                 except (BrokenPipeError, ConnectionResetError, TimeoutError, RuntimeError, ValueError):

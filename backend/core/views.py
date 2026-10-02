@@ -9,8 +9,8 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import auth, discovery, files, herdr, machines, monitor, opener, overview, tasks
-from .models import Machine, Project, ScanRoot, Skill, Task, UptimeCheck
-from .serializers import MachineSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
+from .models import AgentSource, Machine, Project, ScanRoot, Skill, Task, UptimeCheck
+from .serializers import AgentSourceSerializer, MachineSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
 
 RECENT_CHECKS = 30
 
@@ -150,17 +150,18 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def assign(self, request, pk=None):
-        """{pane_id}: give it to that open agent. {kind}: start a new agent of that kind in the project's folder."""
+        """{pane_id, source}: give it to that open agent. {kind, source}: start a new agent of that kind in the project's folder,
+        in that source (where Herdr runs; 0, the default, is the one set in .env)."""
         if herdr.terminal_mode() != 'control':
             return Response({'detail': 'Giving tasks to agents is turned off (MARUMADO_HERDR_TERMINAL).'}, status=403)
         task = self.get_object()
         if task.live:
             return Response({'detail': 'An agent is already on it. Mark it done or move it back to do first.'}, status=409)
-        pane_id, kind = request.data.get('pane_id') or '', request.data.get('kind') or ''
-        if not isinstance(pane_id, str) or not isinstance(kind, str):
-            return Response({'detail': 'Send pane_id or kind.'}, status=400)
+        pane_id, kind, source = request.data.get('pane_id') or '', request.data.get('kind') or '', request.data.get('source') or 0
+        if not isinstance(pane_id, str) or not isinstance(kind, str) or not isinstance(source, int):
+            return Response({'detail': 'Send pane_id or kind, and the source.'}, status=400)
         try:
-            tasks.assign(task, pane_id, kind)
+            tasks.assign(task, pane_id, kind, source)
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=400)
         except RuntimeError as exc:
@@ -190,7 +191,7 @@ class MachineViewSet(viewsets.ModelViewSet):
     queryset = Machine.objects.all()
 
     def list(self, request):
-        return Response([machines.local_status(monitor.snapshot('system'), overview.digest()), *machines.statuses()])
+        return Response([machines.local_status(monitor.snapshot('system'), overview.digest(), monitor.snapshot('history')), *machines.statuses()])
 
     def retrieve(self, request, pk=None):
         machine = self.get_object()
@@ -418,6 +419,29 @@ def agents(request):
     return Response(herdr.agents())
 
 
+class AgentSourceViewSet(viewsets.ModelViewSet):
+    """The places Herdr runs that were added in the app (the one set in .env is listed by GET /agents)."""
+
+    serializer_class = AgentSourceSerializer
+    queryset = AgentSource.objects.all()
+
+    def perform_create(self, serializer):
+        serializer.save()
+        herdr.forget_failures()
+
+    def perform_update(self, serializer):
+        serializer.save()
+        herdr.forget_failures()
+
+
+def _agent_source(request) -> herdr.Source:
+    """The `source` the agent lives in (query string, or the body of a POST). Raises ValueError for an unknown one."""
+    given = request.query_params.get('source')
+    if given is None and isinstance(request.data, dict):
+        given = request.data.get('source')
+    return herdr.get_source(given)
+
+
 @api_view(['POST'])
 def agent_terminal(request):
     """Open a shell in a new Herdr tab, beside pane `near` if given (MARUMADO_HERDR_TERMINAL=control only)."""
@@ -427,7 +451,8 @@ def agent_terminal(request):
     if not isinstance(near, str):
         return Response({'detail': 'near is a pane id.'}, status=400)
     try:
-        return Response(herdr.new_terminal(near), status=status.HTTP_201_CREATED)
+        source = _agent_source(request)
+        return Response({**herdr.new_terminal(near, source), 'source': source.id}, status=status.HTTP_201_CREATED)
     except ValueError as exc:
         return Response({'detail': str(exc)}, status=400)
     except (RuntimeError, KeyError) as exc:
@@ -440,7 +465,7 @@ def agent_close(request, pane_id: str):
     if herdr.terminal_mode() != 'control':
         return Response({'detail': 'Closing terminals is turned off (MARUMADO_HERDR_TERMINAL).'}, status=403)
     try:
-        herdr.close(pane_id)
+        herdr.close(pane_id, _agent_source(request))
     except ValueError as exc:
         return Response({'detail': str(exc)}, status=400)
     except (RuntimeError, KeyError) as exc:
@@ -458,7 +483,7 @@ def agent_input(request, pane_id: str):
     if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys) or not isinstance(text, str):
         return Response({'detail': 'Send text or a list of keys.'}, status=400)
     try:
-        herdr.send(pane_id, text, tuple(keys))
+        herdr.send(pane_id, text, tuple(keys), _agent_source(request))
     except ValueError as exc:
         return Response({'detail': str(exc)}, status=400)
     except RuntimeError as exc:
@@ -469,7 +494,7 @@ def agent_input(request, pane_id: str):
 @api_view(['GET'])
 def agent_output(request, pane_id: str):
     try:
-        return Response({'output': herdr.read(pane_id, int(request.query_params.get('lines', 80)))})
+        return Response({'output': herdr.read(pane_id, int(request.query_params.get('lines', 80)), _agent_source(request))})
     except ValueError as exc:
         return Response({'detail': str(exc)}, status=400)
     except RuntimeError as exc:
