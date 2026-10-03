@@ -28,6 +28,17 @@
   padding: 0;
 }
 
+/* Between your work and the machines: a small mono caption, like a chart's legend. */
+.fleet__label {
+  margin: var(--sp-12) 0 0;
+  font-family: var(--f-mono);
+  font-size: var(--text-md);
+  font-weight: var(--weight-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
 .fleet__foot {
   margin: var(--sp-12) 0 0;
 }

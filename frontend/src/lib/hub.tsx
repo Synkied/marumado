@@ -6,6 +6,7 @@ import type { MachineId } from './api'
 import { useMachines } from './machines'
 import type { Agents, Docker, HistoryPoint, Machine, Port, Project, Skill, System, Task } from './types'
 import { usePoll } from './usePoll'
+import { activity, atWork } from './work'
 
 export type Alert = {
   id: string
@@ -19,6 +20,11 @@ export type Alert = {
 }
 
 export type ModuleId = 'projects' | 'machine' | 'urls' | 'ports' | 'docker' | 'processes' | 'agents' | 'tasks' | 'momentum' | 'skills' | 'machines'
+
+/** The modules about a machine: they follow the machine picker. The others are about your work, and live on this
+    Marumado (the hub you opened) whichever machine the picker shows. */
+export const MACHINE_MODULES: ModuleId[] = ['machine', 'processes', 'ports', 'docker']
+export const isMachineModule = (id: ModuleId) => MACHINE_MODULES.includes(id)
 
 type Hub = {
   system?: System
@@ -58,14 +64,8 @@ export function machineIssues(m: Machine): Issue[] {
   if (s && s.memory >= MEM_BUDGET) {
     out.push({ id: 'mem', module: 'machine', title: `Memory at ${Math.round(s.memory)}%`, detail: `Above the ${MEM_BUDGET}% budget` })
   }
+  // Its agents are listed here as a source of this Marumado's (Agents), so they raise their alerts here already.
   const o = m.overview
-  for (const a of o?.agents.blocked ?? []) {
-    const on = (o?.agents.sources ?? 1) > 1 && a.source_name ? ` on ${a.source_name}` : ''
-    out.push({ id: `agent:${agentKey(a)}`, module: 'agents', title: `${a.label} in ${a.where}${on} is waiting for you`, detail: 'Approval or question' })
-  }
-  for (const name of o?.agents.unreachable ?? []) {
-    if ((o?.agents.sources ?? 1) > 1) out.push({ id: `source:${name}`, module: 'agents', title: `Agents on ${name} can't be reached`, detail: 'Herdr or its VM is not answering' })
-  }
   for (const u of o?.urls.down ?? []) {
     out.push({ id: `url:${u.id}`, module: 'urls', title: `${u.name} (live) is down`, detail: u.detail })
   }
@@ -76,9 +76,8 @@ export function machineIssues(m: Machine): Issue[] {
 }
 
 /** Where an issue from `machineIssues` is resolved, once its machine is on screen. */
-export function issueHref(module: ModuleId, id: string): string {
-  if (id.startsWith('source:')) return '#/m/agents/sources'
-  return id.startsWith('agent:') ? `#/m/agents/${id.slice(6)}` : `#/m/${module}`
+export function issueHref(module: ModuleId, _id: string): string {
+  return `#/m/${module}`
 }
 
 /** The machines not on screen: unreachable, or with something that needs you (see the home view). */
@@ -144,11 +143,18 @@ function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: 
       out.push({ id: `task:${t.id}`, module: 'tasks', title: `Task “${t.title}” failed`, detail: 'Open it to see why, then assign it again or move it back to do', href: `#/m/tasks/${t.id}` })
     }
   }
-  // A project marked "push" that hasn't moved is a promise slipping.
+  // A project marked "push" that hasn't moved, with no agent on it either, is a promise slipping.
   for (const p of projects ?? []) {
     const days = daysSince(p.detected.last_commit_at)
-    if (p.kind === 'project' && p.focus === 'push' && days != null && days > PUSH_GRACE_DAYS) {
-      out.push({ id: `push:${p.id}`, module: 'momentum', title: `${p.name} is marked push but hasn't moved`, detail: `No commit for ${days} days`, href: '#/m/momentum' })
+    const work = activity(p, tasks, agents)
+    if (p.kind === 'project' && p.focus === 'push' && days != null && days > PUSH_GRACE_DAYS && !atWork(work)) {
+      out.push({
+        id: `push:${p.id}`,
+        module: 'momentum',
+        title: `${p.name} is marked push but hasn't moved`,
+        detail: `No commit for ${days} days${work.open ? '' : ', and no next task'}`,
+        href: work.open ? `#/m/projects/${p.id}` : `#/m/projects/${p.id}/next`,
+      })
     }
   }
   for (const c of docker?.containers ?? []) {

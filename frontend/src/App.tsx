@@ -6,7 +6,7 @@ import { TokenGate } from './components/TokenGate'
 import { agentHref, agentKey, sourceLabel } from './lib/agents'
 import { logOut } from './lib/api'
 import { bytes } from './lib/format'
-import { CPU_BUDGET, MEM_BUDGET, useHub, type ModuleId } from './lib/hub'
+import { CPU_BUDGET, isMachineModule, MEM_BUDGET, useHub, type ModuleId } from './lib/hub'
 import { useMachines } from './lib/machines'
 import { useStreaming } from './lib/streaming'
 import { useIsNarrow } from './lib/useIsNarrow'
@@ -34,7 +34,8 @@ function Wordmark() {
 
 const MANAGE = 'manage'
 
-/** Which machine every module shows. Another machine than this one is marked, so it is never mistaken for it. */
+/** Which machine the machine modules (Machine, Processes, Ports, Docker) show. Another machine than this one is
+    marked, so it is never mistaken for it. Your work (projects, tasks, agents…) lives here whichever it is. */
 function MachinePicker() {
   const { machines, current, currentMachine, select } = useMachines()
   const streaming = useStreaming().on
@@ -305,8 +306,8 @@ function useSidebarOpen(): [boolean, () => void] {
 
 export default function App() {
   const route = useRoute()
-  const { current } = useMachines()
-  const [pins, setPins] = usePins(current)
+  // Most modules are your work, the same on every machine: one arrangement for all.
+  const [pins, setPins] = usePins('local')
   const [arranging, setArranging] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const narrow = useIsNarrow()
@@ -335,7 +336,7 @@ export default function App() {
         <header className="top">
           <div className="top__brand">
             <Wordmark />
-            <MachinePicker />
+            {activeModule && isMachineModule(activeModule) && <MachinePicker />}
             <StreamingToggle />
             <LockButton />
           </div>

@@ -8,7 +8,9 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from . import auth, discovery, files, herdr, machines, monitor, opener, overview, tasks
+import json
+
+from . import auth, discovery, files, herdr, machines, monitor, opener, overview, places, tasks
 from .models import AgentSource, Machine, Project, ScanRoot, Skill, Task, UptimeCheck
 from .serializers import AgentSourceSerializer, MachineSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
 
@@ -53,6 +55,7 @@ def _runtime(projects: list[Project]) -> dict[int, dict]:
 
 def _with_status(projects: list[Project]) -> list[dict]:
     runtime = _runtime(projects)
+    elsewhere = places.by_project(projects)
     rows = []
     for p in projects:
         data = ProjectSerializer(p).data
@@ -74,6 +77,8 @@ def _with_status(projects: list[Project]) -> list[dict]:
         port = next((x['port'] for x in rt['ports']), None) or next(
             (b['host_port'] for c in rt['containers'] for b in c['ports']), None)
         data['suggested_local_url'] = f'http://localhost:{port}' if port and not p.local_url else ''
+        # Where else it runs: the other machines whose Marumado reports it (core/places.py).
+        data['places'] = elsewhere[p.id]
         rows.append(data)
     return rows
 
@@ -169,6 +174,23 @@ class TaskViewSet(viewsets.ModelViewSet):
         return self.retrieve(request, pk)
 
     @action(detail=True, methods=['post'])
+    def follow(self, request, pk=None):
+        """{pane_id, source}: the task is what that agent is already doing. Nothing is sent to it; it is followed from now on."""
+        task = self.get_object()
+        if task.live:
+            return Response({'detail': 'An agent is already on it.'}, status=409)
+        pane_id, source = request.data.get('pane_id') or '', request.data.get('source') or 0
+        if not isinstance(pane_id, str) or not isinstance(source, int):
+            return Response({'detail': 'Send pane_id and the source.'}, status=400)
+        try:
+            tasks.follow(task, pane_id, source)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        except RuntimeError as exc:
+            return Response({'detail': str(exc)}, status=502)
+        return self.retrieve(request, pk)
+
+    @action(detail=True, methods=['post'])
     def done(self, request, pk=None):
         tasks.mark_done(self.get_object())
         return self.retrieve(request, pk)
@@ -237,7 +259,31 @@ def machine_proxy(request, pk: int, rest: str):
         return Response({'detail': str(exc), 'machine': tunnel.name}, status=503)
     if res.status_code == 204:
         return HttpResponse(status=204)
-    return HttpResponse(res.content, status=res.status_code, content_type=res.headers.get('content-type', 'application/json'))
+    content = res.content
+    if request.method == 'GET' and res.status_code == 200 and rest in ('ports', 'docker', 'processes'):
+        content = _as_our_projects(rest, content)
+    return HttpResponse(content, status=res.status_code, content_type=res.headers.get('content-type', 'application/json'))
+
+
+def _as_our_projects(rest: str, content: bytes) -> bytes:
+    """Another machine's ports, containers or processes name its own projects (which it rarely has); projects live
+    here, so each row is linked to one of ours instead, by its folder or Compose project name."""
+    try:
+        data = json.loads(content)
+    except ValueError:
+        return content
+    projects = list(Project.objects.filter(kind=Project.KIND_PROJECT))
+    ref = lambda p: {'id': p.id, 'name': p.name} if p else None  # noqa: E731
+    if rest == 'ports' and isinstance(data, list):
+        for r in data:
+            r['project'] = ref(discovery.project_by_name(r.get('cwd') or '', '', projects))
+    elif rest == 'docker' and isinstance(data, dict):
+        for c in data.get('containers') or []:
+            c['project'] = ref(discovery.project_by_name(c.get('working_dir') or '', c.get('compose_project') or '', projects))
+    elif rest == 'processes' and isinstance(data, dict):
+        for r in data.get('processes') or []:
+            r['project'] = ref(discovery.project_by_name(r.get('cwd') or '', '', projects))
+    return json.dumps(data).encode()
 
 
 @api_view(['GET'])
@@ -416,7 +462,13 @@ def file_read(request):
 
 @api_view(['GET'])
 def agents(request):
-    return Response(herdr.agents())
+    """Every agent, with the project it works in. `?machines=0`: only this machine's own (what other Marumados ask)."""
+    data = herdr.agents(include_machines=request.query_params.get('machines') != '0')
+    projects = list(Project.objects.filter(kind=Project.KIND_PROJECT, hidden=False))
+    for a in data['agents']:
+        p = discovery.project_anywhere(a['cwd'], projects)
+        a['project'] = {'id': p.id, 'name': p.name} if p else None
+    return Response(data)
 
 
 class AgentSourceViewSet(viewsets.ModelViewSet):
@@ -456,6 +508,63 @@ def agent_terminal(request):
     except ValueError as exc:
         return Response({'detail': str(exc)}, status=400)
     except (RuntimeError, KeyError) as exc:
+        return Response({'detail': str(exc)}, status=502)
+
+
+def _control_only(what: str) -> Response | None:
+    if herdr.terminal_mode() != 'control':
+        return Response({'detail': f'{what} is turned off (MARUMADO_HERDR_TERMINAL).'}, status=403)
+    return None
+
+
+@api_view(['POST'])
+def agent_workspace(request):
+    """{cwd, label}: a new Herdr workspace with a shell, for a task (asked by the Marumado that shows this machine)."""
+    refused = _control_only('Starting agents')
+    if refused:
+        return refused
+    cwd, label = request.data.get('cwd') or '', request.data.get('label') or ''
+    if not isinstance(cwd, str) or not isinstance(label, str):
+        return Response({'detail': 'cwd and label are text.'}, status=400)
+    try:
+        return Response(herdr.open_workspace(cwd, label, _agent_source(request)), status=status.HTTP_201_CREATED)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    except (RuntimeError, KeyError) as exc:
+        return Response({'detail': str(exc)}, status=502)
+
+
+@api_view(['POST'])
+def agent_launch(request, pane_id: str):
+    """{name, kind}: start an agent in that pane's shell. `ready`: it takes input already."""
+    refused = _control_only('Starting agents')
+    if refused:
+        return refused
+    name, kind = request.data.get('name') or '', request.data.get('kind') or ''
+    try:
+        return Response({'ready': herdr.launch_agent(str(name), str(kind), pane_id, _agent_source(request))})
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    except RuntimeError as exc:
+        return Response({'detail': str(exc)}, status=502)
+
+
+@api_view(['POST'])
+def agent_task(request, pane_id: str):
+    """{text}: give an agent a task and wait for it to start. `blocked`: it is waiting on a question first."""
+    refused = _control_only('Giving tasks to agents')
+    if refused:
+        return refused
+    text = request.data.get('text') or ''
+    if not isinstance(text, str):
+        return Response({'detail': 'text is the task.'}, status=400)
+    try:
+        return Response({'started': herdr.prompt_task(pane_id, text, _agent_source(request)), 'blocked': False})
+    except herdr.Blocked:
+        return Response({'started': False, 'blocked': True})
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    except RuntimeError as exc:
         return Response({'detail': str(exc)}, status=502)
 
 

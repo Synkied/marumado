@@ -335,3 +335,38 @@ def project_for_path(path: str, projects: list[Project]) -> Project | None:
             if best is None or len(p.path) > len(best.path):
                 best = p
     return best
+
+
+# Folder names too common to say which project a folder on another machine is.
+GENERIC_DIRS = {'home', 'root', 'srv', 'opt', 'var', 'usr', 'local', 'tmp', 'mnt', 'data', 'app', 'apps', 'code',
+                'projects', 'src', 'www', 'html', 'web', 'repos', 'git', 'work', 'docker', 'compose', 'stacks', 'services'}
+
+
+def _name_key(name: str) -> str:
+    return re.sub(r'[^a-z0-9]', '', name.lower())
+
+
+def project_by_name(folder: str, compose: str, projects: list[Project]) -> Project | None:
+    """The project a folder on another machine holds, where paths can't be compared: by its Compose project name,
+    else by a folder name on the way to it (the deepest first), against each project's name and folder name."""
+    keys: dict[str, Project] = {}
+    for p in projects:
+        if p.kind != Project.KIND_PROJECT:
+            continue
+        for name in (p.name, Path(p.path).name if p.path else ''):
+            key = _name_key(name)
+            if key and key not in GENERIC_DIRS:
+                keys.setdefault(key, p)
+    if compose and _name_key(compose) in keys:
+        return keys[_name_key(compose)]
+    for part in reversed([x for x in (folder or '').split('/') if x]):
+        if part.lower() in GENERIC_DIRS:
+            continue
+        if _name_key(part) in keys:
+            return keys[_name_key(part)]
+    return None
+
+
+def project_anywhere(folder: str, projects: list[Project], compose: str = '') -> Project | None:
+    """The project a folder belongs to: by path when it is one of ours (or a VM sharing it), else by name."""
+    return project_for_path(folder, projects) or project_by_name(folder, compose, projects)

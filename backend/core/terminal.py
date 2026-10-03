@@ -105,6 +105,12 @@ async def handle(scope, receive, send):
     try:
         # Resolved once, off the event loop (it may read the database); every call below reuses it.
         source = await asyncio.to_thread(herdr.get_source, query.get('source'))
+    except ValueError as exc:
+        return await _refuse(send, str(exc))
+    if source.kind == 'machine':
+        # Another machine's Herdr: its own Marumado runs the terminal, relayed through its tunnel.
+        return await _relay(int(source.target), f'agents/{pane}/terminal', {**query, 'source': '0'}, receive, send, typing=control)
+    try:
         size = await asyncio.to_thread(herdr.pane_size, pane, source) or (120, 40)
         attach = (_clamp(query['cols'], 20, 400, 80), _clamp(query['rows'], 8, 200, 24)) if fit else size
         cmd, environ = herdr.terminal_command(pane, *attach, control, takeover=query.get('takeover') == '1', source=source)
@@ -191,8 +197,9 @@ async def handle(scope, receive, send):
             pass  # the browser left meanwhile
 
 
-async def _relay(machine_id: int, rest: str, query: dict, receive, send):
-    """Pass the browser's terminal through to another machine's Marumado, which checks and runs it."""
+async def _relay(machine_id: int, rest: str, query: dict, receive, send, typing: bool = True):
+    """Pass the browser's terminal through to another machine's Marumado, which checks and runs it.
+    `typing` False: what the browser sends is dropped, so this Marumado's observe mode holds there too."""
     from websockets.asyncio.client import connect
     from websockets.exceptions import ConnectionClosed, WebSocketException
 
@@ -220,7 +227,7 @@ async def _relay(machine_id: int, rest: str, query: dict, receive, send):
             event = await receive()
             if event['type'] == 'websocket.disconnect':
                 return
-            if event.get('text'):
+            if event.get('text') and typing:
                 try:
                     await upstream.send(event['text'])
                 except ConnectionClosed:

@@ -54,6 +54,19 @@ export type Project = {
     containers: { id: string; name: string; status: string; health: string | null }[]
   }
   suggested_local_url: string
+  /** where else it runs: other machines whose Marumado reports it (by Compose project or folder name) */
+  places?: Place[]
+}
+
+/** The project on another machine: its folder there, and what of it runs. */
+export type Place = {
+  machine: number
+  machine_name: string
+  dir: string
+  compose: string
+  containers: { name: string; service: string; status: string; health: string | null }[]
+  ports: number[]
+  running: boolean
 }
 
 export type ProjectRef = { id: number; name: string } | null
@@ -165,6 +178,8 @@ export type Agent = {
   cwd: string
   workspace: string
   focused: boolean
+  /** the project it works in, by folder (or by name, on another machine) */
+  project?: ProjectRef
 }
 
 /** control: the browser terminal types into agents; observe: it only watches; off: polled output only. */
@@ -174,7 +189,8 @@ export type TerminalMode = 'control' | 'observe' | 'off'
 export type AgentSource = {
   id: number
   name: string
-  kind: 'env' | 'ssh' | 'smolvm'
+  /** machine: another machine in Machines, whose Herdr is reached through its Marumado */
+  kind: 'env' | 'ssh' | 'smolvm' | 'machine'
   /** where it looks for Herdr, in words */
   where: string
   available: boolean

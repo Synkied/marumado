@@ -1,8 +1,12 @@
 import { CPU_BUDGET, DISK_BUDGET, MEM_BUDGET, type ModuleId } from '../lib/hub'
-import type { Machine } from '../lib/types'
+import type { Machine, Project } from '../lib/types'
 
-/** One reading on a machine's block on home. A module that adds a reading adds one entry to READOUTS. */
-export type ReadoutId = 'cpu' | 'memory' | 'disk' | 'urls' | 'agents' | 'docker' | 'tasks' | 'projects' | 'ports'
+/** One reading on a machine's block on home. A module that adds a reading adds one entry to READOUTS.
+    Your work (tasks, URLs, all your projects) isn't a machine's: it has its own block above the machines. */
+export type ReadoutId = 'cpu' | 'memory' | 'disk' | 'agents' | 'docker' | 'projects' | 'ports'
+
+/** What a machine block knows besides the machine: your projects, to say which run there. */
+export type ReadoutContext = { projects?: Project[] }
 
 /** One part of a seal: on (running, working, up), off (idle, stopped), or fault (needs you). */
 export type Part = 'on' | 'off' | 'fault'
@@ -32,16 +36,16 @@ export type Readout = {
   /** what the reading says, for the arrange list */
   blurb: string
   /** null: the machine hasn't told us (unreachable, still reading, or an older Marumado) */
-  read: (m: Machine) => Reading | null
+  read: (m: Machine, ctx: ReadoutContext) => Reading | null
 }
 
-const names = (all: string[]) => (all.length ? `${all[0]}${all.length > 1 ? ` +${all.length - 1}` : ''}` : '')
+export const names = (all: string[]) => (all.length ? `${all[0]}${all.length > 1 ? ` +${all.length - 1}` : ''}` : '')
 
 const MAX_PARTS = 12
 
 /** A seal of parts from counts, in order: the ones that need you, then those on, then the rest. Past 12 items the
     parts would be specks, so it becomes a share of the ring instead. */
-function parts(total: number, on: number, fault = 0): Reading['seal'] {
+export function parts(total: number, on: number, fault = 0): Reading['seal'] {
   if (!total) return undefined
   if (total > MAX_PARTS) return { kind: 'share', value: (on + fault) / total }
   return { kind: 'parts', items: [...Array<Part>(fault).fill('fault'), ...Array<Part>(on).fill('on'), ...Array<Part>(Math.max(0, total - on - fault)).fill('off')] }
@@ -93,28 +97,6 @@ export const READOUTS: Readout[] = [
     },
   },
   {
-    id: 'urls',
-    label: 'URLs',
-    module: 'urls',
-    blurb: 'Live sites up or down',
-    read: (m) => {
-      const u = m.overview?.urls
-      if (!u) return null
-      if (!u.checked) return { value: '—', detail: 'no live URLs', state: 'off' }
-      if (u.down.length) {
-        const first = u.down[0]
-        return {
-          value: `${u.down.length} down`,
-          detail: `${names(u.down.map((d) => d.name))} · ${first.detail}`,
-          state: 'fault',
-          seal: parts(u.checked, u.up, u.down.length),
-          title: u.down.map((d) => `${d.name}: ${d.detail}`).join('\n'),
-        }
-      }
-      return { value: `${u.up} of ${u.checked}`, detail: 'up', state: 'ok', seal: parts(u.checked, u.up) }
-    },
-  },
-  {
     id: 'agents',
     label: 'Agents',
     module: 'agents',
@@ -155,28 +137,16 @@ export const READOUTS: Readout[] = [
     },
   },
   {
-    id: 'tasks',
-    label: 'Tasks',
-    module: 'tasks',
-    blurb: 'Open tasks, and any waiting on you',
-    read: (m) => {
-      const t = m.overview?.tasks
-      if (!t) return null
-      const seal = parts(t.open, t.working, t.blocked)
-      if (t.blocked) return { value: String(t.blocked), detail: t.blocked === 1 ? 'needs you' : 'need you', state: 'fault', seal }
-      const detail = t.working ? `${t.working} working` : t.failed ? `${t.failed} failed` : t.open ? 'open' : 'all done'
-      return { value: String(t.open), detail, state: 'ok', seal }
-    },
-  },
-  {
     id: 'projects',
-    label: 'Projects',
+    label: 'Running',
     module: 'projects',
-    blurb: 'Projects, and how many are running',
-    read: (m) => {
-      const p = m.overview?.projects
-      if (!p) return null
-      return { value: String(p.total), detail: `${p.running} running`, state: 'ok', seal: parts(p.total, p.running) }
+    blurb: 'Which of your projects run on this machine',
+    read: (m, { projects }) => {
+      if (!projects || (!m.local && !m.overview)) return null
+      const code = projects.filter((p) => p.kind === 'project')
+      const here = m.local ? code.filter((p) => p.running) : code.filter((p) => p.places?.some((x) => x.machine === m.id && x.running))
+      if (!here.length) return { value: '0', detail: 'none of your projects', state: 'ok' }
+      return { value: String(here.length), detail: names(here.map((p) => p.name)), state: 'ok', seal: parts(here.length, here.length), title: here.map((p) => p.name).join('\n') }
     },
   },
   {

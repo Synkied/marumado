@@ -728,6 +728,18 @@ a.agent-fit {
   background: var(--ground);
 }
 
+/* The task an agent is on, under its bar; or the offer to make one. */
+.agent-task {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  font-family: var(--f-mono);
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
 .agent-meta {
   flex: 1;
   min-width: 0;
@@ -1195,6 +1207,21 @@ a.row:hover .arrange__icon {
 .go:hover {
   border-color: var(--ink);
   background: var(--ground-raised);
+}
+
+/* A project's direction: where it is going in words, its last 12 weeks beside them. */
+.direction {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4) var(--sp-7);
+}
+
+.direction__line {
+  display: grid;
+  margin: 0;
+  font-size: var(--text-xl);
 }
 
 .chips {

@@ -233,6 +233,20 @@ class TaskFlowTests(TestCase):
         task = Task.objects.get(pk=tid)
         self.assertEqual((task.state, task.live), ('failed', False))
 
+    def test_an_agent_already_at_work_becomes_a_task(self):
+        tid = self.create()
+        with mock.patch.object(tasks.herdr, 'agents', return_value=agents(('w1:p2', 'bob', 'claude', 'working', 'Fixing CSS'))), \
+                mock.patch.object(tasks.herdr, 'prompt_task') as prompt:
+            res = self.api.post(f'/api/tasks/{tid}/follow', {'pane_id': 'w1:p2', 'source': 0}, format='json')
+            again = self.api.post(f'/api/tasks/{self.create()}/follow', {'pane_id': 'w1:p2', 'source': 0}, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        prompt.assert_not_called()  # nothing is sent: it is only followed
+        task = Task.objects.get(pk=tid)
+        self.assertEqual((task.state, task.live, task.agent_title), ('working', True, 'Fixing CSS'))
+        self.assertEqual(again.status_code, 400)
+        self.watch(('w1:p2', 'bob', 'claude', 'idle', ''))
+        self.assertEqual(Task.objects.get(pk=tid).state, 'review')
+
     def test_unreachable_source_refuses_the_task(self):
         tid = self.create()
         with mock.patch.object(tasks.herdr, 'agents', return_value=agents(down=(7,))):
@@ -321,3 +335,131 @@ class AgentSourceTests(TestCase):
             cmd, _ = herdr._command(herdr.Source(4, 'vm', 'smolvm', 'vm'), ('pane', 'list'), interactive=True)
         smolvm.assert_called_once_with('vm', True)
         self.assertEqual(cmd[-3:-1], ['sh', '-c'])
+
+
+class FakeTunnel:
+    """A machine in Machines, up, whose Marumado answers `answers` ({path: (status, json)}) and reports `overview`."""
+
+    def __init__(self, id=1, name='server', overview=None, answers=None):
+        self.id, self.name, self.state, self.overview = id, name, 'up', overview
+        self.answers = answers or {}
+        self.calls = []
+
+    def request(self, method, path, query='', body=b'', content_type='', timeout=10):
+        import json
+        self.calls.append((method, path, query, json.loads(body) if body else None))
+        status_code, data = self.answers.get(path, (404, {}))
+        res = mock.Mock(status_code=status_code, content=json.dumps(data).encode(), headers={'content-type': 'application/json'})
+        res.json = lambda: data
+        return res
+
+
+def with_tunnels(*tunnels):
+    from . import machines
+    return mock.patch.multiple(machines, tunnels=lambda: list(tunnels), get=lambda i: next((t for t in tunnels if t.id == i), None))
+
+
+class PlacesTests(TestCase):
+    def setUp(self):
+        self.blog = Project.objects.create(name='my-blog', path='/projects/my-blog')
+        self.shop = Project.objects.create(name='Shop', path='/projects/shop')
+
+    def test_a_folder_elsewhere_is_matched_by_compose_name_then_folder_name(self):
+        from . import discovery
+        projects = list(Project.objects.all())
+        self.assertEqual(discovery.project_by_name('/srv/whatever', 'myblog', projects), self.blog)
+        self.assertEqual(discovery.project_by_name('/home/me/apps/shop/backend', '', projects), self.shop)
+        self.assertIsNone(discovery.project_by_name('/srv/apps/data', '', projects))
+        self.assertEqual(discovery.project_anywhere('/projects/shop/web', projects), self.shop)
+
+    def test_what_runs_here_is_grouped_by_compose_project_or_folder(self):
+        from . import overview
+        dock = {'containers': [
+            {'name': 'blog-web-1', 'compose_project': 'my-blog', 'compose_service': 'web', 'working_dir': '/srv/my-blog',
+             'status': 'running', 'health': None, 'ports': [{'host_port': 8080}]},
+            {'name': 'blog-db-1', 'compose_project': 'my-blog', 'compose_service': 'db', 'working_dir': '/srv/my-blog',
+             'status': 'running', 'health': 'healthy', 'ports': []},
+        ]}
+        ports = [{'port': 3000, 'cwd': '/home/me/shop'}, {'port': 22, 'cwd': '/'}, {'port': 8081, 'cwd': '/srv/my-blog/api'}]
+        got = {g['dir']: g for g in overview.places(dock, ports)}
+        self.assertEqual(set(got), {'/srv/my-blog', '/home/me/shop'})
+        self.assertEqual(got['/srv/my-blog']['ports'], [8080, 8081])
+        self.assertEqual(len(got['/srv/my-blog']['containers']), 2)
+
+    def test_projects_list_where_else_they_run(self):
+        from . import places
+        tunnel = FakeTunnel(overview={'agents': {'available': False}, 'places': [
+            {'compose': 'my-blog', 'dir': '/srv/my-blog', 'ports': [8080],
+             'containers': [{'name': 'web', 'service': 'web', 'status': 'running', 'health': None}]},
+            {'compose': '', 'dir': '/opt/unknown', 'ports': [9000], 'containers': []},
+        ]})
+        with with_tunnels(tunnel):
+            found = places.by_project(list(Project.objects.all()))
+            self.assertEqual(places.folder_on(self.blog, tunnel.id), '/srv/my-blog')
+            self.assertEqual(tasks.folder_for(self.blog, herdr.MACHINE_BASE + tunnel.id), '/srv/my-blog')
+            self.assertEqual(tasks.folder_for(self.shop, herdr.MACHINE_BASE + tunnel.id), '')
+            self.assertEqual(tasks.folder_for(self.shop, 0), '/projects/shop')
+        self.assertEqual([(p['machine_name'], p['running']) for p in found[self.blog.id]], [('server', True)])
+        self.assertEqual(found[self.shop.id], [])
+
+    @override_settings(MARUMADO_TOKEN='test-token')
+    @mock.patch.object(monitor, 'ensure_started', lambda: None)
+    def test_another_machines_rows_point_at_projects_here(self):
+        from . import machines
+        tunnel = FakeTunnel(answers={'docker': (200, {'available': True, 'error': '', 'containers': [
+            {'id': 'c1', 'name': 'web', 'compose_project': 'shop', 'working_dir': '/srv/x', 'project': {'id': 999, 'name': 'theirs'}}]})})
+        api = APIClient()
+        api.credentials(HTTP_AUTHORIZATION='Bearer test-token')
+        with mock.patch.object(machines, 'get', lambda i: tunnel if i == 1 else None):
+            res = api.get('/api/machines/1/docker')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['containers'][0]['project'], {'id': self.shop.id, 'name': 'Shop'})
+
+
+class MachineAgentSourceTests(TestCase):
+    def remote(self, available=True):
+        return FakeTunnel(id=3, name='server', overview={'agents': {'available': available}}, answers={
+            'agents': (200, {'available': True, 'error': '', 'sources': [{'id': 0, 'available': True, 'error': ''}],
+                             'agents': [{'pane_id': 'w1:p1', 'source': 0, 'name': '', 'kind': 'claude', 'status': 'working',
+                                         'title': '', 'cwd': '/srv/my-blog', 'workspace': '', 'focused': False},
+                                        {'pane_id': 'w9:p9', 'source': 5, 'name': '', 'kind': 'claude', 'status': 'idle',
+                                         'title': '', 'cwd': '/vm', 'workspace': '', 'focused': False}]}),
+            'agents/workspace': (201, {'pane_id': 'w2:p1', 'cwd': '/srv/my-blog'}),
+            'agents/w2:p1/task': (200, {'started': False, 'blocked': True}),
+        })
+
+    def test_a_machine_with_herdr_is_a_source_and_its_own_agents_are_listed(self):
+        tunnel = self.remote()
+        with with_tunnels(tunnel), mock.patch.object(herdr, '_local_binary', lambda: None):
+            herdr.forget_failures()
+            listed = herdr.agents()
+            own = herdr.agents(include_machines=False)
+        source = herdr.MACHINE_BASE + 3
+        self.assertEqual([(s['id'], s['kind']) for s in listed['sources']], [(source, 'machine')])
+        self.assertEqual([(a['pane_id'], a['source']) for a in listed['agents']], [('w1:p1', source)])
+        self.assertEqual(tunnel.calls[0][:3], ('GET', 'agents', 'source=0&machines=0'))
+        self.assertNotIn(source, [s['id'] for s in own['sources']])
+
+    def test_a_machine_without_herdr_is_not_a_source(self):
+        with with_tunnels(self.remote(available=False)):
+            self.assertNotIn('machine', [s.kind for s in herdr.sources()])
+
+    def test_tasks_on_a_machine_go_through_its_marumado(self):
+        tunnel = self.remote()
+        with with_tunnels(tunnel):
+            source = herdr.get_source(herdr.MACHINE_BASE + 3)
+            self.assertEqual(herdr.open_workspace('/srv/my-blog', 'blog', source), {'pane_id': 'w2:p1', 'cwd': '/srv/my-blog'})
+            with self.assertRaises(herdr.Blocked):
+                herdr.prompt_task('w2:p1', 'Do it', source)
+            with self.assertRaises(RuntimeError):
+                herdr.close('w2:p1', source)  # an older Marumado without the call
+        self.assertEqual(tunnel.calls[0], ('POST', 'agents/workspace', 'source=0', {'cwd': '/srv/my-blog', 'label': 'blog'}))
+
+
+class ProjectFolderTests(TestCase):
+    def test_the_default_folder_only_counts_where_it_exists(self):
+        from . import discovery
+        with override_settings(MARUMADO_PROJECT_ROOTS=['/no/such/folder'], MARUMADO_PROJECT_ROOTS_DEFAULT=True):
+            self.assertEqual(discovery.roots(), [])
+        with override_settings(MARUMADO_PROJECT_ROOTS=['/no/such/folder'], MARUMADO_PROJECT_ROOTS_DEFAULT=False):
+            self.assertEqual([r['path'] for r in discovery.roots()], ['/no/such/folder'])

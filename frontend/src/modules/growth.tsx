@@ -6,7 +6,8 @@ import { ago } from '../lib/format'
 import { commits, findSkill, pace, PACE_LABEL, PUSH_GRACE_DAYS, daysSince, skillMap, tracked, USE_LABEL, type SkillRow, type Use } from '../lib/growth'
 import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
-import type { Project, Skill, SkillIntent } from '../lib/types'
+import type { Project, Skill, SkillIntent, Task } from '../lib/types'
+import { activity, atWork, workLine } from '../lib/work'
 import { SheetHead } from './sheetHead'
 
 /** Commits per week as a strip of bars, oldest on the left. */
@@ -84,6 +85,7 @@ type HeatGroup = { title: string; projects: Project[]; dim?: boolean }
 
 /** Every tracked project's last 12 weeks on one screen: a row per project, a cell per week. */
 function Heatmap({ groups }: { groups: HeatGroup[] }) {
+  const { tasks, agents } = useHub()
   const shown = groups.filter((g) => g.projects.length)
   const all = shown.flatMap((g) => g.projects)
   const top = Math.max(1, ...all.flatMap((p) => lastWeeks(p.detected.weekly_commits)))
@@ -113,18 +115,17 @@ function Heatmap({ groups }: { groups: HeatGroup[] }) {
           </h3>
           {g.projects.map((p) => {
             const weeks = lastWeeks(p.detected.weekly_commits)
-            const days = daysSince(p.detected.last_commit_at)
-            const slipping = p.focus === 'push' && days != null && days > PUSH_GRACE_DAYS
+            const late = slipping(p, tasks, agents) != null
             const state = pace(p)
             return (
               <a
                 key={p.id}
                 className={`heat__row${g.dim ? ' heat__row--dim' : ''}`}
                 href={`#/m/projects/${p.id}`}
-                aria-label={`${p.name}: ${PACE_LABEL[state]}${slipping ? ', marked push but slipping' : ''}, ${commits(weeks)} commits in the last 12 weeks`}
+                aria-label={`${p.name}: ${PACE_LABEL[state]}${late ? ', marked push but slipping' : ''}, ${commits(weeks)} commits in the last 12 weeks`}
               >
                 <span className="heat__name">
-                  <span className={slipping ? 'row__lamp row__lamp--fault' : state === 'moving' ? 'row__lamp row__lamp--on' : 'row__lamp'} />
+                  <span className={late ? 'row__lamp row__lamp--fault' : state === 'moving' ? 'row__lamp row__lamp--on' : 'row__lamp'} />
                   <span className="heat__label">{p.name}</span>
                 </span>
                 <HeatCells weeks={weeks} top={top} starts={starts} />
@@ -145,7 +146,14 @@ function Heatmap({ groups }: { groups: HeatGroup[] }) {
   )
 }
 
-function MomentumRow({ p }: { p: Project }) {
+/** A push the owner made that isn't moving: no commit for a while, and no agent at work on it either. */
+export function slipping(p: Project, tasks: Task[] | undefined, agents: Parameters<typeof activity>[2]): number | null {
+  const days = daysSince(p.detected.last_commit_at)
+  return p.focus === 'push' && days != null && days > PUSH_GRACE_DAYS && !atWork(activity(p, tasks, agents)) ? days : null
+}
+
+/** Push, park or archive a project: the owner's call on where it is going. */
+export function FocusActions({ p, onArchived }: { p: Project; onArchived?: () => void }) {
   const { refreshProjects } = useHub()
   const [busy, setBusy] = useState(false)
   const save = async (body: Partial<Project>) => {
@@ -153,40 +161,56 @@ function MomentumRow({ p }: { p: Project }) {
     try {
       await api(`projects/${p.id}`, { method: 'PATCH', json: body })
       refreshProjects()
+      if (body.hidden) onArchived?.()
     } finally {
       setBusy(false)
     }
   }
-  const days = daysSince(p.detected.last_commit_at)
-  const slipping = p.focus === 'push' && days != null && days > PUSH_GRACE_DAYS
+  return (
+    <>
+      {p.focus !== 'push' && (
+        <button className="chip" type="button" disabled={busy} onClick={() => save({ focus: 'push' })}>
+          Push
+        </button>
+      )}
+      {p.focus !== 'park' && (
+        <button className="chip" type="button" disabled={busy} onClick={() => save({ focus: 'park' })}>
+          Park
+        </button>
+      )}
+      {p.focus && (
+        <button className="chip" type="button" disabled={busy} onClick={() => save({ focus: '' })}>
+          {p.focus === 'push' ? 'Unpush' : 'Unpark'}
+        </button>
+      )}
+      <ConfirmButton className="chip" confirmLabel="Confirm archive" onConfirm={() => save({ hidden: true })} disabled={busy}>
+        Archive
+      </ConfirmButton>
+    </>
+  )
+}
+
+function MomentumRow({ p }: { p: Project }) {
+  const { tasks, agents } = useHub()
+  const late = slipping(p, tasks, agents)
+  const work = activity(p, tasks, agents)
   const state = pace(p)
+  const line = late != null ? `Marked push, but no commit for ${late} days` : [paceLine(p), workLine(work)].filter(Boolean).join(' · ')
   return (
     <li className="row row--wrap">
-      <span className={slipping ? 'row__lamp row__lamp--fault' : state === 'moving' ? 'row__lamp row__lamp--on' : 'row__lamp'} role="img" aria-label={PACE_LABEL[state]} />
+      <span className={late != null ? 'row__lamp row__lamp--fault' : state === 'moving' || atWork(work) ? 'row__lamp row__lamp--on' : 'row__lamp'} role="img" aria-label={PACE_LABEL[state]} />
       <a className="row__main row__link" href={`#/m/projects/${p.id}`}>
         {p.name}
-        <span className={`row__sub${slipping ? ' signal-text' : ''}`}>{slipping ? `Marked push, but no commit for ${days} days` : paceLine(p)}</span>
+        <span className={`row__sub${late != null ? ' signal-text' : ''}`}>{line}</span>
       </a>
       <WeekBars weeks={p.detected.weekly_commits ?? []} label={p.name} />
       <span className="row__actions">
-        {p.focus !== 'push' && (
-          <button className="chip" type="button" disabled={busy} onClick={() => save({ focus: 'push' })}>
-            Push
-          </button>
+        {p.focus === 'push' && !work.open && (
+          <a className="chip" href={`#/m/projects/${p.id}/next`} title="A pushed project with nothing to do next: write down the next step">
+            Next task
+          </a>
         )}
-        {p.focus !== 'park' && (
-          <button className="chip" type="button" disabled={busy} onClick={() => save({ focus: 'park' })}>
-            Park
-          </button>
-        )}
-        {p.focus && (
-          <button className="chip" type="button" disabled={busy} onClick={() => save({ focus: '' })}>
-            {p.focus === 'push' ? 'Unpush' : 'Unpark'}
-          </button>
-        )}
-        <ConfirmButton className="chip" confirmLabel="Confirm archive" onConfirm={() => save({ hidden: true })} disabled={busy}>
-          Archive
-        </ConfirmButton>
+        <FocusActions p={p} />
       </span>
     </li>
   )
@@ -258,7 +282,7 @@ export function MomentumSheet() {
         </button>
       </SheetHead>
       <p className="sheet__lede">
-        How each project is moving, from its git history. Push what matters now, park what can wait, archive what is done. Projects marked push are flagged when they go {PUSH_GRACE_DAYS} days without a commit.
+        How each project is moving, from its git history and the agents working on it. Push what matters now, park what can wait, archive what is done. Projects marked push are flagged when they go {PUSH_GRACE_DAYS} days without a commit and no agent is at work on them.
       </p>
       {!projects ? (
         <div className="sheet__empty">Loading projects…</div>
@@ -514,6 +538,8 @@ function SkillDetail({ row }: { row: SkillRow }) {
         </div>
       </section>
 
+      {row.intent !== 'ignore' && <Practise row={row} />}
+
       <section className="sheet__section">
         <h3>Projects using it · {row.projects.length}</h3>
         {row.projects.length ? (
@@ -534,5 +560,63 @@ function SkillDetail({ row }: { row: SkillRow }) {
         )}
       </section>
     </div>
+  )
+}
+
+/** A task to use the skill in a project: the projects that use it already first, the most recent on top. */
+function Practise({ row }: { row: SkillRow }) {
+  const { projects, refreshTasks } = useHub()
+  const others = tracked(projects)
+    .filter((p) => !row.projects.includes(p))
+    .sort((a, b) => (b.detected.last_commit_at ?? '').localeCompare(a.detected.last_commit_at ?? ''))
+  const choices = [...row.projects, ...others]
+  const [project, setProject] = useState<number | ''>(choices[0]?.id ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const picked = choices.find((p) => p.id === project)
+  const verb = row.use === 'rusty' ? 'Brush up on' : row.projects.length ? 'Practise' : 'Try'
+  const start = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const title = picked ? `${verb} ${row.name} in ${picked.name}` : `${verb} ${row.name}`
+      const made = await api<{ id: number }>('tasks', { method: 'POST', json: { title, notes: row.record?.note ?? '', project: picked?.id ?? null } })
+      refreshTasks()
+      go(`#/m/tasks/${made.id}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't add the task.")
+      setBusy(false)
+    }
+  }
+  return (
+    <section className="sheet__section mod-tasks">
+      <h3>{verb} it</h3>
+      <p className="sheet__lede">
+        {row.use === 'rusty'
+          ? 'Unused for months. A small task in a project that already uses it is the quickest way back.'
+          : row.projects.length
+            ? 'Turn the plan into a task, then do it yourself or hand it to an agent and read what it did.'
+            : 'No project uses it yet. Start with a small task in one of your projects.'}{' '}
+        Your notes go along as the task’s details.
+      </p>
+      <div className="addline">
+        <label className="field">
+          In
+          <select value={project} onChange={(e) => setProject(e.target.value ? Number(e.target.value) : '')}>
+            <option value="">No project</option>
+            {choices.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+                {row.projects.includes(p) ? ' · uses it' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="btn" type="button" onClick={start} disabled={busy}>
+          <Icon name="plus" size={16} /> {busy ? 'Adding…' : 'Add task'}
+        </button>
+      </div>
+      {error && <p className="notice signal-text">{error}</p>}
+    </section>
   )
 }

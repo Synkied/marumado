@@ -12,7 +12,7 @@ from pathlib import Path
 
 from django.db import close_old_connections, transaction
 
-from . import discovery, herdr
+from . import discovery, herdr, places
 from .models import Task, TaskEvent
 
 log = logging.getLogger(__name__)
@@ -48,8 +48,9 @@ def _snapshot(task: Task, lines: int = SNAPSHOT_LINES) -> str:
 # ---------------------------------------------------------------- git
 
 def _repo(task: Task) -> Path | None:
-    """The task's project folder, when Marumado can see it and it is a git repository."""
-    if not task.project or not task.project.path:
+    """The task's project folder, when Marumado can see it and it is a git repository. An agent on another machine
+    works in that machine's copy, so this one's says nothing about what it changed."""
+    if not task.project or not task.project.path or task.agent_source >= herdr.MACHINE_BASE:
         return None
     path = Path(task.project.path)
     return path if (path / '.git').exists() else None
@@ -148,6 +149,31 @@ def assign(task: Task, pane_id: str = '', kind: str = '', source: int = herdr.EN
     _start_handover(task, start=not pane_id)
 
 
+def follow(task: Task, pane_id: str, source: int = herdr.ENV) -> None:
+    """Make the task the record of an agent already at work: nothing is sent to it, Marumado just follows it from now on."""
+    listed = herdr.agents()
+    agent = next((a for a in listed['agents'] if a['source'] == source and a['pane_id'] == pane_id), None)
+    if not agent or agent['kind'] == 'terminal':
+        raise ValueError('That agent is no longer open.')
+    if Task.objects.filter(live=True, agent_source=source, pane_id=pane_id).exclude(pk=task.pk).exists():
+        raise ValueError('Another task already follows that agent.')
+    status = agent['status']
+    task.state = _TASK_STATE.get(status, Task.REVIEW)
+    task.pane_id, task.agent_source = pane_id, source
+    task.agent_name, task.agent_kind, task.agent_state = agent['name'], agent['kind'], status
+    task.agent_title = '' if agent['title'].lower().startswith(agent['kind']) else agent['title'][:200]
+    task.live, task.prompt_pending = True, False
+    task.git_start = git_head(task)
+    task.started_at = _now()
+    task.finished_at = _now() if task.state == Task.REVIEW else None
+    task.save()
+    src = next((s for s in listed['sources'] if s['id'] == source), None)
+    on = f" on {src['name']}" if src and len(listed['sources']) > 1 else ''
+    event(task, 'assigned', f"Following {agent['name'] or agent['kind']} ({agent['kind']}){on}, already at work",
+          data={'pane_id': pane_id, 'source': source, 'kind': agent['kind'], 'name': agent['name'], 'git_start': task.git_start},
+          output=_snapshot(task))
+
+
 def _start_handover(task: Task, start: bool) -> None:
     with _lock:
         if task.id in _assigning:
@@ -173,10 +199,20 @@ def _wait_for_answer(task: Task, text: str) -> None:
     event(task, 'state', text, state='blocked', output=_snapshot(task))
 
 
+def folder_for(project, source: int) -> str:
+    """Where a new agent for the project starts, in `source`: on another machine, the project's folder there (as its
+    Marumado reports it, '' if it has none); elsewhere, the project's folder here (a VM may share it)."""
+    if project is None:
+        return ''
+    if source >= herdr.MACHINE_BASE:
+        return places.folder_on(project, source - herdr.MACHINE_BASE)
+    return project.path
+
+
 def _start(task: Task) -> bool:
     """Open a workspace in the project's folder and start the agent there. True when it is ready for the task now;
     False when it is still starting: watch() sends the task once it is (or asks you, if it stops on a question)."""
-    cwd = task.project.path if task.project and task.project.path else ''
+    cwd = folder_for(task.project, task.agent_source)
     opened = herdr.open_workspace(cwd, task.project.name if task.project else task.title, task.agent_source)
     task.pane_id, task.agent_state, task.prompt_pending = opened['pane_id'], '', True
     _save(task)

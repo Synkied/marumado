@@ -7,7 +7,8 @@ import { ago } from '../lib/format'
 import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
 import { Secret } from '../lib/streaming'
-import type { Project, Task, TaskDetail, TaskEvent, TaskState } from '../lib/types'
+import type { AgentSource, Project, Task, TaskDetail, TaskEvent, TaskState } from '../lib/types'
+import { machineOfSource } from '../lib/work'
 import { usePoll } from '../lib/usePoll'
 import { SheetHead } from './sheetHead'
 
@@ -508,6 +509,11 @@ function TaskFields({ task, draft, onChange }: { task: TaskDetail; draft: Draft;
         Project
         <ProjectSelect value={draft.project} onChange={(project) => onChange({ ...draft, project })} />
       </label>
+      {task.project != null && (
+        <a className="row__link" href={`#/m/projects/${task.project}`} style={{ justifySelf: 'start' }}>
+          Open {task.project_name || 'the project'}
+        </a>
+      )}
     </section>
   )
 }
@@ -517,19 +523,32 @@ function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => 
   const { agents, projects, refreshTasks, refreshAgents } = useHub()
   const open = (agents?.agents ?? []).filter((a) => a.kind !== 'terminal')
   const ready = open.filter((a) => a.status === 'idle' || a.status === 'done')
-  // Where a new agent can start: the sources that answer.
-  const places = sourcesOf(agents).filter((s) => s.available)
+  const project = (projects ?? []).find((p) => p.id === task.project)
+  // Where the project's folder is in a source: on another machine, as its Marumado reports it; elsewhere this
+  // machine's folder (a VM may share it, or Herdr starts in its default folder).
+  const folderIn = (s: AgentSource): string => {
+    if (!project) return ''
+    const machine = machineOfSource(s)
+    if (machine == null) return project.path
+    return project.places?.find((x) => x.machine === machine && x.dir)?.dir ?? ''
+  }
+  // Where a new agent can start: the sources that answer, those that have the project's folder first.
+  const rank = (s: AgentSource) => (!project ? 0 : machineOfSource(s) == null ? (s.kind === 'env' && project.path ? 0 : 1) : folderIn(s) ? 0 : 2)
+  const places = sourcesOf(agents)
+    .filter((s) => s.available)
+    .sort((a, b) => rank(a) - rank(b))
   const [how, setHow] = useState<'new' | 'open'>('new')
   const [kind, setKind] = useState(agents?.kinds?.[0] ?? 'claude')
   const [place, setPlace] = useState<number | null>(null)
   const [pane, setPane] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const project = (projects ?? []).find((p) => p.id === task.project)
   // `pane` is `<source>/<pane id>`: the same pane id can be open in two sources.
   const chosenPane = pane || (ready[0] ? agentKey(ready[0]) : '')
   const chosenPlace = place ?? places[0]?.id ?? 0
-  const placeName = places.length > 1 ? places.find((s) => s.id === chosenPlace)?.name : ''
+  const chosen = places.find((s) => s.id === chosenPlace)
+  const placeName = places.length > 1 ? chosen?.name : ''
+  const startsIn = chosen ? folderIn(chosen) : project?.path ?? ''
 
   if (!agents) return null
   if (!agents.available || agents.terminal !== 'control')
@@ -594,13 +613,24 @@ function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => 
                 {places.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
+                    {project && machineOfSource(s) != null && !folderIn(s) ? ' · no folder for this project there' : ''}
                   </option>
                 ))}
               </select>
             </label>
           )}
           <p className="sheet__lede">
-            Opens a new Herdr workspace{placeName ? <> on <strong>{placeName}</strong></> : ''} {project?.path ? <>in <strong className="mono">{project.name}</strong>&rsquo;s folder</> : 'in Herdr’s default folder (pick a project to start there)'}, starts {kind} and gives it the task. If {kind} asks something first, the task waits under Needs you until you answer.
+            Opens a new Herdr workspace{placeName ? <> on <strong>{placeName}</strong></> : ''}{' '}
+            {startsIn ? (
+              <>
+                in <strong className="mono">{project?.name}</strong>&rsquo;s folder (<Secret label="Folder">{startsIn}</Secret>)
+              </>
+            ) : project ? (
+              `in Herdr’s default folder: ${project.name} has no folder there that Marumado knows of`
+            ) : (
+              'in Herdr’s default folder (pick a project to start there)'
+            )}
+            , starts {kind} and gives it the task. If {kind} asks something first, the task waits under Needs you until you answer.
           </p>
         </>
       ) : ready.length ? (

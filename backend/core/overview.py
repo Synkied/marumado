@@ -23,12 +23,13 @@ def _cached_agents() -> dict:
     with _agents_lock:
         if _agents and time.time() - _agents[0] < AGENTS_SECONDS:
             return _agents[1]
-        data = herdr.agents()
+        data = herdr.agents(include_machines=False)
         _agents = (time.time(), data)
         return data
 
 
 def _agents_digest() -> dict:
+    """This machine's agents: not those of other machines it reaches through their Marumado."""
     data = _cached_agents()
     live = [a for a in data['agents'] if a['kind'] != 'terminal']
     names = {s['id']: s['name'] for s in data['sources']}
@@ -73,6 +74,33 @@ def _tasks_digest() -> dict:
     }
 
 
+MAX_PLACES = 100
+
+
+def places(dock: dict, ports: list[dict]) -> list[dict]:
+    """What runs here, by Compose project or folder: for the Marumado that shows this machine, which matches each
+    to one of its own projects (core/places.py). This machine needn't have the project's code to run it."""
+    groups: dict[str, dict] = {}
+    for c in dock['containers']:
+        key = c['compose_project'] or c['working_dir']
+        if not key:
+            continue
+        g = groups.setdefault(key, {'compose': c['compose_project'], 'dir': c['working_dir'], 'containers': [], 'ports': set()})
+        g['dir'] = g['dir'] or c['working_dir']
+        g['containers'].append({'name': c['name'], 'service': c['compose_service'], 'status': c['status'], 'health': c['health']})
+        g['ports'].update(b['host_port'] for b in c['ports'] if b.get('host_port'))
+    for port in ports:
+        cwd = port['cwd']
+        if not cwd or cwd == '/':
+            continue
+        g = next((g for g in groups.values() if g['dir'] and discovery.under(cwd, g['dir'])), None)
+        if g is None:
+            g = groups.setdefault(cwd, {'compose': '', 'dir': cwd, 'containers': [], 'ports': set()})
+        g['ports'].add(port['port'])
+    out = [{**g, 'ports': sorted(g['ports'])} for g in groups.values()]
+    return out[:MAX_PLACES]
+
+
 def digest() -> dict:
     projects = list(Project.objects.filter(hidden=False))
     code = [p for p in projects if p.kind == Project.KIND_PROJECT and p.path]
@@ -101,5 +129,6 @@ def digest() -> dict:
         },
         'agents': _agents_digest(),
         'ports': len(ports),
+        'places': places(dock, ports),
         'tasks': _tasks_digest(),
     }

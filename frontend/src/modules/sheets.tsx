@@ -749,6 +749,43 @@ function SourceHeading({ source: s, agents, control }: { source: AgentSource; ag
   )
 }
 
+/** The task an agent is on, or a way to make what it is doing one, so it shows in Tasks and on its project. */
+function AgentTask({ agent: a, projectId }: { agent: Agent; projectId: number | null }) {
+  const { tasks, refreshTasks } = useHub()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const task = (tasks ?? []).find((t) => t.live && t.pane_id === a.pane_id && t.agent_source === sourceOf(a))
+  if (task)
+    return (
+      <p className="agent-task mod-tasks">
+        Task: <a href={`#/m/tasks/${task.id}`}>{task.title}</a>
+      </p>
+    )
+  const make = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const title = a.title && a.title !== a.kind ? a.title : `${a.name || a.kind}'s work`
+      const made = await api<{ id: number }>('tasks', { method: 'POST', json: { title: title.slice(0, 200), project: projectId } })
+      await api(`tasks/${made.id}/follow`, { method: 'POST', json: { pane_id: a.pane_id, source: sourceOf(a) } })
+      refreshTasks()
+      go(`#/m/tasks/${made.id}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't make it a task.")
+      setBusy(false)
+    }
+  }
+  return (
+    <p className="agent-task mod-tasks">
+      Not on a task.{' '}
+      <button className="chip" type="button" onClick={make} disabled={busy} title="Follow what this agent does as a task: its states, what it changed, and a review when it finishes. Nothing is sent to it.">
+        {busy ? 'Making it a task…' : 'Make it a task'}
+      </button>
+      {error && <span className="signal-text"> {error}</span>}
+    </p>
+  )
+}
+
 function AgentsSheet({ sub }: { sub?: string }) {
   const { agents, projects, refreshAgents } = useHub()
   const [closeError, setCloseError] = useState('')
@@ -759,8 +796,11 @@ function AgentsSheet({ sub }: { sub?: string }) {
 
   if (sub === 'sources' || sub?.startsWith('sources/')) return <AgentSourcesSheet sub={sub.slice(8)} />
   if (!agents) return <div className="sheet__empty">Loading…</div>
+  // The backend links each agent to its project (by folder, or by name on another machine); older ones don't.
   const projectFor = (a: Agent) =>
-    (projects ?? []).filter((p) => p.path && (a.cwd === p.path || a.cwd.startsWith(`${p.path}/`))).sort((x, y) => y.path.length - x.path.length)[0]
+    a.project !== undefined
+      ? a.project
+      : (projects ?? []).filter((p) => p.path && (a.cwd === p.path || a.cwd.startsWith(`${p.path}/`))).sort((x, y) => y.path.length - x.path.length)[0]
   const sources = sourcesOf(agents)
   const multi = sources.length > 1
   // Grouped by source (in the order they are listed), then most urgent first. Even one source gets its heading,
@@ -895,6 +935,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
           )}
         </div>
         {closeError && <p className="notice signal-text">{closeError}</p>}
+        {current.kind !== 'terminal' && <AgentTask agent={current} projectId={project?.id ?? null} />}
         {narrow && mode !== 'off' && (
           <div className="seg" role="group" aria-label="View">
             <button type="button" className="seg__btn" aria-pressed={view === 'text'} onClick={() => setView('text')}>

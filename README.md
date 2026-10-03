@@ -1,22 +1,24 @@
 # Marumado
 
-One hub for every project on this machine, and for the machine itself.
+One hub for your projects, wherever they run, and for the machines they run on.
+
+Two layers. **Your work** (projects, tasks, agents, skills, URLs) lives on the Marumado you open. **Machines** (CPU, processes, ports, Docker) are each machine's own, and the machine picker switches only those. A project is one thing with several places: its folder here, its containers on a server, its live URL, the agents working on it.
 
 ![Marumado's Agents module: the list of coding agents on the left, and the live terminal of the selected one filling the page](docs/agents.png)
 
-- **Projects**: every subfolder of your scan folders is a project, with its stack, git branch, last commit, repo and live URLs detected. Scan folders come from `MARUMADO_PROJECT_DIRS` in `.env` (comma separated, default `/projects`) plus any you add in the app (**Projects → Folders**). Add projects by hand too; fields you edit by hand survive rescans. **Files** on a project browses its folder and opens files read-only in a code viewer (CodeMirror), limited to project and scan folders. A project whose folder you delete disappears on the next rescan, unless you pinned, edited or decided on it.
+- **Projects**: every subfolder of your scan folders is a project, with its stack, git branch, last commit, repo and live URLs detected. Scan folders come from `MARUMADO_PROJECT_DIRS` in `.env` (comma separated; unset, `/projects` when the machine has it) plus any you add in the app (**Projects → Folders**). A machine with no projects (most servers) needs none. A project's page gathers everything about it: where it is (its folder here, and the other machines it runs on), its open tasks and the agents in its folder, push or park, and the skills it uses. Add projects by hand too; fields you edit by hand survive rescans. **Files** on a project browses its folder and opens files read-only in a code viewer (CodeMirror), limited to project and scan folders. A project whose folder you delete disappears on the next rescan, unless you pinned, edited or decided on it.
 - **Machine**: CPU, memory, disks, network, and sensors, with about 30 minutes of history.
 - **URLs**: every live and local URL is checked every minute, with up/down status and response time. **Add URL** watches any site or service that isn't a project.
 - **Ports**: what is listening, and which project it belongs to.
 - **Docker**: containers, start/stop/restart, and logs.
 - **Processes**: search, sort, and stop (with confirmation).
-- **Momentum**: how each project is moving, from 12 weeks of git history (moving, slowing, stalled). Mark projects *push* or *park*, or archive them; a pushed project with no commit for 14 days shows up under "needs you". Projects are rescanned every hour. A heatmap shows every project's last 12 weeks on one screen.
-- **Skills**: a skill map built from project stacks and libraries (React, Django REST, Three.js…), with how recently each was used (active, cooling, rusty). Add skills you want to learn, mark ones to grow, hide ones that aren't skills, and keep notes. Shown as a grid of cards or a list.
-- **Agents**: the coding agents running in [Herdr](https://herdr.dev), with their state and a live terminal you can watch and type into from the browser, including from your phone. Point `MARUMADO_HERDR_*` in `.env` at wherever Herdr runs (this machine, a VM or over SSH). Agents running in several VMs or servers show up together: add each one under **Agents → Sources** (an SSH host, or a smolvm machine by name). The list groups agents under the source they run in, with whether it answers, and a source that stops answering shows up under "needs you". Tasks can start a new agent in any of them. `MARUMADO_HERDR_TERMINAL` sets whether the browser can type (`control`), only watch (`observe`) or neither (`off`).
-- **Machines**: watch other machines from this one. Each runs its own Marumado (bound to 127.0.0.1); this one reaches them through SSH tunnels it keeps open. The picker next to the wordmark switches every module to another machine, and the Machines module lists them all with their CPU, memory, and fullest disk. A machine that stops answering, or runs out of disk or memory, shows up under "needs you" whichever machine you're looking at. See [Other machines](#other-machines).
+- **Momentum**: how each project is moving, from 12 weeks of git history and the agents at work on it (moving, slowing, stalled). Mark projects *push* or *park*, or archive them; a pushed project with no commit for 14 days and no agent on it shows up under "needs you", with a shortcut to write its next task. Projects are rescanned every hour. A heatmap shows every project's last 12 weeks on one screen.
+- **Skills**: a skill map built from project stacks and libraries (React, Django REST, Three.js…), with how recently each was used (active, cooling, rusty). Add skills you want to learn, mark ones to grow, hide ones that aren't skills, and keep notes. Shown as a grid of cards or a list. A skill's page turns the plan into a task in one of your projects.
+- **Agents**: the coding agents running in [Herdr](https://herdr.dev), with their state and a live terminal you can watch and type into from the browser, including from your phone. Point `MARUMADO_HERDR_*` in `.env` at wherever Herdr runs (this machine, a VM or over SSH). Agents running in several VMs or servers show up together: add each one under **Agents → Sources** (an SSH host, or a smolvm machine by name). A machine in **Machines** whose Marumado sees a Herdr is a source on its own, reached through that Marumado. The list groups agents under the source they run in, with whether it answers, and a source that stops answering shows up under "needs you". Tasks can start a new agent in any of them, in the project's folder there. An agent already at work becomes a task with **Make it a task**: nothing is sent to it, Marumado follows it. `MARUMADO_HERDR_TERMINAL` sets whether the browser can type (`control`), only watch (`observe`) or neither (`off`).
+- **Machines**: watch other machines from this one. Each runs its own Marumado (bound to 127.0.0.1); this one reaches them through SSH tunnels it keeps open. The picker next to the wordmark (on Machine, Processes, Ports and Docker) switches those modules to another machine; the Machines module lists them all with their CPU, memory, and fullest disk. What runs on each machine is matched to your projects by Compose project or folder name, so a project's page shows the servers it runs on, and their ports and containers link back to it. A machine that stops answering, or runs out of disk or memory, shows up under "needs you" whichever machine you're looking at. See [Other machines](#other-machines).
 
 
-Press `/` (or ⌘K / Ctrl+K) anywhere to search projects, processes, ports, and containers. **Arrange** chooses which modules sit on the home panel, separately for each machine.
+Press `/` (or ⌘K / Ctrl+K) anywhere to search projects, processes, ports, and containers. **Arrange** chooses which modules sit on the side panel. Home shows your work first, then every machine.
 
 ## Run it with Docker (recommended)
 
@@ -38,6 +40,8 @@ MARUMADO_PROJECT_DIRS=/projects,/home/me/code   # scanned
 MARUMADO_MOUNTS=/home/me                        # visible only, so folders inside can be added in the app
 ```
 
+Leave `MARUMADO_PROJECT_DIRS` unset to use `/projects` only where it exists, or set it empty on a machine with no projects. Folders that don't exist are left out of the mounts.
+
 After changing them, run `make up` (or `make restart`).
 
 ### Access token
@@ -55,7 +59,7 @@ In `.env`, set `MARUMADO_BIND=0.0.0.0`, then run `make up`. Everyone who opens i
 
 ### Other machines
 
-1. Run Marumado on the other machine too (`make up`), leaving `MARUMADO_BIND` at 127.0.0.1. Note its access token (`make access-token` there).
+1. Run Marumado on the other machine too (`make up`), leaving `MARUMADO_BIND` at 127.0.0.1. Note its access token (`make access-token` there). It needs no projects of its own: they stay on the Marumado you open.
 2. Make sure `ssh you@that-machine` works from this one with key login and no password prompt, and connect once by hand to trust its host key.
 3. If this Marumado runs in Docker, set `MARUMADO_SSH_DIR=~/.ssh` in `.env` and run `make up`, so the container gets your SSH keys and config. Changes you make to them on the host are picked up on the next connection.
 4. In the app: **Machines → Add machine**, with the SSH target (`you@host`, `ssh://you@host:2222` for a non-standard SSH port, or a `~/.ssh/config` alias), its Marumado port, and its access token.

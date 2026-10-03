@@ -53,6 +53,9 @@ function SourcesPage() {
           </li>
         </ul>
         <p className="sheet__lede">
+          Machines you added under Machines need nothing here: when their Marumado sees a Herdr, their agents show up on their own.
+        </p>
+        <p className="sheet__lede">
           The source in .env (<span className="mono">MARUMADO_HERDR_*</span>) stays listed first. It is left out when it points nowhere and Herdr isn&rsquo;t installed
           on this machine.
         </p>
@@ -84,6 +87,10 @@ function SourcesList() {
               <span className="row__meta" title="Set with MARUMADO_HERDR_* in .env">
                 from .env
               </span>
+            ) : s.kind === 'machine' ? (
+              <a className="row__meta" href="#/m/machines" title="A machine in Machines whose Marumado sees a Herdr: added on its own">
+                from Machines
+              </a>
             ) : (
               <a className="btn btn--quiet" href={`#/m/agents/sources/edit/${s.id}`} aria-label={`Edit ${s.name}`}>
                 Edit

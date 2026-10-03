@@ -17,14 +17,21 @@ export type MachineId = 'local' | number
 
 let machine: MachineId = 'local'
 
-/** Which machine the API answers for. Other machines are reached through this Marumado (`/api/machines/<id>/…`). */
+/** Which machine the machine modules (Machine, Processes, Ports, Docker) answer for. Other machines are reached
+    through this Marumado (`/api/machines/<id>/…`). */
 export function setApiMachine(id: MachineId) {
   machine = id
 }
 
-/** `path` as seen from the chosen machine. The list of machines and the login always belong to this Marumado. */
+/** What a machine has, as opposed to what you have: these follow the machine picker. Everything else (projects,
+    tasks, agents, skills, URLs, the login, the list of machines) belongs to this Marumado, the hub you opened. */
+const MACHINE_PATHS = ['system', 'processes', 'ports', 'docker']
+
+export const followsMachine = (path: string) => MACHINE_PATHS.some((p) => path === p || path.startsWith(`${p}/`) || path.startsWith(`${p}?`))
+
+/** `path` as seen from the chosen machine, for the machine paths; as this Marumado's for the rest. */
 export function apiPath(path: string): string {
-  return machine === 'local' || path === 'auth' || path === 'machines' || path.startsWith('machines/') || path.startsWith('machines?') ? path : `machines/${machine}/${path}`
+  return machine === 'local' || !followsMachine(path) ? path : `machines/${machine}/${path}`
 }
 
 export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {

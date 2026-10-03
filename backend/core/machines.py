@@ -337,6 +337,11 @@ def get(machine_id: int) -> Tunnel | None:
         return _tunnels.get(machine_id)
 
 
+def tunnels() -> list[Tunnel]:
+    with _lock:
+        return sorted(_tunnels.values(), key=lambda t: t.name.lower())
+
+
 def statuses() -> list[dict]:
     with _lock:
         tunnels = sorted(_tunnels.values(), key=lambda t: t.name.lower())
