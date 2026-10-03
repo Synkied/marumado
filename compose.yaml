@@ -19,7 +19,6 @@ services:
       MARUMADO_TOKEN: ${MARUMADO_TOKEN:-}
       MARUMADO_SECRET_KEY: ${MARUMADO_SECRET_KEY:-change-me-in-dot-env}
       MARUMADO_ALLOWED_HOSTS: "*"
-      MARUMADO_PROJECT_ROOTS: ${MARUMADO_PROJECT_DIRS:-/projects}
       MARUMADO_OPEN_URL: ${MARUMADO_OPEN_URL:-}
       MARUMADO_HERDR_SMOLVM: ${MARUMADO_HERDR_SMOLVM:-}
       MARUMADO_HERDR_EXEC: ${MARUMADO_HERDR_EXEC:-}
@@ -30,7 +29,8 @@ services:
       MARUMADO_HERDR_TERMINAL: ${MARUMADO_HERDR_TERMINAL:-control}
     volumes:
       # Project folders are mounted read-only by compose.override.yaml, which
-      # `make up` generates from MARUMADO_PROJECT_DIRS and MARUMADO_MOUNTS in .env.
+      # `make up` generates from MARUMADO_PROJECT_DIRS and MARUMADO_MOUNTS in .env
+      # (it also sets MARUMADO_PROJECT_DIRS: a machine may have no projects at all).
       - /var/run/docker.sock:/var/run/docker.sock
       - marumado-data:/app/backend/data
 

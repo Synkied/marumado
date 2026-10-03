@@ -246,6 +246,9 @@ def roots() -> list[dict]:
     out, seen = [], set()
     for p in settings.MARUMADO_PROJECT_ROOTS:
         path = normalize(str(p))
+        # The default folder only counts where it exists: most machines (servers) have no projects of their own.
+        if getattr(settings, 'MARUMADO_PROJECT_ROOTS_DEFAULT', False) and not Path(path).is_dir():
+            continue
         if path not in seen:
             seen.add(path)
             out.append({'id': None, 'path': path, 'source': 'env'})

@@ -141,9 +141,12 @@ REST_FRAMEWORK = {
 
 # --- Marumado ---
 # Folders whose subfolders are projects, separated by commas (or colons). More can be added in the app.
+# Unset: /projects, only when this machine has it. Set empty: none (a server with no projects of its own).
+_project_dirs = os.environ.get('MARUMADO_PROJECT_DIRS', os.environ.get('MARUMADO_PROJECT_ROOTS'))
+MARUMADO_PROJECT_ROOTS_DEFAULT = _project_dirs is None
 MARUMADO_PROJECT_ROOTS = [
     Path(p.strip()).expanduser()
-    for p in re.split(r'[,:]', env('PROJECT_DIRS') or env('PROJECT_ROOTS', '/projects')) if p.strip()
+    for p in re.split(r'[,:]', '/projects' if _project_dirs is None else _project_dirs) if p.strip()
 ]
 # The access token, always required (see core/auth.py). When unset, one is made on first run and kept in
 # data/access-token. Browsers log in with it once; other Marumados send `Authorization: Bearer <token>`.
