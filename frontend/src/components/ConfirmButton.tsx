@@ -7,12 +7,15 @@ export function ConfirmButton({
   confirmLabel,
   className = 'btn btn--quiet',
   disabled,
+  title,
 }: {
   onConfirm: () => void | Promise<void>
   children: ReactNode
   confirmLabel: string
   className?: string
   disabled?: boolean
+  /** what the action does, on hover */
+  title?: string
 }) {
   const [armed, setArmed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -25,6 +28,7 @@ export function ConfirmButton({
     <button
       type="button"
       className={`${className}${armed ? ' btn--armed' : ''}`}
+      title={title}
       disabled={disabled || busy}
       onClick={async () => {
         if (!armed) return setArmed(true)

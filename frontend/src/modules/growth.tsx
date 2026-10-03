@@ -183,7 +183,7 @@ export function FocusActions({ p, onArchived }: { p: Project; onArchived?: () =>
           {p.focus === 'push' ? 'Unpush' : 'Unpark'}
         </button>
       )}
-      <ConfirmButton className="chip" confirmLabel="Confirm archive" onConfirm={() => save({ hidden: true })} disabled={busy}>
+      <ConfirmButton className="chip" confirmLabel="Confirm archive (Projects → Archived restores it)" onConfirm={() => save({ hidden: true })} disabled={busy}>
         Archive
       </ConfirmButton>
     </>

@@ -10,9 +10,9 @@ import { commits, pace, PACE_LABEL } from '../lib/growth'
 import { useHub } from '../lib/hub'
 import { useMachines } from '../lib/machines'
 import { go } from '../lib/route'
-import type { Project, ScanRoot, Task, TaskState } from '../lib/types'
-import { activity, atWork, openTasks, projectAgents, runsAnywhere, whereRunning, workLine } from '../lib/work'
-import { FocusActions, useView, ViewSwitch, WeekBars } from './growth'
+import type { Agent, Project, ScanRoot, Task, TaskState } from '../lib/types'
+import { activity, openTasks, projectAgents, runsAnywhere, whereRunning, workLine, type Activity } from '../lib/work'
+import { useView, ViewSwitch } from './growth'
 import { Secret } from '../lib/streaming'
 import { FilesView } from './files'
 import { SheetHead } from './sheetHead'
@@ -76,6 +76,7 @@ export function ProjectsSheet({ sub }: { sub?: string }) {
   const work = (p: Project) => workLine(activity(p, tasks, agents))
 
   if (sub === 'folders') return <FoldersSheet />
+  if (sub === 'archived') return <ArchivedSheet />
   if (sub === 'new') return <ProjectForm onDone={(id) => go(id ? `#/m/projects/${id}` : '#/m/projects')} />
   if (sub) {
     const [id, mode, ...rest] = sub.split('/')
@@ -103,6 +104,9 @@ export function ProjectsSheet({ sub }: { sub?: string }) {
         <ViewSwitch value={view} views={[['grid', 'Grid'], ['list', 'List']]} onChange={setView} />
         <a className="btn btn--quiet" href="#/m/projects/folders">
           <Icon name="folder" size={16} /> Folders
+        </a>
+        <a className="btn btn--quiet" href="#/m/projects/archived">
+          Archived
         </a>
         <button className="btn btn--quiet" type="button" onClick={scan} disabled={scanning}>
           <Icon name="refresh" size={16} /> {scanning ? 'Scanning' : 'Rescan'}
@@ -164,28 +168,37 @@ export function ProjectsSheet({ sub }: { sub?: string }) {
   )
 }
 
+/** The project's state in one line: where it runs, how it moves, the owner's call, and what needs you. */
+function statusLine(p: Project, work: Activity): { text: string; fault: boolean } {
+  if (p.kind === 'link') return { text: 'Link', fault: false }
+  // What needs you first, then what is happening, then the record; "not running" only when nothing else is said.
+  const state = pace(p)
+  const live = p.status.online.latest
+  const down = !!p.online_url && !!live && !live.ok
+  const parts = [
+    down ? 'Live site down' : '',
+    work.blocked ? `${work.blocked} need${work.blocked === 1 ? 's' : ''} you` : '',
+    work.working ? (work.working === 1 ? 'Agent working' : `${work.working} agents working`) : '',
+    whereRunning(p) || (p.detected.missing ? 'Folder missing' : ''),
+    state === 'none' ? '' : PACE_LABEL[state],
+    p.focus === 'push' ? 'Pushed' : p.focus === 'park' ? 'Parked' : '',
+  ].filter(Boolean)
+  return { text: parts.join(' · ') || 'Not running', fault: work.blocked > 0 || down }
+}
+
 function ProjectDetail({ p, next }: { p: Project; next?: boolean }) {
   const { refreshProjects, tasks, agents } = useHub()
-  const [checking, setChecking] = useState(false)
-  const local = p.local_url || p.suggested_local_url
-  const check = async () => {
-    setChecking(true)
-    try {
-      await api(`projects/${p.id}/check`, { method: 'POST' })
-      refreshProjects()
-    } finally {
-      setChecking(false)
-    }
-  }
   const isLink = p.kind === 'link'
   const home = isLink ? '#/m/urls' : '#/m/projects'
+  const work = activity(p, tasks, agents)
+  const status = statusLine(p, work)
   const remove = async () => {
     await api(`projects/${p.id}`, { method: 'DELETE' })
     refreshProjects()
     go(home)
   }
-  const copyPath = () => navigator.clipboard?.writeText(p.path).catch(() => {})
-  const where = whereRunning(p)
+  // A scanned project is archived (restorable, and a rescan won't bring it back); one added by hand is deleted.
+  const archives = p.source === 'scan'
 
   return (
     <div className="sheet">
@@ -194,7 +207,7 @@ function ProjectDetail({ p, next }: { p: Project; next?: boolean }) {
       </a>
       <header className="sheet__head">
         <div style={{ minWidth: 0 }}>
-          <span className="sheet__index">{isLink ? 'LINK' : where ? where.toUpperCase() : p.detected.missing ? 'FOLDER MISSING' : 'IDLE'}</span>
+          <span className={`sheet__index${status.fault ? ' sheet__index--fault' : ''}`}>{status.text}</span>
           <h2 className="sheet__title" style={{ textTransform: 'none' }}>
             {p.name}
           </h2>
@@ -208,147 +221,279 @@ function ProjectDetail({ p, next }: { p: Project; next?: boolean }) {
           <a className="btn btn--quiet" href={`#/m/projects/${p.id}/edit`}>
             <Icon name="edit" size={16} /> Edit
           </a>
+          <ConfirmButton onConfirm={remove} confirmLabel={archives ? 'Confirm archive' : 'Confirm delete'} title={archives ? 'Archive: out of every list until you restore it from Projects → Archived' : undefined}>
+            {archives ? 'Archive' : 'Delete'}
+          </ConfirmButton>
         </div>
       </header>
-      {p.description && <p className="sheet__lede">{p.description}</p>}
 
-      <ul className="list">
-        {local && (
-          <li className="row">
-            <Icon name="terminal" size={20} />
-            <span className="row__main">
-              {hostOf(local)}
-              <span className="row__sub">{p.local_url ? 'Local' : 'Local · detected from a listening port'}</span>
-            </span>
-            <a className="go" href={local} target="_blank" rel="noreferrer" aria-label="Open local URL">
-              <Icon name="arrow" size={20} />
-            </a>
-          </li>
-        )}
-        {p.online_url && (
-          <li className="row">
-            <Icon name="globe" size={20} />
-            <span className="row__main">
-              {hostOf(p.online_url)}
-              <span className="row__sub">Live</span>
-            </span>
-            <a className="go" href={p.online_url} target="_blank" rel="noreferrer" aria-label="Open live site">
-              <Icon name="arrow" size={20} />
-            </a>
-          </li>
-        )}
-        {p.repo_url && (
-          <li className="row">
-            <Icon name="repo" size={20} />
-            <span className="row__main">
-              {hostOf(p.repo_url)}
-              <span className="row__sub">Repository</span>
-            </span>
-            <a className="go" href={p.repo_url} target="_blank" rel="noreferrer" aria-label="Open repository">
-              <Icon name="arrow" size={20} />
-            </a>
-          </li>
-        )}
-        {!local && !p.online_url && !p.repo_url && !p.path && (
-          <li className="sheet__empty">No links yet. Edit the project to add its URLs.</li>
-        )}
-      </ul>
-
-      {!isLink && <Places p={p} onCopy={copyPath} />}
-      {!isLink && <Work p={p} focusNew={next} />}
-      {!isLink && <Direction p={p} open={openTasks(p, tasks).length} working={atWork(activity(p, tasks, agents))} onArchived={() => go(home)} />}
-      {!isLink && <ProjectSkills p={p} />}
-
-      {(['online', 'local'] as const).map((t) =>
-        p.status[t].latency.length && p.status[t].uptime_percent ? (
-          <section className="sheet__section" key={t}>
-            <h3>
-              {t === 'online' ? 'Live' : 'Local'} response time · {p.status[t].uptime_percent}% up
-            </h3>
-            <DotChart values={p.status[t].latency} tone={p.status[t].latest?.ok === false ? 'signal' : 'ink'} label={`${t} latency`} unit=" ms" span={`${p.status[t].latency.length} min`} />
-          </section>
-        ) : null,
+      {(p.description || p.local_url || p.suggested_local_url || p.online_url || p.repo_url || p.path) && (
+        <div className="project__intro">
+          {p.description && <p className="sheet__lede">{p.description}</p>}
+          <Links p={p} />
+        </div>
       )}
 
-      {!isLink && (p.detected.branch || p.detected.last_commit || p.tags.length > 0) && (
-        <section className="sheet__section">
-          <h3>Details</h3>
-          <dl className="facts">
-            {p.detected.branch && (
-              <>
-                <dt>Branch</dt>
-                <dd>
-                  {p.detected.branch}
-                  {p.detected.dirty_files ? ` · ${p.detected.dirty_files} changed files` : ' · clean'}
-                </dd>
-              </>
-            )}
-            {p.detected.last_commit && (
-              <>
-                <dt>Last commit</dt>
-                <dd>
-                  {p.detected.last_commit} · {ago(p.detected.last_commit_at)}
-                </dd>
-              </>
-            )}
-            {p.tags.length > 0 && (
-              <>
-                <dt>Tags</dt>
-                <dd>{p.tags.join(', ')}</dd>
-              </>
-            )}
-          </dl>
-        </section>
-      )}
-
-      <div className="sheet__actions" style={{ justifyContent: 'start' }}>
-        {(p.local_url || p.online_url) && (
-          <button className="btn btn--quiet" type="button" onClick={check} disabled={checking}>
-            <Icon name="refresh" size={16} /> {checking ? 'Checking' : 'Check URLs now'}
-          </button>
-        )}
-        <ConfirmButton onConfirm={remove} confirmLabel={p.source === 'scan' ? 'Confirm hide' : 'Confirm delete'}>
-          {p.source === 'scan' ? 'Hide project' : isLink ? 'Delete URL' : 'Delete project'}
-        </ConfirmButton>
+      <div className="project">
+        <div className="project__grid">
+          <div className="project__main">
+            {!isLink && <Work p={p} focusNew={next} />}
+            {!isLink && <Direction p={p} open={work.open} />}
+            {isLink && <Response p={p} />}
+          </div>
+          {!isLink && (
+            <aside className="project__aside" aria-label={`About ${p.name}`}>
+              <Places p={p} />
+              <Response p={p} />
+              <ProjectSkills p={p} />
+            </aside>
+          )}
+        </div>
       </div>
+
     </div>
   )
 }
 
-/** Where the project lives and runs: its folder here, and every machine whose Marumado reports it. */
-function Places({ p, onCopy }: { p: Project; onCopy: () => void }) {
+type WorkItem =
+  | { kind: 'task'; key: string; rank: number; task: Task }
+  | { kind: 'agent'; key: string; rank: number; agent: Agent }
+
+const TASK_RANK: Record<TaskState, number> = { blocked: 0, failed: 0, working: 1, starting: 1, review: 2, todo: 3, done: 4 }
+const AGENT_RANK: Record<Agent['status'], number> = { blocked: 0, working: 1, done: 2, idle: 3, unknown: 3 }
+
+/** Everything being done on the project, most urgent first: tasks and the agents in its folder in one list, the
+    next task typed into its last line. */
+function Work({ p, focusNew }: { p: Project; focusNew?: boolean }) {
+  const { tasks, agents, refreshTasks } = useHub()
+  const [title, setTitle] = useState('')
+  const [error, setError] = useState('')
+  const [adding, setAdding] = useState(false)
+  const open = openTasks(p, tasks)
+  const followed = new Set(open.filter((t) => t.live && t.pane_id).map((t) => `${t.agent_source}/${t.pane_id}`))
+  // An agent already shown through its task isn't listed twice.
+  const loose = projectAgents(p, agents).filter((a) => !followed.has(agentKey(a)))
+  const items: WorkItem[] = [
+    ...open.map((t): WorkItem => ({ kind: 'task', key: `t${t.id}`, rank: TASK_RANK[t.state], task: t })),
+    ...loose.map((a): WorkItem => ({ kind: 'agent', key: `a${agentKey(a)}`, rank: AGENT_RANK[a.status] + 0.5, agent: a })),
+  ].sort((a, b) => a.rank - b.rank)
+  const done = (tasks ?? []).filter((t) => t.project === p.id && t.state === 'done').length
+  const add = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!title.trim()) return
+    setAdding(true)
+    setError('')
+    try {
+      await api<Task>('tasks', { method: 'POST', json: { title, project: p.id } })
+      refreshTasks()
+      setTitle('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't add it.")
+    } finally {
+      setAdding(false)
+    }
+  }
+  const count = [open.length ? `${open.length} open` : '', loose.length ? `${loose.length} agent${loose.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')
+  return (
+    <section className="sheet__section mod-tasks" aria-labelledby="work-title">
+      <h3 id="work-title">Work{count && ` · ${count}`}</h3>
+      {p.focus === 'push' && !open.length && <p className="notice">Marked push, with nothing to do next. Write the next step below.</p>}
+      <ul className="list">
+        {items.map((it) =>
+          it.kind === 'task' ? (
+            <li className="row" key={it.key}>
+              <span className={taskLamp(it.task.state)} role="img" aria-label={TASK_STATE[it.task.state]} />
+              <a className="row__main row__link" href={`#/m/tasks/${it.task.id}`}>
+                {it.task.title}
+                <span className={`row__sub${it.task.state === 'blocked' || it.task.state === 'failed' ? ' signal-text' : ''}`}>
+                  {TASK_STATE[it.task.state]}
+                  {it.task.live && it.task.agent_kind ? ` · ${it.task.agent_name || it.task.agent_kind}` : ''}
+                  {it.task.live && it.task.agent_title && it.task.state === 'working' ? `: ${it.task.agent_title}` : ''}
+                </span>
+              </a>
+            </li>
+          ) : (
+            <li className="row" key={it.key}>
+              <span className={`row__lamp${it.agent.status === 'blocked' ? ' row__lamp--fault' : it.agent.status === 'working' ? ' row__lamp--on' : ''}`} role="img" aria-label={it.agent.status} />
+              <a className="row__main row__link" href={agentHref(it.agent)}>
+                {it.agent.title && it.agent.title !== it.agent.kind ? it.agent.title : it.agent.name || it.agent.kind}
+                <span className={`row__sub${it.agent.status === 'blocked' ? ' signal-text' : ''}`}>
+                  {it.agent.status === 'blocked' ? 'Needs you' : it.agent.status === 'working' ? 'Working' : 'Resting'} · {it.agent.kind}
+                  {sourceLabel(agents, it.agent) ? ` on ${sourceLabel(agents, it.agent)}` : ''} · no task yet
+                </span>
+              </a>
+            </li>
+          ),
+        )}
+        <li className="row work__add">
+          <form className="work__form" onSubmit={add}>
+            <Icon name="plus" size={18} />
+            <label className="sr-only" htmlFor={`next-${p.id}`}>
+              Next task
+            </label>
+            <input
+              id={`next-${p.id}`}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={items.length ? 'Add the next task' : 'Nothing open. What is the next step?'}
+              maxLength={200}
+              autoFocus={focusNew}
+            />
+            {title.trim() && (
+              <button className="btn" type="submit" disabled={adding}>
+                {adding ? 'Adding' : 'Add'}
+              </button>
+            )}
+          </form>
+        </li>
+      </ul>
+      {error && <p className="notice signal-text">{error}</p>}
+      {done > 0 && (
+        <a className="work__done" href="#/m/tasks">
+          {done} done
+        </a>
+      )}
+    </section>
+  )
+}
+
+const FOCUS: { value: Project['focus']; label: string; says: string }[] = [
+  { value: 'push', label: 'Push', says: 'It matters now: flagged if it goes 14 days without a commit or an agent on it.' },
+  { value: '', label: 'Undecided', says: 'No call made yet.' },
+  { value: 'park', label: 'Park', says: 'It can wait: no alerts, and open tasks stay put until you push it again.' },
+]
+
+/** Where the project is going: the owner's call, and its last 12 weeks of commits as the record under it. */
+function Direction({ p, open }: { p: Project; open: number }) {
+  const { refreshProjects } = useHub()
+  const [busy, setBusy] = useState(false)
+  const set = async (focus: Project['focus']) => {
+    setBusy(true)
+    try {
+      await api(`projects/${p.id}`, { method: 'PATCH', json: { focus } })
+      refreshProjects()
+    } finally {
+      setBusy(false)
+    }
+  }
+  const state = pace(p)
+  const total = commits(p.detected.weekly_commits)
+  const current = FOCUS.find((f) => f.value === p.focus) ?? FOCUS[1]
+  return (
+    <section className="sheet__section mod-momentum" aria-labelledby="direction-title">
+      <h3 id="direction-title">Direction</h3>
+      <div className="direction__call">
+        <div className="seg seg--mod" role="group" aria-label="Where this project is going">
+          {FOCUS.map((f) => (
+            <button key={f.label} type="button" className="seg__btn" aria-pressed={p.focus === f.value} disabled={busy} onClick={() => set(f.value)}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <p className="direction__says">
+          {current.says}
+          {p.focus === 'park' && open > 0 ? ` ${open} open ${open === 1 ? 'task waits' : 'tasks wait'}.` : ''}
+        </p>
+      </div>
+      {state !== 'none' && !p.detected.missing ? (
+        <div className="direction__record">
+          <RecordStrip weeks={p.detected.weekly_commits ?? []} label={p.name} />
+          <dl className="facts">
+            <dt>Pace</dt>
+            <dd>
+              {PACE_LABEL[state]} · {total} {total === 1 ? 'commit' : 'commits'} in 12 weeks
+            </dd>
+            {p.detected.last_commit && (
+              <>
+                <dt>Last commit</dt>
+                <dd className="mono">
+                  {p.detected.last_commit} · {ago(p.detected.last_commit_at)}
+                </dd>
+              </>
+            )}
+            {p.detected.branch && (
+              <>
+                <dt>Branch</dt>
+                <dd className="mono">
+                  {p.detected.branch}
+                  {p.detected.dirty_files ? ` · ${p.detected.dirty_files} uncommitted` : ' · clean'}
+                </dd>
+              </>
+            )}
+          </dl>
+        </div>
+      ) : (
+        <p className="sheet__lede">{p.detected.missing ? 'Its folder is missing, so there is no record to read.' : 'No git history, so its pace can’t be read.'}</p>
+      )}
+    </section>
+  )
+}
+
+/** Twelve weeks of commits as a strip chart: one bar per week (square root, so one big week doesn't flatten the
+    rest), a hairline where a week had none. */
+function RecordStrip({ weeks, label }: { weeks: number[]; label: string }) {
+  const n = 12
+  const values = Array.from({ length: n }, (_, i) => weeks[weeks.length - n + i] ?? 0)
+  const top = Math.max(1, ...values)
+  const total = commits(values)
+  const W = 120
+  const H = 48
+  const slot = W / n
+  return (
+    <div className="strip">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`${label}: ${total} ${total === 1 ? 'commit' : 'commits'} in the last 12 weeks`}>
+        <line className="strip__rule" x1={0} x2={W} y1={H - 0.5} y2={H - 0.5} />
+        {values.map((v, i) => {
+          const h = v ? 4 + Math.sqrt(v / top) * (H - 6) : 1.5
+          const ago = n - 1 - i
+          return (
+            <rect key={i} className={v ? 'strip__bar' : 'strip__none'} x={i * slot + slot * 0.2} y={H - h} width={slot * 0.6} height={h}>
+              <title>{`${v} ${v === 1 ? 'commit' : 'commits'}, ${ago ? `${ago} week${ago === 1 ? '' : 's'} ago` : 'this week'}`}</title>
+            </rect>
+          )
+        })}
+      </svg>
+      <span className="strip__axis" aria-hidden="true">
+        <span>−12 wk</span>
+        <span>now</span>
+      </span>
+    </div>
+  )
+}
+
+/** Where the project is: its folder here, and every machine whose Marumado reports it running. */
+function Places({ p }: { p: Project }) {
   const { select } = useMachines()
   const local = p.runtime.ports.length > 0 || p.runtime.containers.length > 0
   const elsewhere = p.places ?? []
-  if (!p.path && !local && !elsewhere.length) return null
   // A machine's containers live in its Docker module: show that machine, then open it.
   const openOn = (machine: MachineId, module: string) => {
     select(machine)
     go(`#/m/${module}`)
   }
-  const running = (ports: number[], containers: { status: string }[]) => {
+  const what = (ports: number[], containers: { status: string }[]) => {
     const up = containers.filter((c) => c.status === 'running').length
-    return [ports.length ? ports.map((x) => `:${x}`).join(' ') : '', containers.length ? `${up} of ${containers.length} containers running` : '']
-      .filter(Boolean)
-      .join(' · ')
+    return [ports.length ? ports.map((x) => `:${x}`).join(' ') : '', containers.length ? `${up}/${containers.length} containers` : ''].filter(Boolean).join(' · ')
   }
+  const copy = () => navigator.clipboard?.writeText(p.path).catch(() => {})
   return (
-    <section className="sheet__section">
-      <h3>Where it is</h3>
-      <ul className="list">
+    <section className="sheet__section mod-machines" aria-labelledby="places-title">
+      <h3 id="places-title">Where it runs</h3>
+      <ul className="list list--compact">
         {(p.path || local) && (
           <li className="row">
             <span className={`row__lamp${p.running ? ' row__lamp--on' : ''}`} role="img" aria-label={p.running ? 'running' : 'not running'} />
             <span className="row__main">
               This machine
-              <span className="row__sub">
-                {p.path ? <Secret label="Path">{p.path}</Secret> : 'No folder'}
-                {local ? ` · ${running(p.runtime.ports.map((x) => x.port), p.runtime.containers)}` : p.detected.missing ? ' · folder missing' : ' · not running'}
-              </span>
+              <span className="row__sub">{local ? what(p.runtime.ports.map((x) => x.port), p.runtime.containers) : p.detected.missing ? 'Folder missing' : 'Not running'}</span>
+              {p.path && (
+                <span className="row__sub mono">
+                  <Secret label="Path">{p.path}</Secret>
+                </span>
+              )}
             </span>
-            {p.path && !p.detected.missing && <OpenFolder path={p.path} />}
             {p.path && (
-              <button className="go" type="button" onClick={onCopy} aria-label="Copy folder path">
+              <button className="go" type="button" onClick={copy} aria-label="Copy folder path" title="Copy folder path">
                 <Icon name="copy" size={18} />
               </button>
             )}
@@ -364,10 +509,8 @@ function Places({ p, onCopy }: { p: Project; onCopy: () => void }) {
             <span className={`row__lamp${x.running ? ' row__lamp--on' : ''}`} role="img" aria-label={x.running ? 'running' : 'not running'} />
             <span className="row__main">
               {x.machine_name}
-              <span className="row__sub">
-                {x.dir ? <Secret label="Path">{x.dir}</Secret> : `Compose project ${x.compose}`}
-                {` · ${running(x.ports, x.containers) || 'not running'}`}
-              </span>
+              <span className="row__sub">{what(x.ports, x.containers) || 'Not running'}</span>
+              <span className="row__sub mono">{x.dir ? <Secret label="Path">{x.dir}</Secret> : `compose ${x.compose}`}</span>
             </span>
             <button className="go" type="button" onClick={() => openOn(x.machine, x.containers.length ? 'docker' : 'ports')} aria-label={`Show what runs on ${x.machine_name}`}>
               <Icon name="arrow" size={20} />
@@ -376,110 +519,45 @@ function Places({ p, onCopy }: { p: Project; onCopy: () => void }) {
         ))}
       </ul>
       {!elsewhere.length && (
-        <p className="sheet__lede">Running it on another machine? Add that machine under <a href="#/m/machines">Machines</a>: its containers and folders named like this project show up here.</p>
+        <p className="project__hint">
+          Runs on a server too? Add it under <a href="#/m/machines">Machines</a> and its containers named like this project show up here.
+        </p>
       )}
     </section>
   )
 }
 
-/** What is being done on the project: its open tasks and the agents in its folder, and a line to add the next task. */
-function Work({ p, focusNew }: { p: Project; focusNew?: boolean }) {
-  const { tasks, agents, refreshTasks } = useHub()
-  const [title, setTitle] = useState('')
-  const [error, setError] = useState('')
-  const open = openTasks(p, tasks)
-  const live = new Set(open.filter((t) => t.pane_id).map((t) => `${t.agent_source}/${t.pane_id}`))
-  // Agents already shown through their task aren't listed twice.
-  const loose = projectAgents(p, agents).filter((a) => !live.has(agentKey(a)))
-  const done = (tasks ?? []).filter((t) => t.project === p.id && t.state === 'done').length
-  const add = async (e: FormEvent) => {
-    e.preventDefault()
-    setError('')
+/** Is it up: the live (then local) URL's response time over its last checks. */
+function Response({ p }: { p: Project }) {
+  const { refreshProjects } = useHub()
+  const [checking, setChecking] = useState(false)
+  const shown = (['online', 'local'] as const).filter((t) => p.status[t].latency.length && p.status[t].uptime_percent != null)
+  if (!p.online_url && !p.local_url) return null
+  const check = async () => {
+    setChecking(true)
     try {
-      await api<Task>('tasks', { method: 'POST', json: { title, project: p.id } })
-      refreshTasks()
-      setTitle('')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't add it.")
+      await api(`projects/${p.id}/check`, { method: 'POST' })
+      refreshProjects()
+    } finally {
+      setChecking(false)
     }
   }
   return (
-    <section className="sheet__section mod-tasks">
-      <h3>
-        Work · {open.length ? `${open.length} open` : 'nothing open'}
-        {done > 0 && ` · ${done} done`}
-      </h3>
-      {(open.length > 0 || loose.length > 0) && (
-        <ul className="list">
-          {open.map((t) => (
-            <li className="row" key={`t${t.id}`}>
-              <span className={taskLamp(t.state)} role="img" aria-label={TASK_STATE[t.state]} />
-              <a className="row__main row__link" href={`#/m/tasks/${t.id}`}>
-                {t.title}
-                <span className={`row__sub${t.state === 'blocked' || t.state === 'failed' ? ' signal-text' : ''}`}>
-                  {TASK_STATE[t.state]}
-                  {t.agent_kind && t.live ? ` · ${t.agent_name || t.agent_kind}` : ''}
-                </span>
-              </a>
-            </li>
-          ))}
-          {loose.map((a) => (
-            <li className="row" key={`a${agentKey(a)}`}>
-              <span className={`row__lamp${a.status === 'blocked' ? ' row__lamp--fault' : a.status === 'working' ? ' row__lamp--on' : ''}`} role="img" aria-label={a.status} />
-              <a className="row__main row__link" href={agentHref(a)}>
-                {a.title && a.title !== a.kind ? a.title : a.name || a.kind}
-                <span className={`row__sub${a.status === 'blocked' ? ' signal-text' : ''}`}>
-                  {a.kind} · {a.status === 'blocked' ? 'needs you' : a.status}
-                  {sourceLabel(agents, a) ? ` · on ${sourceLabel(agents, a)}` : ''} · no task
-                </span>
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
-      {p.focus === 'push' && !open.length && <p className="notice">Marked push, with nothing to do next. What is the next step?</p>}
-      {p.focus === 'park' && open.length > 0 && (
-        <p className="sheet__lede">
-          Parked, with {open.length} open {open.length === 1 ? 'task' : 'tasks'}: they wait here until you push it again.
-        </p>
-      )}
-      <form className="addline" onSubmit={add}>
-        <label className="field">
-          Next task
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What needs doing in this project" required maxLength={200} autoFocus={focusNew} />
-        </label>
-        <button className="btn" type="submit" disabled={!title.trim()}>
-          <Icon name="plus" size={16} /> Add
-        </button>
-      </form>
-      {error && <p className="notice signal-text">{error}</p>}
-    </section>
-  )
-}
-
-/** Where the project is going: its last 12 weeks, and push, park or archive. */
-function Direction({ p, open, working, onArchived }: { p: Project; open: number; working: boolean; onArchived: () => void }) {
-  if (p.detected.missing) return null
-  const state = pace(p)
-  const total = commits(p.detected.weekly_commits)
-  const bits = [
-    state === 'none' ? 'No git history' : `${PACE_LABEL[state]} · ${total} ${total === 1 ? 'commit' : 'commits'} in 12 weeks`,
-    working ? 'an agent is at work on it' : '',
-    p.focus === 'push' ? 'marked push' : p.focus === 'park' ? 'parked' : open ? '' : 'no decision yet',
-  ].filter(Boolean)
-  return (
-    <section className="sheet__section mod-momentum">
-      <h3>Direction</h3>
-      <div className="direction">
-        <p className="direction__line">
-          {bits.join(' · ')}
-          <span className="row__sub">Push what matters now, park what can wait, archive what is done.</span>
-        </p>
-        {state !== 'none' && <WeekBars weeks={p.detected.weekly_commits ?? []} label={p.name} />}
-      </div>
-      <div className="chips">
-        <FocusActions p={p} onArchived={onArchived} />
-      </div>
+    <section className="sheet__section mod-urls" aria-labelledby="response-title">
+      <h3 id="response-title">Response</h3>
+      {shown.map((t) => (
+        <div className="response" key={t}>
+          <p className="response__head">
+            {t === 'online' ? 'Live' : 'Local'} <span className="mono">{hostOf(t === 'online' ? p.online_url : p.local_url)}</span>
+            <span className="mono">{p.status[t].uptime_percent}% up</span>
+          </p>
+          <DotChart values={p.status[t].latency} tone={p.status[t].latest?.ok === false ? 'signal' : 'ink'} height={56} label={`${t} latency`} unit=" ms" span={`${p.status[t].latency.length} min`} />
+        </div>
+      ))}
+      {!shown.length && <p className="project__hint">Checked every minute; the first results show up here shortly.</p>}
+      <button className="btn btn--quiet" type="button" onClick={check} disabled={checking} style={{ justifySelf: 'start' }}>
+        <Icon name="refresh" size={16} /> {checking ? 'Checking' : 'Check now'}
+      </button>
     </section>
   )
 }
@@ -487,21 +565,19 @@ function Direction({ p, open, working, onArchived }: { p: Project; open: number;
 /** The skills the project uses, each opening its page (where its plan and other projects are). */
 function ProjectSkills({ p }: { p: Project }) {
   const { skills } = useHub()
-  const names = [...new Set([...(p.detected.stacks ?? []), ...(p.detected.libs ?? [])])]
-  if (!names.length) return null
   const intent = (n: string) => skills?.find((s) => s.name.toLowerCase() === n.toLowerCase())?.intent
+  const names = [...new Set([...(p.detected.stacks ?? []), ...(p.detected.libs ?? [])])].filter((n) => intent(n) !== 'ignore')
+  if (!names.length) return null
   return (
-    <section className="sheet__section mod-skills">
-      <h3>Skills it uses · {names.length}</h3>
+    <section className="sheet__section mod-skills" aria-labelledby="skills-title">
+      <h3 id="skills-title">Made with</h3>
       <div className="chips">
-        {names
-          .filter((n) => intent(n) !== 'ignore')
-          .map((n) => (
-            <a className="chip" key={n} href={`#/m/skills/${encodeURIComponent(n)}`}>
-              {n}
-              {intent(n) === 'learn' ? ' · learning' : intent(n) === 'grow' ? ' · growing' : ''}
-            </a>
-          ))}
+        {names.map((n) => (
+          <a className="chip" key={n} href={`#/m/skills/${encodeURIComponent(n)}`}>
+            {n}
+            {intent(n) === 'learn' ? ' · learning' : intent(n) === 'grow' ? ' · growing' : ''}
+          </a>
+        ))}
       </div>
     </section>
   )
@@ -596,6 +672,73 @@ export function ProjectForm({ project, kind = project?.kind ?? 'project', onDone
         </button>
       </div>
     </form>
+  )
+}
+
+/** Projects archived (or hidden) out of every list: restore one and it comes back everywhere. */
+function ArchivedSheet() {
+  const { refreshProjects } = useHub()
+  const [all, setAll] = useState<Project[] | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState<number | null>(null)
+  const load = () =>
+    api<Project[]>('projects?hidden=1')
+      .then((rows) => setAll(rows.filter((p) => p.hidden)))
+      .catch((err) => setError(`Couldn't load them: ${err.message}`))
+  useEffect(() => {
+    load()
+  }, [])
+  const restore = async (p: Project) => {
+    setBusy(p.id)
+    setError('')
+    try {
+      await api(`projects/${p.id}`, { method: 'PATCH', json: { hidden: false } })
+      refreshProjects()
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? `Couldn't restore ${p.name}: ${err.message}` : "Couldn't restore it.")
+    } finally {
+      setBusy(null)
+    }
+  }
+  const list = (all ?? []).sort((a, b) => a.name.localeCompare(b.name))
+  return (
+    <div className="sheet">
+      <a className="side__back" href="#/m/projects">
+        <Icon name="back" size={18} /> All projects
+      </a>
+      <header className="sheet__head">
+        <h2 className="sheet__title">Archived</h2>
+      </header>
+      <p className="sheet__lede">Projects you archived or hid. They stay out of every list, alert and count until you restore them; rescans don't bring them back.</p>
+      {error && <p className="notice signal-text">{error}</p>}
+      {!all ? (
+        !error && <div className="sheet__empty">Loading…</div>
+      ) : list.length === 0 ? (
+        <div className="sheet__empty">Nothing archived.</div>
+      ) : (
+        <ul className="list">
+          {list.map((p) => (
+            <li className="row" key={p.id}>
+              <span className="row__lamp" aria-hidden />
+              <span className="row__main">
+                {p.name}
+                <span className="row__sub">
+                  {[p.kind === 'link' ? 'URL' : (p.detected.stacks ?? []).join(' · ') || 'Folder', p.detected.last_commit_at ? `last commit ${ago(p.detected.last_commit_at)}` : '', p.detected.missing ? 'folder missing' : '']
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+              </span>
+              <span className="row__actions">
+                <button className="btn" type="button" onClick={() => restore(p)} disabled={busy === p.id}>
+                  {busy === p.id ? 'Restoring' : 'Restore'}
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
 

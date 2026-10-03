@@ -1034,8 +1034,9 @@ a.agent-fit {
   gap: var(--sp-5);
 }
 
+/* A section heading belongs to what follows it: far from the section above, close to its own content. */
 .sheet__section > h3 {
-  margin: var(--sp-4) 0 0;
+  margin: var(--sp-10) 0 0;
   font-size: var(--text-sm);
   font-weight: var(--weight-strong);
   letter-spacing: var(--track-caps-wide);
@@ -1080,7 +1081,9 @@ a.row:hover .arrange__icon {
   color: var(--mod);
 }
 
-.row__main {
+/* A whole row that is a link or a button underlines its name on hover; plain text in a row never does. */
+.row--button:hover .row__main,
+a.row:hover .row__main {
   text-decoration: underline;
   text-underline-offset: 0.25em;
 }
@@ -1209,19 +1212,179 @@ a.row:hover .arrange__icon {
   background: var(--ground-raised);
 }
 
-/* A project's direction: where it is going in words, its last 12 weeks beside them. */
-.direction {
+/* ---------- a project's page ---------- */
+
+/* What it is and the one-click links to it, read straight under its name. */
+.project__intro {
+  display: grid;
+  gap: var(--sp-6);
+}
+
+/* Work and direction lead; where it runs, how it responds and what it is made of sit beside them. */
+.project {
+  container-type: inline-size;
+}
+
+.project__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-4) var(--sp-18);
+  align-items: start;
+}
+
+.project__main,
+.project__aside {
+  display: grid;
+  gap: var(--sp-6);
+  min-width: 0;
+}
+
+@container (min-width: 880px) {
+  .project__grid {
+    grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+  }
+}
+
+.project__hint {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+  max-width: 48ch;
+}
+
+/* The side column's rows are denser than the main list's. */
+.list--compact .row {
+  min-height: 0;
+  gap: var(--sp-5);
+}
+
+.list--compact .row__main {
+  font-size: var(--text-lg);
+}
+
+/* The next task, typed into the work list's last line: no box, only the row's rule and a plus. */
+.work__add {
+  padding: 0;
+}
+
+.work__form {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-height: var(--touch);
+  padding-left: var(--sp-1);
+  color: var(--ink-2);
+}
+
+.work__form input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font-size: var(--text-xl);
+  padding: var(--sp-5) 0;
+  color: var(--ink);
+}
+
+.work__form input::placeholder {
+  color: var(--ink-2);
+}
+
+.work__form input:focus {
+  outline: none;
+}
+
+.work__add:focus-within {
+  border-bottom-color: var(--ink);
+}
+
+.work__form:focus-within {
+  color: var(--ink);
+}
+
+.work__done {
+  justify-self: start;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+/* The owner's call, and what it means in one line beside it. */
+.direction__call {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-4) var(--sp-7);
+  gap: var(--sp-4) var(--sp-8);
 }
 
-.direction__line {
-  display: grid;
+.direction__says {
+  flex: 1 1 24ch;
   margin: 0;
-  font-size: var(--text-xl);
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+/* Twelve weeks drawn across the column, the facts of the record under them. */
+.direction__record {
+  display: grid;
+  gap: var(--sp-7);
+  padding-top: var(--sp-4);
+}
+
+/* The record as a strip chart: a bar per week on ruled paper, oldest at the left, "now" at the right. */
+.strip {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.strip svg {
+  display: block;
+  width: 100%;
+  height: 48px;
+}
+
+.strip__rule {
+  stroke: var(--grid);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.strip__bar {
+  fill: var(--mod, var(--ink));
+}
+
+.strip__none {
+  fill: var(--track);
+}
+
+.strip__axis {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--f-mono);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+
+.response {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.response__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2) var(--sp-5);
+  margin: 0;
+}
+
+.response__head .mono {
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.response__head .mono:last-child {
+  margin-left: auto;
 }
 
 .chips {
