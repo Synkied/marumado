@@ -1,0 +1,334 @@
+/* ---------- home: what the agents are doing ---------- */
+
+.mblock--agents .mblock__name {
+  text-decoration: none;
+}
+
+.mblock--agents .mblock__name:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+/* A lane per agent: its critters, who it is and what it did last, the hour's ribbon, and how its turn goes. Every lane
+   shares the same columns, so the strips line up like channels on one chart. */
+.pulse {
+  --lane-pets: 76px;
+  --lane-who: minmax(0, 17rem);
+  --lane-count: 10rem;
+  list-style: none;
+  margin: var(--sp-4) 0 0;
+  padding: 0;
+}
+
+.lane {
+  display: grid;
+  grid-template-columns: var(--lane-pets) minmax(0, 1fr);
+  align-items: center;
+  background: var(--disc);
+  box-shadow: inset 1px 0 var(--rule-soft);
+  transition: background-color var(--dur-quick) ease-out;
+}
+
+.lane + .lane {
+  border-top: 1px solid var(--rule-soft);
+}
+
+.lane:hover {
+  background: var(--ground-raised);
+}
+
+.lane.is-fault {
+  background: color-mix(in oklab, var(--signal) 9%, var(--disc));
+  box-shadow: inset 3px 0 var(--signal);
+}
+
+.lane__pets {
+  display: flex;
+  justify-content: center;
+  padding-left: var(--sp-2);
+}
+
+/* Several agents in one folder stand close, a little overlapped. */
+.lane__pet + .lane__pet {
+  margin-left: -28px;
+}
+
+.lane__pet {
+  display: block;
+  line-height: 0;
+  border-radius: 50%;
+}
+
+.lane__body {
+  display: grid;
+  grid-template-columns: var(--lane-who) minmax(0, 1fr) var(--lane-count);
+  align-items: center;
+  column-gap: var(--sp-8);
+  min-height: 64px;
+  padding: var(--sp-4) var(--sp-6) var(--sp-4) var(--sp-3);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.lane__who {
+  display: grid;
+  min-width: 0;
+}
+
+.lane__name,
+.lane__where,
+.lane__now {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lane__name {
+  font-size: var(--text-lg);
+}
+
+.lane__body:hover .lane__name {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.lane__where {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.lane__now {
+  margin-top: var(--sp-1);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.lane__turn {
+  display: grid;
+  justify-items: end;
+  row-gap: var(--sp-1);
+  min-width: 0;
+  text-align: right;
+}
+
+.lane__headline {
+  font-family: var(--f-mono);
+  font-size: var(--text-lg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.lane__tally {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* ---------- the hour's ribbon ---------- */
+
+.ribbon {
+  position: relative;
+  display: block;
+  height: 44px;
+  margin-right: 4px;
+}
+
+.ribbon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ribbon__rule {
+  stroke: var(--grid);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.ribbon__base {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* What it did, in the recording's colours; thinking is the pale one, since it changes nothing. */
+.ribbon__act--explore,
+.pulse__key--explore {
+  fill: var(--c-momentum);
+  background: var(--c-momentum);
+}
+
+.ribbon__act--edit,
+.pulse__key--edit {
+  fill: var(--c-urls);
+  background: var(--c-urls);
+}
+
+.ribbon__act--run,
+.pulse__key--run {
+  fill: var(--c-ports);
+  background: var(--c-ports);
+}
+
+.ribbon__act--think,
+.pulse__key--think {
+  fill: color-mix(in oklab, var(--c-agents) 38%, var(--disc));
+  background: color-mix(in oklab, var(--c-agents) 38%, var(--disc));
+}
+
+/* Where you wrote to it: an ink rule across the lane, a turn's start. */
+.ribbon__you {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.ribbon__failed,
+.pulse__key--failed {
+  fill: var(--signal);
+  background: var(--signal);
+}
+
+/* The pen at "now", on the baseline; it pulses while the agent is at work. */
+.ribbon__tip {
+  position: absolute;
+  right: -4px;
+  width: 7px;
+  height: 7px;
+  margin-top: -3.5px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.ribbon.is-busy .ribbon__tip {
+  background: var(--mod);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ribbon.is-busy .ribbon__tip {
+    animation: pulse-tip 1.6s var(--ease) infinite;
+  }
+}
+
+@keyframes pulse-tip {
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--mod) 25%, transparent);
+  }
+}
+
+/* The time under every strip, in the strips' column. */
+.lane--axis,
+.lane--axis:hover {
+  background: none;
+  box-shadow: none;
+}
+
+.lane.lane--axis {
+  border-top: 0;
+}
+
+.lane--axis .lane__body {
+  min-height: 0;
+  padding-top: var(--sp-2);
+}
+
+.pulse__axis {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: var(--sp-6);
+  margin-right: 4px;
+  font-family: var(--f-mono);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+
+.pulse__axis > span:last-child {
+  text-align: right;
+}
+
+/* What the colours mean, between the ends of the hour. */
+.pulse__legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-1) var(--sp-6);
+}
+
+.pulse__legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.pulse__key {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.pulse__key--you {
+  width: 2px;
+  height: 11px;
+  border-radius: 0;
+  background: var(--ink);
+}
+
+/* ---------- the top bar's critters ---------- */
+
+.toppets {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding-left: clamp(var(--sp-3), 1vw, var(--sp-8));
+  border-left: 1px solid var(--rule-soft);
+}
+
+.toppets__pet {
+  display: block;
+  line-height: 0;
+  border-radius: 50%;
+}
+
+.toppets__more {
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  text-decoration: none;
+}
+
+.toppets__more:hover {
+  color: var(--ink);
+}
+
+@media (max-width: 860px) {
+  .toppets {
+    display: none;
+  }
+  .lane {
+    grid-template-columns: 62px minmax(0, 1fr);
+  }
+  .lane__body {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'who turn'
+      'ribbon ribbon';
+    row-gap: var(--sp-3);
+    padding-right: var(--sp-4);
+  }
+  .lane__who {
+    grid-area: who;
+  }
+  .lane__turn {
+    grid-area: turn;
+  }
+  .ribbon {
+    grid-area: ribbon;
+  }
+  .lane--axis {
+    display: none;
+  }
+}

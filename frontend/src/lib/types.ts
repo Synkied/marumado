@@ -409,3 +409,25 @@ export type TraceStep = {
 export type Trace =
   | { found: false; reason: string; steps: []; total: number }
   | { found: true; path: string; first: number; from: number; total: number; steps: TraceStep[] }
+
+/** GET agents/pulse: what the agents wrote in the last day, by folder. Agents of one kind in one folder are read
+    together (their records can't be told apart), so `panes` may name several. `edits`: [ms, lines added, lines
+    removed, index in `files`], oldest first. `now`: the latest thing they did. */
+export type PulseFolder = {
+  source: number
+  kind: string
+  cwd: string
+  panes: string[]
+  found: boolean
+  error?: string
+  edits: [number, number, number, number][]
+  files: string[]
+  kinds: Record<string, number>
+  now: { kind: string; title: string; t: number } | null
+  /** Every step of the last hour as [ms, kind, ok], oldest first (absent from an older Marumado). */
+  steps?: [number, string, boolean | null][]
+  /** Since you last wrote to them: how many steps, files edited and steps failed. */
+  turn?: { since: number; steps: number; files: number; failed: number } | null
+}
+
+export type Pulse = { time: number; folders: PulseFolder[] }

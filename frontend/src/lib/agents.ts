@@ -1,6 +1,6 @@
 import { api } from './api'
 import { useEffect, useState } from 'react'
-import type { Agent, Agents, AgentSource, Workspace } from './types'
+import type { Agent, Agents, AgentSource, AgentStatus, Workspace } from './types'
 
 /** An agent is found by its source and its pane id: pane ids repeat from one Herdr to the next. */
 export type AgentRef = { source: number; pane: string }
@@ -17,6 +17,17 @@ export function parseAgentRef(sub?: string): AgentRef | null {
   const m = sub?.match(/^(?:(\d+)\/)?(w[0-9A-Za-z]+:p[0-9A-Za-z]+)$/)
   return m ? { source: Number(m[1] ?? 0), pane: m[2] } : null
 }
+
+export const STATE_WORDS: Record<AgentStatus, string> = {
+  blocked: 'needs you',
+  working: 'working',
+  done: 'finished its turn',
+  idle: 'idle at its prompt',
+  unknown: 'state unknown',
+}
+
+/** What to call an agent: what its terminal title says it is doing, else its name. */
+export const nameOf = (a: Agent) => (a.title && a.title !== a.kind ? a.title : a.name || a.kind)
 
 /** The query string that sends an API call to the agent's source. */
 export const sourceQuery = (source: number) => `source=${source}`

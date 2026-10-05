@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { Critter } from '../components/Critter'
 import { Icon } from '../components/Icon'
 import { Terminal } from '../components/Terminal'
-import { agentHref, agentKey, sourceLabel, sourceOf } from '../lib/agents'
+import { agentHref, agentKey, nameOf, sourceLabel, sourceOf, STATE_WORDS } from '../lib/agents'
 import { useHub } from '../lib/hub'
-import type { Agent, AgentStatus } from '../lib/types'
+import type { Agent } from '../lib/types'
 import { useIsNarrow } from '../lib/useIsNarrow'
 import { Question } from './agentInbox'
 import './agentDock.css'
@@ -14,16 +14,6 @@ const FOLD_KEY = 'marumado.dock'
 const ORDER_KEY = 'marumado.dock.order'
 // Places kept for agents that went away (a source that is off for a while), so they come back where they were.
 const ORDER_KEEP = 64
-
-const STATE_WORDS: Record<AgentStatus, string> = {
-  blocked: 'needs you',
-  working: 'working',
-  done: 'finished its turn',
-  idle: 'idle at its prompt',
-  unknown: 'state unknown',
-}
-
-const nameOf = (a: Agent) => (a.title && a.title !== a.kind ? a.title : a.name || a.kind)
 
 function useFolded(): [boolean, () => void] {
   const [folded, setFolded] = useState(() => {

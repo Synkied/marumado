@@ -1,22 +1,20 @@
 import { useState } from 'react'
 import { Icon } from '../components/Icon'
 import { duration } from '../lib/format'
-import { issueHref, isMachineModule, machineIssues, useHub, type Alert } from '../lib/hub'
+import { issueHref, isMachineModule, machineIssues, useHub } from '../lib/hub'
 import { useFolds, useReadouts, type Readouts } from '../lib/fleet'
 import { useMachines } from '../lib/machines'
 import { go, moduleHref } from '../lib/route'
 import { useRedact, useStreaming } from '../lib/streaming'
 import type { Machine } from '../lib/types'
-import { activity, atWork } from '../lib/work'
-import { tracked, pace } from '../lib/growth'
+import { AgentsAtWork } from './agentPulse'
 import { RetryButton } from './machines'
-import { names, parts, READOUTS, readout, type Reading, type Readout, type ReadoutContext, type ReadoutId } from './readouts'
+import { READOUTS, readout, type Reading, type Readout, type ReadoutContext, type ReadoutId } from './readouts'
 import './fleet.css'
 
 type Problem = { id: string; module: string; title: string; detail: string; href: string }
 
-/** Home: your work first (projects, tasks, agents, URLs: the same whichever machine), then every machine as a block of
-    readings, the ones that need you first. Each machine reading opens its module on that machine. The readings wrap onto as many lines as they need, and every block shares the same columns, so the same
+/** Home: the agents at work, then every machine as a block of readings, the ones that need you first. Each machine reading opens its module on that machine. The readings wrap onto as many lines as they need, and every block shares the same columns, so the same
     reading sits in the same place on every machine. Which readings a machine shows is set per machine. */
 export function Fleet() {
   const { machines, current, select } = useMachines()
@@ -48,7 +46,7 @@ export function Fleet() {
   }
 
   // The machine on screen has the full alerts about a machine; the others, what their digest says. Alerts about your
-  // work go on the work block.
+  // work are in the top bar's alerts.
   const problemsOf = (m: Machine): Problem[] =>
     m.id === current
       ? alerts.filter((a) => isMachineModule(a.module)).map((a) => ({ id: a.id, module: a.module, title: a.title, detail: a.detail, href: a.href }))
@@ -61,7 +59,7 @@ export function Fleet() {
 
   return (
     <div className="fleet">
-      <WorkBlock problems={alerts.filter((a) => !isMachineModule(a.module) && a.module !== 'machines')} />
+      <AgentsAtWork />
       <h2 className="fleet__label">Machines</h2>
       <ul className="fleet__machines">
         {sorted.map(({ m, problems }) => (
@@ -204,113 +202,6 @@ function MachineBlock({ machine: m, viewing, problems, readouts, ctx, allIds, op
         </>
       )}
     </li>
-  )
-}
-
-type WorkCell = { id: string; label: string; module: Readout['module']; reading: Reading | null }
-
-/** Your work, the same whichever machine: projects and how they move, tasks, every agent, live sites. */
-function WorkBlock({ problems }: { problems: Alert[] }) {
-  const { projects, tasks, agents } = useHub()
-  const redact = useRedact()
-  const code = tracked(projects)
-  const cells: WorkCell[] = [
-    {
-      id: 'projects',
-      label: 'Projects',
-      module: 'projects',
-      reading: projects
-        ? (() => {
-            const busy = code.filter((p) => pace(p) === 'moving' || atWork(activity(p, tasks, agents)))
-            if (!code.length) return { value: '0', detail: 'add a folder', state: 'off' as const }
-            return { value: String(busy.length), detail: `moving of ${code.length}`, state: 'ok' as const, seal: parts(code.length, busy.length), title: busy.map((p) => p.name).join('\n') }
-          })()
-        : null,
-    },
-    {
-      id: 'tasks',
-      label: 'Tasks',
-      module: 'tasks',
-      reading: tasks
-        ? (() => {
-            const open = tasks.filter((t) => t.state !== 'done')
-            const working = open.filter((t) => t.state === 'working' || t.state === 'starting').length
-            const blocked = open.filter((t) => t.state === 'blocked' || t.state === 'failed').length
-            const review = open.filter((t) => t.state === 'review').length
-            const seal = parts(open.length, working, blocked)
-            if (blocked) return { value: String(blocked), detail: blocked === 1 ? 'needs you' : 'need you', state: 'fault' as const, seal }
-            const detail = working ? `${working} working` : review ? `${review} to review` : open.length ? 'open' : 'all done'
-            return { value: String(open.length), detail, state: 'ok' as const, seal }
-          })()
-        : null,
-    },
-    {
-      id: 'agents',
-      label: 'Agents',
-      module: 'agents',
-      reading: agents
-        ? (() => {
-            if (!agents.available) return { value: 'off', detail: 'no Herdr', state: 'off' as const }
-            const live = agents.agents.filter((a) => a.kind !== 'terminal')
-            const working = live.filter((a) => a.status === 'working').length
-            const blocked = live.filter((a) => a.status === 'blocked')
-            const n = (agents.sources ?? []).length
-            const where = n > 1 ? ` · ${n} places` : ''
-            if (blocked.length)
-              return { value: String(blocked.length), detail: `waiting · ${names(blocked.map((a) => a.name || a.kind))}`, state: 'fault' as const, seal: parts(live.length, working, blocked.length) }
-            if (!live.length) return { value: '0', detail: `none running${where}`, state: 'ok' as const }
-            return { value: `${working} of ${live.length}`, detail: `working${where}`, state: 'ok' as const, seal: parts(live.length, working) }
-          })()
-        : null,
-    },
-    {
-      id: 'urls',
-      label: 'URLs',
-      module: 'urls',
-      reading: projects
-        ? (() => {
-            const checked = projects.filter((p) => p.online_url && p.status.online.latest)
-            const down = checked.filter((p) => !p.status.online.latest!.ok)
-            if (!checked.length) return { value: '—', detail: 'no live URLs', state: 'off' as const }
-            if (down.length) return { value: `${down.length} down`, detail: names(down.map((p) => p.name)), state: 'fault' as const, seal: parts(checked.length, checked.length - down.length, down.length) }
-            return { value: `${checked.length} of ${checked.length}`, detail: 'up', state: 'ok' as const, seal: parts(checked.length, checked.length) }
-          })()
-        : null,
-    },
-  ]
-  const faulted = new Set(cells.filter((c) => c.reading?.state === 'fault').map((c) => c.module))
-  const unshown = problems.filter((p) => !faulted.has(p.module))
-  const status = problems.length ? `${problems.length} ${problems.length === 1 ? 'needs' : 'need'} you` : 'all clear'
-  return (
-    <section className={`mblock mblock--work is-open${problems.length ? ' is-fault' : ''}`} aria-label="Your work">
-      <header className="mblock__head">
-        <span className={`mblock__lamp mblock__lamp--${problems.length ? 'fault' : 'ok'}`} role="img" aria-label={status} />
-        <button className="mblock__name" type="button" onClick={() => go('#/m/projects')} title="Open your projects">
-          Your work
-        </button>
-        <span className="mblock__context">projects, tasks and agents, whichever machine they run on</span>
-        <span className={`mblock__status${problems.length ? ' signal-text' : ''}`}>{status}</span>
-        <span className="mblock__actions" />
-      </header>
-      <div className="readouts">
-        {cells.map((c) => (
-          <Cell key={c.id} readout={{ id: 'projects', label: c.label, module: c.module, blurb: '', read: () => null }} reading={c.reading} pending onOpen={() => go(moduleHref(c.module))} />
-        ))}
-      </div>
-      {unshown.length > 0 && (
-        <ul className="mblock__issues" aria-label="Also needs you">
-          {unshown.map((p) => (
-            <li key={p.id}>
-              <button className="mblock__issue" type="button" onClick={() => go(p.href)}>
-                <span className="mblock__issue-title">{redact(p.title)}</span>
-                <span className="mblock__issue-detail">{redact(p.detail)}</span>
-                <Icon name="arrow" size={16} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   )
 }
 

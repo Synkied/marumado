@@ -36,6 +36,7 @@ urlpatterns = [
     path('agents/start', views.agent_start),
     path('agents/env-source', views.agent_env_source),
     path('agents/trace', views.agent_trace),
+    path('agents/pulse', views.agent_pulse),
     path('agents/<str:pane_id>/launch', views.agent_launch),
     path('agents/<str:pane_id>/task', views.agent_task),
     path('agents/<str:pane_id>/queue', views.agent_queue),

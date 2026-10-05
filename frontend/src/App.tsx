@@ -15,6 +15,7 @@ import { go, useRoute } from './lib/route'
 import { meta, useSummaries } from './modules/registry'
 import { pinnedProjects, PinnedProjects } from './modules/projectPin'
 import { SheetFor } from './modules/sheets'
+import { TopPets } from './modules/agentPulse'
 import { Fleet } from './modules/fleet'
 import './app.css'
 
@@ -121,7 +122,7 @@ function Vitals() {
 
 /** Your work, as small dials in the top bar, one click from anywhere: Projects, Tasks, Agents and URLs. The agents'
     dial carries a count of what waits on you there (an agent's question or approval, a plan's step waiting for your
-    go) and opens the Agents inbox, where you answer them. */
+    go) and opens the Agents inbox, where you answer them; with nothing waiting, it opens the first terminal. */
 const WORK: ModuleId[] = ['projects', 'tasks', 'agents', 'urls']
 
 function WorkDials({ active }: { active?: ModuleId }) {
@@ -147,7 +148,7 @@ function WorkDials({ active }: { active?: ModuleId }) {
           <a
             key={id}
             className={`cell work__cell mod-${id}${active === id ? ' is-active' : ''}${fault ? ' is-fault' : ''}`}
-            href={agents ? '#/m/agents/inbox' : `#/m/${id}`}
+            href={agents && n.count > 0 ? '#/m/agents/inbox' : `#/m/${id}`}
             aria-current={active === id ? 'page' : undefined}
             title={reading ? `${m.label}: ${reading}` : m.label}
           >
@@ -162,6 +163,7 @@ function WorkDials({ active }: { active?: ModuleId }) {
           </a>
         )
       })}
+      <TopPets />
     </nav>
   )
 }

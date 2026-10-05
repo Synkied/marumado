@@ -419,7 +419,7 @@ class Parser:
 _lock = threading.Lock()
 _parsers: 'OrderedDict[tuple, Parser]' = OrderedDict()
 _looked: dict[tuple, float] = {}
-KEEP = 24  # records kept parsed in memory
+KEEP = 48  # records kept parsed in memory
 
 
 def claude_folder(cwd: str) -> str:
@@ -475,12 +475,7 @@ def trace(src, kind: str, cwd: str, since: float | None, title: str, path: str =
         path = find(src, kind, cwd, since, piece, any_session)
         if not path:
             return {'found': False, 'reason': 'The agent hasn’t written a record of this task yet.', 'steps': [], 'total': 0}
-    key = (getattr(src, 'id', src), path, since, piece)
-    with _lock:
-        parser = _parsers.pop(key, None) or Parser(kind, cwd)
-        _parsers[key] = parser
-        while len(_parsers) > KEEP:
-            _parsers.popitem(last=False)
+    parser = _parser((getattr(src, 'id', src), path, since, piece), kind, cwd)
     with parser.lock:
         data = _read(src, path, parser.offset)
         if data:
@@ -490,6 +485,16 @@ def trace(src, kind: str, cwd: str, since: float | None, title: str, path: str =
         settled = parser.settled()
         start = max(first, min(start, settled))
         return {'found': True, 'path': path, 'first': first, 'from': start, 'total': len(steps), 'steps': steps[start:]}
+
+
+def _parser(key: tuple, kind: str, cwd: str) -> Parser:
+    """The record's parser, kept from the last read (the least recently read are let go past KEEP)."""
+    with _lock:
+        parser = _parsers.pop(key, None) or Parser(kind, cwd)
+        _parsers[key] = parser
+        while len(_parsers) > KEEP:
+            _parsers.popitem(last=False)
+    return parser
 
 
 def _first(steps: list[dict], since: float | None, piece: str) -> int:
@@ -502,3 +507,79 @@ def _first(steps: list[dict], since: float | None, piece: str) -> int:
         if s['kind'] == 'you' and s['t'] >= floor and piece and piece in s['detail']:
             return s['i']
     return next((s['i'] for s in steps if s['t'] >= floor), len(steps))
+
+
+# ---------------------------------------------------------------- what agents wrote lately (home)
+
+PULSE_HOURS = 24
+PULSE_FIND = 30  # seconds between two looks for a folder's newest records
+PULSE_EDITS = 3000  # the most edits one folder reports
+PULSE_STEP_HOURS = 1  # how far back every step is reported, for the activity ribbon
+PULSE_STEPS = 2000  # the most steps one folder reports
+_newest_seen: dict[tuple, tuple[float, list[str]]] = {}
+
+
+def _newest(src, kind: str, cwd: str) -> list[str]:
+    """The folder's session records written in the last PULSE_HOURS, newest first. Looked for again every PULSE_FIND."""
+    key = (getattr(src, 'id', src), kind, cwd)
+    seen = _newest_seen.get(key)
+    if seen and time.monotonic() - seen[0] < PULSE_FIND:
+        return seen[1]
+    out = herdr.shell(src, _find_script(kind, cwd, '')).decode(errors='replace')
+    floor = time.time() - PULSE_HOURS * 3600
+    found = []
+    for line in out.splitlines():
+        parts = line.split('\t', 2)
+        if len(parts) == 3 and parts[0].isdigit() and int(parts[0]) >= floor:
+            found.append((int(parts[0]), parts[2]))
+    paths = [p for _, p in sorted(found, reverse=True)]
+    _newest_seen[key] = (time.monotonic(), paths)
+    return paths
+
+
+def pulse(src, kind: str, cwd: str, n: int = 1) -> dict:
+    """What the `n` agents of one kind at work in a folder did in the last PULSE_HOURS, from the folder's `n` newest
+    session records (which record is whose can't be told, so they are reported together): every edit as
+    [ms, lines added, lines removed, index in `files`], how many steps of each kind, and the latest step (`now`).
+    `steps`: every step of the last PULSE_STEP_HOURS as [ms, kind, ok], oldest first. `turn`: since you last wrote to
+    them (`since`, ms, or None), how many steps they took, the files they edited and the steps that failed."""
+    if kind not in KINDS:
+        return {'found': False, 'edits': [], 'files': [], 'kinds': {}, 'now': None, 'steps': [], 'turn': None}
+    paths = _newest(src, kind, cwd)[:max(1, n)]
+    floor = (time.time() - PULSE_HOURS * 3600) * 1000
+    edits: list[list] = []
+    files: dict[str, int] = {}
+    kinds: dict[str, int] = {}
+    now = None
+    recent = (time.time() - PULSE_STEP_HOURS * 3600) * 1000
+    steps: list[list] = []
+    every: list[dict] = []
+    for path in paths:
+        parser = _parser((getattr(src, 'id', src), path, None, ''), kind, cwd)
+        with parser.lock:
+            data = _read(src, path, parser.offset)
+            if data:
+                parser.feed(data)
+            for s in parser.steps:
+                if s['t'] < floor:
+                    continue
+                every.append(s)
+                if s['t'] >= recent:
+                    steps.append([s['t'], s['kind'], s['ok']])
+                kinds[s['kind']] = kinds.get(s['kind'], 0) + 1
+                if s['kind'] != 'you' and (now is None or s['t'] >= now['t']):
+                    now = {'kind': s['kind'], 'title': s['title'], 't': s['t']}
+                if s['kind'] == 'edit' and s['ok'] is not False:
+                    for f in s.get('files') or []:
+                        i = files.setdefault(f['path'], len(files))
+                        edits.append([s['t'], f.get('add', 0), f.get('del', 0), i])
+    edits.sort(key=lambda e: e[0])
+    steps.sort(key=lambda e: e[0])
+    since = max((s['t'] for s in every if s['kind'] == 'you'), default=None)
+    turn = None
+    if since is not None:
+        mine = [s for s in every if s['t'] >= since and s['kind'] != 'you']
+        edited = {f['path'] for s in mine if s['kind'] == 'edit' and s['ok'] is not False for f in s.get('files') or []}
+        turn = {'since': since, 'steps': len(mine), 'files': len(edited), 'failed': sum(1 for s in mine if s['ok'] is False)}
+    return {'found': bool(paths), 'edits': edits[-PULSE_EDITS:], 'files': list(files), 'kinds': kinds, 'now': now,
+            'steps': steps[-PULSE_STEPS:], 'turn': turn}

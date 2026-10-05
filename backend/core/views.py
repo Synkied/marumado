@@ -10,7 +10,7 @@ from rest_framework.response import Response
 
 import json
 
-from . import auth, discovery, files, herdr, machines, monitor, opener, overview, places, plans, tasks, transcripts
+from . import auth, discovery, files, herdr, machines, monitor, opener, overview, places, plans, pulse, tasks, transcripts
 from .models import AgentSource, Machine, Plan, Project, ScanRoot, Skill, Task, UptimeCheck
 from .serializers import AgentSourceSerializer, MachineSerializer, PlanSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
 
@@ -918,6 +918,12 @@ def agent_trace(request):
                                           any_session=since is None))
     except RuntimeError as exc:
         return Response({'detail': str(exc)}, status=502)
+
+
+@api_view(['GET'])
+def agent_pulse(request):
+    """What the agents wrote lately (core/pulse.py), by folder. `?machines=0`: only this machine's own."""
+    return Response(pulse.pulse(include_machines=request.query_params.get('machines') != '0'))
 
 
 @api_view(['GET'])

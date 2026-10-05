@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import tempfile
@@ -7,7 +8,7 @@ from unittest import mock
 from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 
-from . import herdr, monitor, plans, tasks, terminal
+from . import herdr, monitor, plans, tasks, terminal, transcripts
 from .models import AgentSource, Plan, Project, Task
 
 GIT = {'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'safe.directory', 'GIT_CONFIG_VALUE_0': '*',
@@ -954,3 +955,50 @@ class ProjectAgentSourceTests(TestCase):
         self.assertEqual(herdr.source_of_folder('/projects/work/api', defaults), 2)
         self.assertEqual(herdr.source_of_folder('/projects/blog', defaults), 1)
         self.assertIsNone(herdr.source_of_folder('/projectsx/blog', defaults))
+
+
+class PulseTests(SimpleTestCase):
+    """What the agents wrote lately, read from a Claude Code session record in a fake home folder."""
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        env = mock.patch.dict(os.environ, {'HOME': self.home})
+        env.start()
+        self.addCleanup(env.stop)
+        shell = mock.patch.object(transcripts.herdr, 'shell', lambda src, script, timeout=0: subprocess.run(
+            ['sh', '-c', script], capture_output=True).stdout)
+        shell.start()
+        self.addCleanup(shell.stop)
+        transcripts._newest_seen.clear()
+
+    def write(self, cwd, records):
+        folder = os.path.join(self.home, '.claude', 'projects', transcripts.claude_folder(cwd))
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, 's1.jsonl'), 'w') as f:
+            f.write('\n'.join(json.dumps(r) for r in records) + '\n')
+
+    def test_counts_the_lines_of_every_edit(self):
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        edit = {'type': 'tool_use', 'id': 'c1', 'name': 'Edit',
+                'input': {'file_path': '/p/app.py', 'old_string': 'a\nb', 'new_string': 'a\nc\nd'}}
+        write = {'type': 'tool_use', 'id': 'c2', 'name': 'Write', 'input': {'file_path': '/p/new.py', 'content': 'x\ny\nz'}}
+        self.write('/p', [
+            {'type': 'user', 'timestamp': now, 'message': {'content': 'Fix it'}},
+            {'type': 'assistant', 'timestamp': now, 'message': {'content': [edit, write]}},
+            {'type': 'user', 'timestamp': now, 'message': {'content': [
+                {'type': 'tool_result', 'tool_use_id': 'c1', 'content': 'ok'},
+                {'type': 'tool_result', 'tool_use_id': 'c2', 'content': 'ok'}]}},
+        ])
+        out = transcripts.pulse(herdr.ENV, 'claude', '/p')
+        self.assertTrue(out['found'])
+        self.assertEqual(out['files'], ['app.py', 'new.py'])
+        self.assertEqual([e[1:] for e in out['edits']], [[3, 2, 0], [3, 0, 1]])
+        self.assertEqual(out['kinds'], {'you': 1, 'edit': 2})
+        self.assertEqual(out['now']['title'], 'Wrote new.py')
+        self.assertEqual([k for _, k, _ in out['steps']], ['you', 'edit', 'edit'])
+        self.assertEqual({k: out['turn'][k] for k in ('steps', 'files', 'failed')}, {'steps': 2, 'files': 2, 'failed': 0})
+
+    def test_no_record_and_unknown_kinds(self):
+        self.assertFalse(transcripts.pulse(herdr.ENV, 'claude', '/nowhere')['found'])
+        self.assertFalse(transcripts.pulse(herdr.ENV, 'aider', '/p')['found'])
