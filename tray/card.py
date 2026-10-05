@@ -19,8 +19,8 @@ import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from tkinter import font as tkfont
 
-from marumado_tray import (DONE, IDLE, QUIT_CODE, STATE_WORDS, Config, Reading, ago, doing, key, name_of, read,
-                           screen_line, summary, where)
+from marumado_tray import (DONE, IDLE, QUIT_CODE, STATE_WORDS, Config, Reading, ago, doing, key, main_area, name_of,
+                           read, screen_line, summary, where)
 
 # The recorder at night (DESIGN.md, tokens.css).
 GROUND = '#22221f'
@@ -107,12 +107,13 @@ class Card:
     # ---------- where it sits ----------
 
     def place(self):
-        """By the tray: bottom right on Windows, top right elsewhere (macOS's menu bar, most Linux panels)."""
+        """By the tray: bottom right on Windows, top right elsewhere (macOS's menu bar, most Linux panels), on the main
+        monitor: with several, X11 makes them one wide screen, whose right edge is the rightmost monitor's."""
         self.root.update_idletasks()
-        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        x0, y0, sw, sh = main_area() or (0, 0, self.root.winfo_screenwidth(), self.root.winfo_screenheight())
         h = min(560, int(sh * 0.7))
-        y = sh - h - 64 if sys.platform == 'win32' else 40
-        self.root.geometry(f'{WIDTH}x{h}+{sw - WIDTH - 16}+{y}')
+        y = y0 + (sh - h - 64 if sys.platform == 'win32' else 40)
+        self.root.geometry(f'{WIDTH}x{h}+{x0 + sw - WIDTH - 16}+{y}')
         self.root.lift()
         self.root.focus_force()
 

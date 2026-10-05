@@ -17,10 +17,10 @@ LAN, and pass its token (`make access-token` there prints it).
 
 ## What it shows
 
-- **The icon**: one arc per agent, wisteria while working, blue once it has finished its turn, grey when idle; a
-  persimmon disc when one needs you; a grey ring struck through in persimmon when Marumado can't be read (wrong
-  address or token: the terminal says which). The tooltip says it in words.
-- **The card**, on a click on the icon (or *Show agents…* in the menu): every agent, who needs you first, then who is
+- **The icon**: one arc per agent, wisteria while working, blue once it has finished its turn, grey when idle; in the
+  middle, how many need you on a persimmon disc, or else how many are working; a grey ring struck through in persimmon
+  when Marumado can't be read (wrong address or token: the terminal says which). The tooltip says it in words.
+- **The card**, on a click on the icon (or *Show agents…* in the menu; a second click closes it): every agent, who needs you first, then who is
   working and for how long, then the rest; what its terminal title says it is doing, its project and source, what a
   plan has queued for it, and the last line of its screen. Choosing an agent opens its page in the browser.
 - **The menu**: who needs you, then who is working (past three, *See all N working agents…* opens the card).
@@ -29,11 +29,15 @@ LAN, and pass its token (`make access-token` there prints it).
 ## Desktops
 
 - **Windows, macOS**: work as they are: a left click opens the card, a right click the menu.
-- **Linux**: without PyGObject, pystray falls back to a plain X11 icon, which has no menu and no notifications: a click
-  opens the card, and the card's *Quit tray* closes the tray. For the menu and notifications, install PyGObject
-  (`uv run --with pygobject tray/marumado_tray.py`, which needs your distribution's `gobject-introspection` and
-  `libayatana-appindicator` packages to build); on GNOME, also the *AppIndicator and KStatusNotifierItem Support*
-  extension. There a click shows the menu, whose *Show agents…* opens the card.
+- **Linux (GNOME, KDE)**: the tray's own icon (AppIndicator) needs PyGObject. uv's Pythons don't have it, so the tray
+  borrows the system Python's (`/usr/bin/python3`): it uses that Python's copy when the versions match, and otherwise
+  starts again on that Python by itself (`uv run --python /usr/bin/python3 …`). It also needs AppIndicator's
+  introspection data: `sudo apt install python3-gi gir1.2-ayatanaappindicator3-0.1` (Debian, Ubuntu) or `sudo dnf
+  install python3-gobject libayatana-appindicator-gtk3` (Fedora). On GNOME, also turn on the *AppIndicator and
+  KStatusNotifierItem Support* extension (Ubuntu has it on already). A click then shows the menu, whose *Show agents…*
+  opens the card. The terminal says `tray: appindicator` when it all worked.
+- **Linux, otherwise**: without them, pystray falls back to a plain X11 icon, which has no menu and no notifications
+  (GNOME shows it only as a legacy icon): a click opens the card, and the card's *Quit tray* closes the tray.
 - **The card** needs Tk. uv's own Pythons include it; a system Python may not (Debian: `python3-tk`), and then the
   card's entry opens the Agents page instead.
 

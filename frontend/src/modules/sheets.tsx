@@ -734,6 +734,16 @@ function InboxBell({ waiting, asks, active }: { waiting: number; asks: number; a
   )
 }
 
+/** The plans, over the Agents page: lay out a new one or follow one, even with no agent running. */
+function PlansButton({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button type="button" className="tool" aria-haspopup="dialog" onClick={onOpen} title="Plans: make a new one, or follow one">
+      <Icon name="tasks" size={18} />
+      <span className="sr-only">Plans</span>
+    </button>
+  )
+}
+
 function AgentTab({ agent: a, active, sub }: { agent: Agent; active: boolean; sub: string }) {
   const lamp = lampOf(a)
   return (
@@ -832,7 +842,9 @@ function AgentsSheet({ sub }: { sub?: string }) {
   const [view, setView] = useState<'text' | 'screen'>('text')
   const [fit, setFit] = useFitPreference()
   const [full, setFull] = useState(false)
-  const [plansOpen, setPlansOpen] = useState(false)
+  // 'agent': the modal opens on what the current agent does next; 'plans': on the plans alone, whatever is running.
+  const [plansOpen, setPlansOpen] = useState<false | 'agent' | 'plans'>(false)
+  const plansButton = <PlansButton onOpen={() => setPlansOpen('plans')} />
 
   if (sub === 'sources' || sub?.startsWith('sources/')) return <AgentSourcesSheet sub={sub.slice(8)} />
   if (!agents) return <div className="sheet__empty">Loading…</div>
@@ -857,6 +869,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
     return (
       <div className="sheet">
         <SheetHead id="agents">
+          {plansButton}
           <a className="btn btn--quiet" href="#/m/agents/sources">
             {sourcesLabel}
           </a>
@@ -900,6 +913,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
             )}
           </>
         )}
+        {plansOpen && <PlansModal agent={null} onClose={() => setPlansOpen(false)} />}
       </div>
     )
   }
@@ -929,6 +943,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
       <aside className="agents__side">
         <SheetHead id="agents">
           <InboxBell waiting={waiting.length} asks={asks.length} active={inbox} />
+          {plansButton}
           <a className="tool" href="#/m/agents/sources" title="Where your agents run: add, edit or remove sources">
             <Icon name="sliders" size={18} />
             <span className="sr-only">{sourcesLabel}</span>
@@ -978,7 +993,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
                     type="button"
                     className={`tool tool--bell${queued.some((q) => q.asking) ? ' is-fault' : ''}`}
                     aria-haspopup="dialog"
-                    onClick={() => setPlansOpen(true)}
+                    onClick={() => setPlansOpen('agent')}
                     title={queued.length ? `${queued.length} queued for ${current.name || current.kind}: queue more, or open the plans` : `Queue what ${current.name || current.kind} does next, or open the plans`}
                   >
                     <Icon name="queue" size={18} />
@@ -1037,7 +1052,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
               {queued.length > 0 && (
                 <span className={`agent-head__item mod-tasks${queued[0].asking ? ' signal-text' : ''}`}>
                   <Icon name="queue" size={15} />
-                  <button className="agent-head__link" type="button" onClick={() => setPlansOpen(true)} title="What this agent does next">
+                  <button className="agent-head__link" type="button" onClick={() => setPlansOpen('agent')} title="What this agent does next">
                     Next: {queued[0].title}
                   </button>
                   {queued[0].asking ? ' · waits for your go' : queued.length > 1 ? ` · ${queued.length - 1} more` : ''}
@@ -1064,7 +1079,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
           {narrow && mode === 'control' && <AgentComposer paneId={current.pane_id} source={currentSource} key={`c${agentKey(current)}`} />}
         </div>
       )}
-      {plansOpen && <PlansModal agent={current.kind !== 'terminal' && !inbox ? current : null} onClose={() => setPlansOpen(false)} key={agentKey(current)} />}
+      {plansOpen && <PlansModal agent={plansOpen === 'agent' && current.kind !== 'terminal' && !inbox ? current : null} onClose={() => setPlansOpen(false)} key={`${plansOpen}${agentKey(current)}`} />}
     </div>
   )
 }

@@ -1,12 +1,12 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["pystray>=0.19", "pillow>=10"]
+# dependencies = ["pystray>=0.19", "pillow>=10.1"]
 # ///
 """Marumado in the system tray: every coding agent Marumado sees, at a glance, without a tab open.
 
 The icon is the agent dock's round window in miniature: one arc per agent (pale wisteria when working, blue when it
-has finished its turn, grey when idle), a persimmon disc when one needs you, a dashed ring when Marumado can't be
-reached. Its menu lists who needs you and who is working; past three working agents, one entry opens a card that
+has finished its turn, grey when idle), with how many need you on a persimmon disc in the middle, or else how many are
+working; a ring struck through when Marumado can't be reached. Its menu lists who needs you and who is working; past three working agents, one entry opens a card that
 lists them all with what each is doing. Choosing an agent opens its page in the browser.
 
 It only reads Marumado's API (GET /api/agents, and each working agent's screen while the card is open).
@@ -27,6 +27,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -37,6 +38,7 @@ import urllib.request
 import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -64,6 +66,34 @@ def log(message: str):
 def has_tk() -> bool:
     """Whether this Python can open the card (Debian's leaves Tk to python3-tk)."""
     return all(importlib.util.find_spec(m) is not None for m in ('tkinter', '_tkinter'))
+
+def borrow_gi(argv: list[str]):
+    """On Linux, pystray reaches GNOME's and KDE's trays (AppIndicator) only through PyGObject, which uv's Pythons
+    don't have and can't easily build. The distribution's Python usually has it: borrow its copy when it is the same
+    Python version, or start again on that Python (uv installs pystray and Pillow for it). Without it pystray falls
+    back to an X11 icon, which GNOME shows only as a legacy icon, if at all."""
+    if not sys.platform.startswith('linux') or importlib.util.find_spec('gi'):
+        return
+    system = '/usr/bin/python3'
+    probe = 'import gi, os, sys; print("%d.%d" % sys.version_info[:2]); print(os.path.dirname(os.path.dirname(gi.__file__)))'
+    try:
+        out = subprocess.run([system, '-c', probe], capture_output=True, text=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        out = None
+    if not out or out.returncode != 0:
+        log('no PyGObject here or in the system Python: the tray falls back to an X11 icon (see tray/README.md, Linux)')
+        return
+    version, path = out.stdout.split()[:2]
+    if version == f'{sys.version_info.major}.{sys.version_info.minor}':
+        sys.path.append(path)
+        os.environ['MARUMADO_TRAY_GI'] = path  # for the card, which finds the main screen through it
+        return
+    if os.environ.get('MARUMADO_TRAY_SYSTEM') or not shutil.which('uv'):
+        log(f'PyGObject is in the system Python {version}, not this Python: run the tray with `uv run --python {system} tray/marumado_tray.py`')
+        return
+    log(f'starting again on the system Python {version}, for its PyGObject')
+    os.execvpe('uv', ['uv', 'run', '--python', system, str(Path(__file__).resolve()), *argv], {**os.environ, 'MARUMADO_TRAY_SYSTEM': '1'})
+
 
 STATE_WORDS = {'blocked': 'needs you', 'working': 'working', 'done': 'finished its turn', 'idle': 'idle', 'unknown': 'state unknown'}
 
@@ -231,19 +261,18 @@ def where(a: dict, r: Reading) -> str:
     return ' · '.join(b for b in bits if b)
 
 
-def agent_line(a: dict, r: Reading, since: dict[str, float], now: float) -> str:
-    """A menu entry: name, where, and how long it has been at it."""
+def agent_line(a: dict, r: Reading) -> str:
+    """A menu entry: name, and where. No running time: the menu is rebuilt only when what it lists changes, as
+    GNOME closes an open menu each time it is replaced (the card has the times)."""
     line = name_of(a)
     if at := where(a, r):
         line += f' · {at}'
-    if a['status'] == 'working' and key(a) in since:
-        line += f' — {ago(now - since[key(a)])}'
     if queued := a.get('queued') or []:
         line += f' · {len(queued)} queued' + (', next waits for your go' if queued[0].get('asking') else '')
     return line
 
 
-@dataclass
+@dataclass(frozen=True)
 class Entry:
     """A menu entry, kept free of pystray so it can be checked without a desktop. `href`: open it in the browser;
     `card`: open the agents' card; neither: a line of text."""
@@ -255,7 +284,7 @@ class Entry:
     default: bool = False  # what a click on the icon does, where the desktop has one (Windows, X11)
 
 
-def menu_model(cfg: Config, r: Reading, since: dict[str, float], now: float, card: bool = False) -> list[Entry]:
+def menu_model(cfg: Config, r: Reading, card: bool = False) -> list[Entry]:
     """`card`: whether the agents' card can open here. A click on the icon then opens it: on X11 trays, which have
     no menu, it is the only way in."""
     entries = [Entry(summary(r))]
@@ -266,38 +295,57 @@ def menu_model(cfg: Config, r: Reading, since: dict[str, float], now: float, car
     blocked, working = r.having('blocked'), r.having('working')
     if blocked:
         entries += [Entry('', rule=True), Entry('Needs you')]
-        entries += [Entry(f'   {agent_line(a, r, since, now)}', href=cfg.agent_href(a)) for a in blocked]
+        entries += [Entry(f'   {agent_line(a, r)}', href=cfg.agent_href(a)) for a in blocked]
     if working:
         entries += [Entry('', rule=True)]
         if len(working) > MENU_WORKING:
             entries.append(Entry(f'See all {len(working)} working agents…', card=True, default=not card))
         else:
             entries.append(Entry('Working'))
-            entries += [Entry(f'   {agent_line(a, r, since, now)}', href=cfg.agent_href(a)) for a in working]
+            entries += [Entry(f'   {agent_line(a, r)}', href=cfg.agent_href(a)) for a in working]
     carded = any(e.default for e in entries)
     entries += [Entry('', rule=True), Entry('Agents', href=f'{cfg.url}/#/m/agents', default=not carded), Entry('Open Marumado', href=f'{cfg.url}/')]
     return entries
 
 
+# Bold faces for the count in the icon, by platform; Pillow's own face otherwise.
+BOLD = ('DejaVuSans-Bold.ttf', 'LiberationSans-Bold.ttf', 'arialbd.ttf', 'Arial Bold.ttf', '/System/Library/Fonts/Supplemental/Arial Bold.ttf')
+
+
+@lru_cache(maxsize=8)
+def bold(px: int):
+    from PIL import ImageFont
+
+    for name in BOLD:
+        try:
+            return ImageFont.truetype(name, px)
+        except OSError:
+            pass
+    return ImageFont.load_default(px)
+
+
+def icon_look(r: Reading) -> tuple:
+    """All the icon depends on: it is redrawn, and handed to the tray, only when this changes."""
+    return bool(r.error), tuple(sorted(a['status'] for a in r.agents))
+
+
 def draw_icon(r: Reading, size: int = 64, opaque: bool = False):
-    """The round window: one arc per agent from twelve o'clock, drawn 4× and scaled down so the arcs stay smooth.
+    """The round window: one arc per agent from twelve o'clock, and in the middle how many need you (on a persimmon
+    disc) or else how many are working. Drawn 4× and scaled down so the arcs stay smooth.
     `opaque`: on the night ground, for trays that can't show transparency (X11's), which would otherwise turn it black."""
     from PIL import Image, ImageDraw
 
     s = size * 4
     img = Image.new('RGBA', (s, s), GROUND + (255,) if opaque else (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    pad, width = s * 0.1, round(s * 0.13)
+    pad, width = s * 0.04, round(s * 0.1)
     box = (pad, pad, s - pad, s - pad)
+    c = s / 2
     if r.error:
         # Nothing to read: an empty ring, struck through.
         d.ellipse(box, outline=TRACK + (255,), width=round(s * 0.08))
         d.line((s * 0.24, s * 0.76, s * 0.76, s * 0.24), fill=SIGNAL + (255,), width=round(s * 0.1))
         return img.resize((size, size), Image.LANCZOS)
-    blocked = r.having('blocked')
-    if blocked:
-        c = s / 2
-        d.ellipse((c - s * 0.2, c - s * 0.2, c + s * 0.2, c + s * 0.2), fill=SIGNAL + (255,))
     if not r.agents:
         d.ellipse(box, outline=TRACK + (255,), width=max(2, round(s * 0.035)))
     # Who needs you first, then who's working, finished, idle: the same order as the counts.
@@ -312,9 +360,17 @@ def draw_icon(r: Reading, size: int = 64, opaque: bool = False):
         for i, a in enumerate(agents):
             start = -90 + i * 360 / n + gap / 2
             d.arc(box, start, start + 360 / n - gap, fill=colour.get(a['status'], IDLE) + (255,), width=width)
-    if not blocked:
-        c, hub = s / 2, s * 0.06
-        d.ellipse((c - hub, c - hub, c + hub, c + hub), fill=(WORKING if r.having('working') else TRACK) + (255,))
+    blocked, working = len(r.having('blocked')), len(r.having('working'))
+    count = blocked or working
+    if blocked:
+        disc = s * 0.31
+        d.ellipse((c - disc, c - disc, c + disc, c + disc), fill=SIGNAL + (255,))
+    if count:
+        text = str(count) if count < 100 else '99'
+        d.text((c, c), text, font=bold(round(s * (0.5 if len(text) == 1 else 0.4))), anchor='mm', fill=(GROUND if blocked else WORKING) + (255,))
+    elif r.agents:
+        hub = s * 0.06
+        d.ellipse((c - hub, c - hub, c + hub, c + hub), fill=TRACK + (255,))
     return img.resize((size, size), Image.LANCZOS)
 
 
@@ -339,7 +395,74 @@ def screen_line(screen: str) -> str:
     return ''
 
 
+# ---------- the main screen, for the card ----------
+
+MONITOR = re.compile(r'^\s*\d+:\s+\+(\*?)\S*\s+(\d+)/\d+x(\d+)/\d+\+(\d+)\+(\d+)', re.M)
+
+
+def primary_of(listing: str) -> tuple[int, int, int, int] | None:
+    """The primary monitor (x, y, width, height) in `xrandr --listmonitors`, else its first."""
+    found = [(m[1] == '*', (int(m[4]), int(m[5]), int(m[2]), int(m[3]))) for m in MONITOR.finditer(listing)]
+    return next((area for primary, area in found if primary), found[0][1] if found else None)
+
+
+def gdk_area() -> tuple[int, int, int, int] | None:
+    """The primary monitor's work area (without the panels) through GDK, in X11's pixels as Tk counts them."""
+    if path := os.environ.get('MARUMADO_TRAY_GI'):
+        sys.path.append(path)
+    try:
+        os.environ['GDK_BACKEND'] = 'x11'  # Tk runs on X11 (XWayland under Wayland): measure the same screen
+        import gi
+        gi.require_version('Gdk', '3.0')
+        from gi.repository import Gdk
+        if not Gdk.init_check([])[0]:
+            return None
+        display = Gdk.Display.get_default()
+        monitor = display.get_primary_monitor() or display.get_monitor(0)
+        r, scale = monitor.get_workarea(), monitor.get_scale_factor()
+        return r.x * scale, r.y * scale, r.width * scale, r.height * scale
+    except Exception:  # noqa: BLE001 - no gi, no GDK 3, no display: xrandr then
+        return None
+
+
+def main_area() -> tuple[int, int, int, int] | None:
+    """Where the card goes on Linux, where several monitors make one wide X11 screen: the main monitor, the one
+    with the panel and the tray. None elsewhere, and when neither GDK nor xrandr can tell: then the whole screen."""
+    if not sys.platform.startswith('linux'):
+        return None
+    if area := gdk_area():
+        return area
+    try:
+        out = subprocess.run(['xrandr', '--listmonitors'], capture_output=True, text=True, timeout=5, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return primary_of(out.stdout) if out.returncode == 0 else None
+
+
 # ---------- the tray ----------
+
+
+def mend_xorg(icon):
+    """pystray 0.19's X11 icon, as GNOME's AppIndicator extension or an X11 panel embeds it, has three faults:
+    - it never asks X for clicks on its window, so a click goes nowhere;
+    - it asks the tray to dock it again on every new image, which makes the icon flicker and jump;
+    - it says it is ready before noting its own thread, so the first `visible = True` from the setup thread can fail,
+      leaving the icon unread for good.
+    Mended from outside, as pystray keeps them on the instance."""
+    import Xlib.X
+
+    icon._thread = threading.current_thread()  # run() runs its loop in this thread
+    icon._window.change_attributes(event_mask=Xlib.X.ExposureMask | Xlib.X.StructureNotifyMask | Xlib.X.ButtonPressMask)
+    icon._display.flush()
+    dock = icon._assert_docked
+
+    def docked():
+        if not icon._systray_manager:  # not docked yet, or the tray went away (a new one is looked for)
+            dock()
+        assert icon._systray_manager
+
+    icon._assert_docked = docked
+
 
 
 class Tray:
@@ -353,6 +476,10 @@ class Tray:
         self.opaque = False
         self.icon = None
         self.stop = threading.Event()
+        # What the tray was last handed: it is handed something new only when it changes. Each new image is a new
+        # file and each new menu replaces the open one on GNOME; each new image re-docks the icon on X11.
+        self.look: tuple | None = None
+        self.entries: list[Entry] = menu_model(cfg, self.reading, card=self.can_card)
 
     def run(self):
         import pystray
@@ -361,8 +488,15 @@ class Tray:
         self.icon = pystray.Icon('marumado', None, 'Marumado', menu=pystray.Menu(self.items))
         backend = type(self.icon).__module__.rsplit('.', 1)[-1].lstrip('_')
         self.opaque = backend == 'xorg'
+        if backend == 'xorg':
+            mend_xorg(self.icon)
         self.icon.icon = draw_icon(self.reading, opaque=self.opaque)
+        self.look = icon_look(self.reading)
         log(f'reading {self.cfg.url} with the token from {self.cfg.token_from}; tray: {backend}')
+        if backend in ('xorg', 'gtk') and 'GNOME' in os.environ.get('XDG_CURRENT_DESKTOP', '').upper():
+            log('GNOME shows this only as a legacy icon. For its own (AppIndicator) icon, install '
+                'gir1.2-ayatanaappindicator3-0.1 (Debian, Ubuntu) or libayatana-appindicator-gtk3 (Fedora), '
+                'and the AppIndicator and KStatusNotifierItem Support extension (see tray/README.md).')
         if not self.icon.HAS_MENU:
             log('this tray has no menus (pystray\'s X11 fallback): a click opens the agents card'
                 + ('' if self.can_card else ', but this Python has no Tk, so it opens the Agents page')
@@ -403,10 +537,16 @@ class Tray:
                         self.notify(f'{name_of(a)} finished its turn', doing(a) or where(a, r))
             self.last = {key(a): a['status'] for a in r.agents}
         self.reading = r
+        entries = menu_model(self.cfg, r, card=self.can_card)
         if self.icon:
-            self.icon.icon = draw_icon(r, opaque=self.opaque)
-            self.icon.title = f'Marumado: {summary(r)}'[:127]  # Windows cuts tooltips at 128
-            self.icon.update_menu()
+            if (look := icon_look(r)) != self.look:
+                self.look = look
+                self.icon.icon = draw_icon(r, opaque=self.opaque)
+            self.icon.title = f'Marumado: {summary(r)}'[:127]  # Windows cuts tooltips at 128; unchanged, it isn't sent
+        if entries != self.entries:
+            self.entries = entries
+            if self.icon and self.icon.HAS_MENU:
+                self.icon.update_menu()
 
     def notify(self, title: str, message: str):
         if self.icon and getattr(self.icon, 'HAS_NOTIFICATION', False):
@@ -417,7 +557,7 @@ class Tray:
 
     def items(self):
         pystray = self.pystray
-        for e in menu_model(self.cfg, self.reading, self.since, time.time(), card=self.can_card):
+        for e in self.entries:
             if e.rule:
                 yield pystray.Menu.SEPARATOR
             elif e.card:
@@ -430,8 +570,10 @@ class Tray:
         yield pystray.MenuItem('Quit', lambda *_: self.quit())
 
     def open_card(self):
+        """A second click closes it, as a tray's own popups do (and it may be hidden behind a window)."""
         if self.card and self.card.poll() is None:
-            return  # already open
+            self.card.terminate()
+            return
         if not self.can_card:
             webbrowser.open(f'{self.cfg.url}/#/m/agents')
             return
@@ -447,7 +589,7 @@ class Tray:
             code = card.wait()
             if code == QUIT_CODE:
                 self.quit()
-            elif code:
+            elif code > 0:  # below 0: ended by a signal, as a second click does
                 log(f'the card closed with an error ({code}); its output is above')
 
         threading.Thread(target=wait, daemon=True).start()
@@ -462,6 +604,8 @@ class Tray:
 
 def main(argv: list[str] | None = None):
     cfg, args = load_config(argv)
+    if not args.card:
+        borrow_gi(sys.argv[1:] if argv is None else argv)
     if args.card:
         from card import run_card  # beside this script
 
