@@ -767,23 +767,29 @@ function PlansButton({ onOpen }: { onOpen: () => void }) {
   )
 }
 
-
-function AgentTab({ agent: a, active, sub }: { agent: Agent; active: boolean; sub: string }) {
+/** An agent in the side list. Its + queues a task for it in the plans modal, without leaving the agent on screen. */
+function AgentTab({ agent: a, active, sub, onQueue }: { agent: Agent; active: boolean; sub: string; onQueue: (a: Agent) => void }) {
   const lamp = lampOf(a)
+  const name = a.name || a.kind
+  // The whole card is the link (stretched over it), so the + can sit on it without nesting a button in a link.
   return (
-    <a
-      className={`agent-tab${active ? ' is-active' : ''}${a.status === 'blocked' ? ' is-fault' : ''}`}
-      href={agentHref(a)}
-      aria-current={active ? 'page' : undefined}
-    >
+    <div className={`agent-tab${active ? ' is-active' : ''}${a.status === 'blocked' ? ' is-fault' : ''}${a.kind !== 'terminal' ? ' has-queue' : ''}`}>
       <span className={`row__lamp${lamp}`} role="img" aria-label={a.status} />
       <span className="agent-tab__main">
-        <span className="agent-tab__title">{agentLabel(a)}</span>
+        <a className="agent-tab__title" href={agentHref(a)} aria-current={active ? 'page' : undefined}>
+          {agentLabel(a)}
+        </a>
         <span className="agent-tab__sub">
           <span className={`agent-tab__state${a.status === 'blocked' ? ' signal-text' : ''}`}>{AGENT_STATE[a.status]}</span> {a.kind} · {sub}
         </span>
       </span>
-    </a>
+      {a.kind !== 'terminal' && (
+        <button type="button" className="tool agent-tab__queue" aria-haspopup="dialog" onClick={() => onQueue(a)} title={`New task: queue what ${name} does next`}>
+          <Icon name="plus" size={16} />
+          <span className="sr-only">New task for {name}</span>
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -866,8 +872,8 @@ function AgentsSheet({ sub }: { sub?: string }) {
   const [view, setView] = useState<'text' | 'screen'>('text')
   const [fit, setFit] = useFitPreference()
   const [full, setFull] = useState(false)
-  // 'agent': the modal opens on what the current agent does next; 'plans': on the plans alone, whatever is running.
-  const [plansOpen, setPlansOpen] = useState<false | 'agent' | 'plans'>(false)
+  // An agent: the modal opens on what that agent does next; 'plans': on the plans alone, whatever is running.
+  const [plansOpen, setPlansOpen] = useState<false | 'plans' | Agent>(false)
   const [changesAgent, setChangesAgent] = useState<Agent | null>(null)
   const plansButton = <PlansButton onOpen={() => setPlansOpen('plans')} />
   const [pickedWorkspace, setWorkspace] = useWorkspace()
@@ -948,7 +954,6 @@ function AgentsSheet({ sub }: { sub?: string }) {
           </>
         )}
         {plansOpen && <PlansModal agent={null} onClose={() => setPlansOpen(false)} />}
-      {changesAgent && <AgentChangesModal agent={changesAgent} onClose={() => setChangesAgent(null)} key={agentKey(changesAgent)} />}
       </div>
     )
   }
@@ -974,7 +979,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
   const queued = current.queued ?? []
   const currentAsks = queued.filter((q) => q.asking).length
   const working = everyAgent.filter((a) => a.kind !== 'terminal' && a.status === 'working').length
-  const tab = (a: Agent) => <AgentTab key={agentKey(a)} agent={a} active={!inbox && a === current} sub={projectFor(a)?.name ?? a.cwd} />
+  const tab = (a: Agent) => <AgentTab key={agentKey(a)} agent={a} active={!inbox && a === current} sub={projectFor(a)?.name ?? a.cwd} onQueue={setPlansOpen} />
   return (
     <div className="sheet sheet--fill agents">
       <aside className="agents__side">
@@ -1035,7 +1040,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
                     type="button"
                     className={`tool tool--bell${currentAsks ? ' is-fault' : ''}`}
                     aria-haspopup="dialog"
-                    onClick={() => setPlansOpen('agent')}
+                    onClick={() => setPlansOpen(current)}
                     title={currentAsks ? `${currentAsks} queued for ${current.name || current.kind} wait${currentAsks === 1 ? 's' : ''} for your go: open to give it` : queued.length ? `${queued.length} queued for ${current.name || current.kind}: queue more, or open the plans` : `Queue what ${current.name || current.kind} does next, or open the plans`}
                   >
                     <Icon name="queue" size={18} />
@@ -1095,7 +1100,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
               {queued.length > 0 && (
                 <span className={`agent-head__item mod-tasks${queued[0].asking ? ' signal-text' : ''}`}>
                   <Icon name="queue" size={15} />
-                  <button className="agent-head__link" type="button" onClick={() => setPlansOpen('agent')} title="What this agent does next">
+                  <button className="agent-head__link" type="button" onClick={() => setPlansOpen(current)} title="What this agent does next">
                     Next: {queued[0].title}
                   </button>
                   {queued[0].asking ? ' · waits for your go' : queued.length > 1 ? ` · ${queued.length - 1} more` : ''}
@@ -1122,7 +1127,8 @@ function AgentsSheet({ sub }: { sub?: string }) {
           {narrow && mode === 'control' && <AgentComposer paneId={current.pane_id} source={currentSource} key={`c${agentKey(current)}`} />}
         </div>
       )}
-      {plansOpen && <PlansModal agent={plansOpen === 'agent' && current.kind !== 'terminal' && !inbox ? current : null} onClose={() => setPlansOpen(false)} key={`${plansOpen}${agentKey(current)}`} />}
+      {plansOpen && <PlansModal agent={plansOpen !== 'plans' && plansOpen.kind !== 'terminal' ? plansOpen : null} onClose={() => setPlansOpen(false)} key={plansOpen === 'plans' ? 'plans' : agentKey(plansOpen)} />}
+      {changesAgent && <AgentChangesModal agent={changesAgent} onClose={() => setChangesAgent(null)} key={agentKey(changesAgent)} />}
     </div>
   )
 }

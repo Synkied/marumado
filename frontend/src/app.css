@@ -721,6 +721,7 @@
 }
 
 .agent-tab {
+  position: relative;
   flex: none;
   display: flex;
   align-items: center;
@@ -752,11 +753,42 @@
   display: grid;
 }
 
+.agent-tab.has-queue {
+  padding-right: calc(var(--sp-3) + var(--control-sm));
+}
+
 .agent-tab__title {
   font-size: var(--text-lg);
+  color: inherit;
+  text-decoration: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The title's link covers the whole card: a click anywhere on it opens the agent. */
+.agent-tab__title::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.agent-tab__title:focus-visible {
+  outline: none;
+}
+
+.agent-tab:has(.agent-tab__title:focus-visible) {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Queue a task for this agent, at the card's bottom right, above the stretched link. */
+.agent-tab__queue {
+  position: absolute;
+  right: var(--sp-2);
+  bottom: var(--sp-2);
+  z-index: 1;
 }
 
 .agent-tab__sub {
