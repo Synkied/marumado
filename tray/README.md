@@ -41,7 +41,10 @@ LAN, and pass its token (`make access-token` there prints it).
 - **The card** needs Tk. uv's own Pythons include it; a system Python may not (Debian: `python3-tk`), and then the
   card's entry opens the Agents page instead.
 
-Start it with your session (Windows: a shortcut in `shell:startup`; macOS: a Login Item; Linux: a `.desktop` file in
+`make up` starts it in the background (`make down` stops it, `make tray` / `make tray-stop` alone) when uv is
+installed and there is a desktop; its output goes to `tray/tray.log`. `MARUMADO_TRAY=0` in `.env` leaves it out.
+
+Or start it with your session (Windows: a shortcut in `shell:startup`; macOS: a Login Item; Linux: a `.desktop` file in
 `~/.config/autostart`) to keep it there.
 
 Tests (no desktop needed): `uv run --no-project --with pillow python -m unittest tray/test_tray.py`

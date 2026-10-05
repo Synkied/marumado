@@ -30,6 +30,8 @@ urlpatterns = [
     path('agents', views.agents),
     path('agents/terminal', views.agent_terminal),
     path('agents/workspace', views.agent_workspace),
+    path('agents/workspaces', views.agent_workspaces),
+    path('agents/workspaces/<str:workspace_id>/close', views.agent_workspace_close),
     path('agents/start', views.agent_start),
     path('agents/env-source', views.agent_env_source),
     path('agents/trace', views.agent_trace),

@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { Icon } from '../components/Icon'
-import { agentHref, preferredKind, startAgent } from '../lib/agents'
+import { agentHref, preferredKind, startAgent, useWorkspace, workspaceIn, workspaceLabel } from '../lib/agents'
 import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
 import type { Project } from '../lib/types'
 import { folderIn, machineOfSource, startPlaces } from '../lib/work'
 
-/** One click to an agent at work on the project: a new Herdr workspace in its folder, the agent started there, and
-    its terminal opened to watch it start. Only where agents can be controlled. */
+/** One click to an agent at work on the project: a new Herdr workspace in its folder (or a new tab in the workspace
+    picked on the Agents page), the agent started there, and its terminal opened to watch it start. Only where agents
+    can be controlled. */
 export function StartAgent({ project }: { project: Project }) {
   const { agents, refreshAgents } = useHub()
   const places = startPlaces(project, agents)
@@ -15,13 +16,15 @@ export function StartAgent({ project }: { project: Project }) {
   const [place, setPlace] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  useWorkspace() // follows the pick on the Agents page
   if (!agents?.available || agents.terminal !== 'control' || !places.length) return null
   const chosen = places.find((s) => s.id === place) ?? places[0]
+  const workspace = workspaceIn(agents, chosen.id)
   const start = async () => {
     setBusy(true)
     setError('')
     try {
-      const made = await startAgent(project.id, kind, chosen.id)
+      const made = await startAgent(project.id, kind, chosen.id, workspace?.id)
       await refreshAgents()
       go(agentHref(made))
     } catch (err) {
@@ -31,7 +34,13 @@ export function StartAgent({ project }: { project: Project }) {
   }
   return (
     <div className="start-agent">
-      <button className="btn btn--quiet" type="button" onClick={start} disabled={busy}>
+      <button
+        className="btn btn--quiet"
+        type="button"
+        onClick={start}
+        disabled={busy}
+        title={workspace ? `In a new tab of the workspace ${workspaceLabel(workspace)}, picked on the Agents page` : 'In a new Herdr workspace'}
+      >
         <Icon name="agent" size={16} /> {busy ? 'Starting…' : `Start ${kind}`}
       </button>
       <label className="sr-only" htmlFor={`kind-${project.id}`}>

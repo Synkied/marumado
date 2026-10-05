@@ -792,6 +792,88 @@ class StartAgentTests(TestCase):
                 self.assertRegex(herdr.free_name(base), herdr.AGENT_NAME)
 
 
+@override_settings(MARUMADO_TOKEN='test-token')
+@mock.patch.object(monitor, 'ensure_started', lambda: None)
+class WorkspaceTests(TestCase):
+    """Herdr's workspaces, made, picked and closed from the web."""
+
+    def setUp(self):
+        herdr.forget_failures()
+        self.addCleanup(herdr.forget_failures)
+        self.api = APIClient()
+        self.api.credentials(HTTP_AUTHORIZATION='Bearer test-token')
+        self.project = Project.objects.create(name='My Blog', path='/projects/my-blog')
+        self.calls = []
+
+    def run_herdr(self, src, *args, text=False, timeout=0):
+        self.calls.append(args)
+        if args[:2] == ('pane', 'list'):
+            return {'panes': [{'pane_id': 'w1:p1', 'workspace_id': 'w1', 'agent': 'claude', 'agent_status': 'idle'},
+                              {'pane_id': 'w2:p1', 'workspace_id': 'w2'}]}
+        if args[:2] == ('workspace', 'list'):
+            return {'workspaces': [
+                {'workspace_id': 'w1', 'label': 'blog', 'worktree': {'repo_key': '/b/.git', 'checkout_path': '/b', 'is_linked_worktree': False}},
+                {'workspace_id': 'w2', 'label': 'blog · fix', 'worktree': {'repo_key': '/b/.git', 'checkout_path': '/wt/fix', 'is_linked_worktree': True}},
+                {'workspace_id': 'w3', 'label': 'notes'}]}
+        if args[:2] == ('workspace', 'create'):
+            cwd = args[args.index('--cwd') + 1] if '--cwd' in args else '/root'
+            return {'root_pane': {'pane_id': 'w4:p1', 'workspace_id': 'w4', 'cwd': cwd}}
+        if args[:2] == ('tab', 'create'):
+            return {'root_pane': {'pane_id': 'w1:p2', 'workspace_id': 'w1', 'cwd': args[args.index('--cwd') + 1] if '--cwd' in args else '/b'}}
+        if args[:2] == ('workspace', 'close') and '--group' not in args and args[2] == 'w1':
+            raise RuntimeError('workspace has linked worktree workspaces; use --group (close_group=true in the API) to close the group')
+        return '' if text else {}
+
+    def test_workspaces_are_listed_with_their_worktrees(self):
+        with mock.patch.object(herdr, '_run', self.run_herdr):
+            listed = self.api.get('/api/agents').json()
+        spaces = listed['sources'][0]['workspaces']
+        self.assertEqual([(w['id'], w['label'], w['worktree_of'], w['linked']) for w in spaces],
+                         [('w1', 'blog', '', 1), ('w2', 'blog · fix', 'w1', 0), ('w3', 'notes', '', 0)])
+        self.assertEqual({a['pane_id']: a['workspace_id'] for a in listed['agents']}, {'w1:p1': 'w1', 'w2:p1': 'w2'})
+
+    def test_a_workspace_opens_in_the_project_folder(self):
+        with mock.patch.object(herdr, '_run', self.run_herdr):
+            res = self.api.post('/api/agents/workspaces', {'source': 0, 'project': self.project.id}, format='json')
+            self.assertEqual(res.status_code, 201, res.content)
+            self.assertEqual(res.json(), {'workspace_id': 'w4', 'pane_id': 'w4:p1', 'cwd': '/projects/my-blog', 'source': 0})
+            self.assertEqual(self.calls[-1], ('workspace', 'create', '--cwd', '/projects/my-blog', '--label', 'My Blog', '--no-focus'))
+            res = self.api.post('/api/agents/workspaces', {'source': 0, 'label': ' Scratch '}, format='json')
+            self.assertEqual(self.calls[-1], ('workspace', 'create', '--label', 'Scratch', '--no-focus'))
+
+    def test_a_folder_herdr_cannot_see_closes_the_workspace(self):
+        def elsewhere(src, *args, **kw):
+            if args[:2] == ('workspace', 'create'):
+                return {'root_pane': {'pane_id': 'w4:p1', 'workspace_id': 'w4', 'cwd': '/root'}}
+            return self.run_herdr(src, *args, **kw)
+        with mock.patch.object(herdr, '_run', elsewhere):
+            res = self.api.post('/api/agents/workspaces', {'source': 0, 'project': self.project.id}, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(self.calls[-1], ('workspace', 'close', 'w4'))
+
+    def test_terminals_and_agents_open_in_the_chosen_workspace(self):
+        with mock.patch.object(herdr, '_run', self.run_herdr):
+            res = self.api.post('/api/agents/terminal', {'source': 0, 'workspace': 'w3'}, format='json')
+            self.assertEqual(res.status_code, 201, res.content)
+            self.assertEqual(self.calls[-1], ('tab', 'create', '--workspace', 'w3', '--no-focus'))
+            with mock.patch.object(herdr, 'launch_agent', return_value=True):
+                res = self.api.post('/api/agents/start', {'project': self.project.id, 'kind': 'claude', 'source': 0, 'workspace': 'w1'}, format='json')
+            self.assertEqual(res.status_code, 201, res.content)
+            self.assertIn(('tab', 'create', '--workspace', 'w1', '--cwd', '/projects/my-blog', '--label', 'My Blog', '--no-focus'), self.calls)
+            res = self.api.post('/api/agents/terminal', {'source': 0, 'workspace': 'w1; rm'}, format='json')
+            self.assertEqual(res.status_code, 400)
+
+    def test_closing_a_workspace_with_worktrees_asks_for_the_group(self):
+        with mock.patch.object(herdr, '_run', self.run_herdr):
+            res = self.api.post('/api/agents/workspaces/w1/close', {'source': 0}, format='json')
+            self.assertEqual(res.status_code, 409, res.content)
+            self.assertTrue(res.json()['group'])
+            res = self.api.post('/api/agents/workspaces/w1/close', {'source': 0, 'group': True}, format='json')
+            self.assertEqual(res.status_code, 204, res.content)
+            self.assertEqual(self.calls[-1], ('workspace', 'close', 'w1', '--group'))
+            self.assertEqual(self.api.post('/api/agents/workspaces/w1:p1/close', {'source': 0}, format='json').status_code, 400)
+
+
 class TerminalCommandTests(TestCase):
     def test_scroll_and_clicks_reach_the_cell_under_the_pointer(self):
         scroll = terminal._command({'type': 'terminal.scroll', 'direction': 'down', 'lines': 3, 'column': 130, 'row': 20}, fit=False)

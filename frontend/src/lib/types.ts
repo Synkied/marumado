@@ -176,7 +176,9 @@ export type Agent = {
   /** What the agent's terminal title says it is doing. */
   title: string
   cwd: string
+  /** its Herdr workspace's label, and id (the id is absent from older Marumados) */
   workspace: string
+  workspace_id?: string
   focused: boolean
   /** the project it works in, by folder (or by name, on another machine) */
   project?: ProjectRef
@@ -204,6 +206,20 @@ export type AgentSource = {
   error: string
   /** how many panes it has open */
   agents: number
+  /** its Herdr workspaces, in Herdr's order (absent from older Marumados) */
+  workspaces?: Workspace[]
+}
+
+/** A Herdr workspace: tabs and panes kept together, as in Herdr's sidebar. */
+export type Workspace = {
+  id: string
+  label: string
+  /** the git checkout it is in, when it is one */
+  cwd: string
+  /** a git worktree's workspace: its repository's workspace id ('' otherwise) */
+  worktree_of: string
+  /** how many worktree workspaces are linked to it: Herdr closes it only with them */
+  linked: number
 }
 
 /** An agent source as saved in the app (GET /agent-sources). */

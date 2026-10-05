@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { agentHref, agentKey, sourceLabel, sourceOf, sourceQuery } from '../lib/agents'
 import { Icon } from '../components/Icon'
 import { api } from '../lib/api'
-import { useHub } from '../lib/hub'
+import { useHub, type Ask } from '../lib/hub'
 import { canNotify, useNotifyPreference } from '../lib/notify'
-import type { Agent, QueuedStep } from '../lib/types'
+import type { Agent } from '../lib/types'
 import { usePoll } from '../lib/usePoll'
 import { GoButton } from './plans'
 
@@ -112,13 +112,20 @@ export function Question({ agent: a, control, head = true }: { agent: Agent; con
 
 /** Every agent waiting on you, from every source, answerable from here; every plan's step waiting for your go. And
     whether this browser calls you back. */
-export function AgentInbox({ waiting, asks, working, control }: { waiting: Agent[]; asks: { agent: Agent; step: QueuedStep }[]; working: number; control: boolean }) {
+export function AgentInbox({ waiting, asks, working, control }: { waiting: Agent[]; asks: Ask[]; working: number; control: boolean }) {
   return (
     <div className="inbox">
       {asks.map(({ agent: a, step }) => (
         <article className="question question--ask" key={`go${step.id}`}>
           <p className="question__ask">
-            <strong>“{step.title}” waits for your go.</strong> It is next for <a href={agentHref(a)}>{a.name || a.kind}</a>: check what came before it, then let it start.{' '}
+            <strong>“{step.title}” waits for your go.</strong>{' '}
+            {a ? (
+              <>
+                It is next for <a href={agentHref(a)}>{a.name || a.kind}</a>: check what came before it, then let it start.
+              </>
+            ) : (
+              'It starts a new agent: check what came before it, then let it start.'
+            )}{' '}
             <a href={`#/m/tasks/plan/${step.plan}`}>Open the plan</a>.
           </p>
           <span>

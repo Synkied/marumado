@@ -5,7 +5,7 @@ import { daysSince, PUSH_GRACE_DAYS } from './growth'
 import type { MachineId } from './api'
 import { useMachines } from './machines'
 import { moduleHref } from './route'
-import type { Agents, Docker, HistoryPoint, Machine, Port, Project, Skill, System, Task } from './types'
+import type { Agent, Agents, Docker, HistoryPoint, Machine, Plan, Port, Project, QueuedStep, Skill, System, Task } from './types'
 import { usePoll } from './usePoll'
 import { activity, atWork } from './work'
 
@@ -27,6 +27,24 @@ export type ModuleId = 'projects' | 'machine' | 'urls' | 'ports' | 'docker' | 'p
 export const MACHINE_MODULES: ModuleId[] = ['machine', 'processes', 'ports', 'docker']
 export const isMachineModule = (id: ModuleId) => MACHINE_MODULES.includes(id)
 
+/** A plan's step whose turn has come and that waits for your go; `agent`: the one it is next for (none when it starts
+    a new agent). */
+export type Ask = { step: QueuedStep; agent?: Agent }
+
+/** What waits on you from the agents: an agent's question or approval, or a plan's step waiting for your go. */
+export type NeedsYou = { waiting: Agent[]; asks: Ask[]; count: number }
+
+function needsYou(agents?: Agents, plans?: Plan[]): NeedsYou {
+  const every = agents?.agents ?? []
+  const waiting = every.filter((a) => a.kind !== 'terminal' && a.status === 'blocked')
+  const asks: Ask[] = every.flatMap((a) => (a.queued ?? []).filter((q) => q.asking).map((step) => ({ step, agent: a })))
+  const listed = new Set(asks.map((x) => x.step.id))
+  for (const p of plans ?? [])
+    for (const t of p.steps)
+      if (p.asking.includes(t.id) && !listed.has(t.id)) asks.push({ step: { id: t.id, title: t.title, plan: p.id, asking: true } })
+  return { waiting, asks, count: waiting.length + asks.length }
+}
+
 type Hub = {
   system?: System
   history: HistoryPoint[]
@@ -35,6 +53,8 @@ type Hub = {
   docker?: Docker
   agents?: Agents
   tasks?: Task[]
+  plans?: Plan[]
+  needsYou: NeedsYou
   skills?: Skill[]
   alerts: Alert[]
   error: ApiError | Error | null
@@ -43,6 +63,7 @@ type Hub = {
   refreshSkills: () => void
   refreshAgents: () => Promise<void>
   refreshTasks: () => void
+  refreshPlans: () => void
 }
 
 const HubContext = createContext<Hub | null>(null)
@@ -176,6 +197,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const agents = usePoll<Agents>('agents', 4000, true)
   const skills = usePoll<Skill[]>('skills', 30000)
   const tasks = usePoll<Task[]>('tasks', 5000)
+  const plans = usePoll<Plan[]>('plans', 4000)
   const [history, setHistory] = useState<HistoryPoint[]>([])
   const lastT = useRef(0)
 
@@ -209,6 +231,8 @@ export function HubProvider({ children }: { children: ReactNode }) {
     [system.data, history, projects.data, docker.data, agents.data, tasks.data, machines, current],
   )
 
+  const needs = useMemo(() => needsYou(agents.data, plans.data), [agents.data, plans.data])
+
   const value: Hub = {
     system: system.data,
     history,
@@ -217,6 +241,8 @@ export function HubProvider({ children }: { children: ReactNode }) {
     docker: docker.data,
     agents: agents.data,
     tasks: tasks.data,
+    plans: plans.data,
+    needsYou: needs,
     skills: skills.data,
     alerts,
     error: system.error ?? projects.error,
@@ -225,6 +251,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
     refreshSkills: skills.refresh,
     refreshAgents: agents.refresh,
     refreshTasks: tasks.refresh,
+    refreshPlans: plans.refresh,
   }
   return <HubContext.Provider value={value}>{children}</HubContext.Provider>
 }

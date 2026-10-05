@@ -677,15 +677,15 @@ def agent_env_source(request):
 
 @api_view(['POST'])
 def agent_terminal(request):
-    """Open a shell in a new Herdr tab, beside pane `near` if given (MARUMADO_HERDR_TERMINAL=control only)."""
+    """Open a shell in a new Herdr tab, beside pane `near` or in `workspace` if given (MARUMADO_HERDR_TERMINAL=control only)."""
     if herdr.terminal_mode() != 'control':
         return Response({'detail': 'Opening terminals is turned off (MARUMADO_HERDR_TERMINAL).'}, status=403)
-    near = request.data.get('near') or ''
-    if not isinstance(near, str):
-        return Response({'detail': 'near is a pane id.'}, status=400)
+    near, workspace = request.data.get('near') or '', request.data.get('workspace') or ''
+    if not isinstance(near, str) or not isinstance(workspace, str):
+        return Response({'detail': 'near is a pane id, workspace a workspace id.'}, status=400)
     try:
         source = _agent_source(request)
-        return Response({**herdr.new_terminal(near, source), 'source': source.id}, status=status.HTTP_201_CREATED)
+        return Response({**herdr.new_terminal(near, source, workspace), 'source': source.id}, status=status.HTTP_201_CREATED)
     except ValueError as exc:
         return Response({'detail': str(exc)}, status=400)
     except (RuntimeError, KeyError) as exc:
@@ -700,15 +700,19 @@ def _control_only(what: str) -> Response | None:
 
 @api_view(['POST'])
 def agent_workspace(request):
-    """{cwd, label[, branch]}: a new Herdr workspace with a shell, for a task (asked by the Marumado that shows this
-    machine). With `branch`, a new git worktree of the repository at `cwd` on that branch, for a plan's step."""
+    """{cwd, label[, branch | workspace]}: a new Herdr workspace with a shell, for a task (asked by the Marumado that
+    shows this machine). With `branch`, a new git worktree of the repository at `cwd` on that branch, for a plan's
+    step. With `workspace`, a new tab in that open workspace instead, for an agent started there."""
     refused = _control_only('Starting agents')
     if refused:
         return refused
     cwd, label, branch = request.data.get('cwd') or '', request.data.get('label') or '', request.data.get('branch') or ''
-    if not isinstance(cwd, str) or not isinstance(label, str) or not isinstance(branch, str):
-        return Response({'detail': 'cwd, label and branch are text.'}, status=400)
+    workspace = request.data.get('workspace') or ''
+    if not all(isinstance(v, str) for v in (cwd, label, branch, workspace)):
+        return Response({'detail': 'cwd, label, branch and workspace are text.'}, status=400)
     try:
+        if workspace:
+            return Response({**herdr.open_tab(workspace, cwd, label, _agent_source(request)), 'tab': True}, status=status.HTTP_201_CREATED)
         if branch:
             if not cwd or not herdr.BRANCH.match(branch):
                 return Response({'detail': 'A worktree needs the repository folder and a plain branch name.'}, status=400)
@@ -721,14 +725,69 @@ def agent_workspace(request):
 
 
 @api_view(['POST'])
+def agent_workspaces(request):
+    """{source, label, project | cwd}: a new Herdr workspace with a shell, in the project's folder there (or `cwd`, as
+    that source sees it; neither: Herdr's default folder). Answers {workspace_id, pane_id, cwd, source}."""
+    refused = _control_only('Opening workspaces')
+    if refused:
+        return refused
+    label, project_id, cwd = request.data.get('label') or '', request.data.get('project'), request.data.get('cwd') or ''
+    if not isinstance(label, str) or not isinstance(cwd, str) or project_id is not None and not isinstance(project_id, int):
+        return Response({'detail': 'Send a label, and a project id or a folder.'}, status=400)
+    try:
+        source = _agent_source(request)
+        if project_id is not None:
+            project = Project.objects.filter(pk=project_id, kind=Project.KIND_PROJECT).first()
+            if project is None:
+                return Response({'detail': 'No such project.'}, status=400)
+            cwd = tasks.folder_for(project, source.id)
+            if not cwd:
+                return Response({'detail': f'{project.name} has no folder {source.where()}.'}, status=400)
+            label = label or project.name
+        made = herdr.create_workspace(label, cwd, source)
+        if cwd and made['cwd'] and made['cwd'].rstrip('/') != cwd.rstrip('/'):
+            # Herdr opens a folder it can't find in its home folder, without a word.
+            try:
+                herdr.close_workspace(made['workspace_id'], source=source)
+            except (RuntimeError, ValueError):
+                pass
+            return Response({'detail': f"{cwd} isn't there for Herdr {source.where()}. If it is there under another path, add that folder in Agents → Sources."}, status=400)
+        return Response({**made, 'source': source.id}, status=status.HTTP_201_CREATED)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    except (RuntimeError, KeyError) as exc:
+        return Response({'detail': str(exc)}, status=502)
+
+
+@api_view(['POST'])
+def agent_workspace_close(request, workspace_id: str):
+    """{source, group}: close a Herdr workspace and everything in it. `group`: with its git worktrees' workspaces;
+    without it, a workspace that has some answers 409 {group: true}."""
+    refused = _control_only('Closing workspaces')
+    if refused:
+        return refused
+    group = request.data.get('group') is True
+    try:
+        herdr.close_workspace(workspace_id, group, _agent_source(request))
+    except herdr.GroupClose as exc:
+        return Response({'detail': str(exc), 'group': True}, status=409)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    except RuntimeError as exc:
+        return Response({'detail': str(exc)}, status=502)
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['POST'])
 def agent_start(request):
-    """{project, kind, source}: a new `kind` agent in the project's folder in that source (no project: Herdr's default
-    folder). Answers {pane_id, source, cwd, name} once its workspace is open; the agent keeps starting there."""
+    """{project, kind, source[, workspace]}: a new `kind` agent in the project's folder in that source (no project:
+    Herdr's default folder), in a new workspace or a new tab of `workspace`. Answers {pane_id, source, cwd, name} once
+    it is open; the agent keeps starting there."""
     refused = _control_only('Starting agents')
     if refused:
         return refused
-    project_id, kind = request.data.get('project'), request.data.get('kind') or ''
-    if project_id is not None and not isinstance(project_id, int) or not isinstance(kind, str):
+    project_id, kind, workspace = request.data.get('project'), request.data.get('kind') or '', request.data.get('workspace') or ''
+    if project_id is not None and not isinstance(project_id, int) or not isinstance(kind, str) or not isinstance(workspace, str):
         return Response({'detail': 'Send the project id and the kind of agent.'}, status=400)
     project = None
     if project_id is not None:
@@ -740,7 +799,7 @@ def agent_start(request):
         cwd = tasks.folder_for(project, source.id)
         if project and not cwd:
             return Response({'detail': f'{project.name} has no folder {source.where()}.'}, status=400)
-        started = herdr.start_agent(kind, cwd, project.name if project else '', source)
+        started = herdr.start_agent(kind, cwd, project.name if project else '', source, workspace)
         return Response({**started, 'source': source.id}, status=status.HTTP_201_CREATED)
     except ValueError as exc:
         return Response({'detail': str(exc)}, status=400)

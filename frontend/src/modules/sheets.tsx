@@ -2,9 +2,10 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { Terminal } from '../components/Terminal'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { DotChart } from '../components/DotChart'
+import { CountBadge } from '../components/CountBadge'
 import { Icon } from '../components/Icon'
 import { Meter } from '../components/Meter'
-import { agentHref, agentKey, parseAgentRef, sourceLabel, sourceOf, sourceQuery, sourcesOf } from '../lib/agents'
+import { agentHref, agentKey, findWorkspace, parseAgentRef, sourceLabel, sourceOf, sourceQuery, sourcesOf, useWorkspace, workspaceLabel } from '../lib/agents'
 import { api } from '../lib/api'
 import { bytes, duration, rate } from '../lib/format'
 import { useHub } from '../lib/hub'
@@ -23,6 +24,7 @@ import { ProjectForm, ProjectsSheet } from './projects'
 import { SheetHead, ViewTabs } from './sheetHead'
 import { TasksSheet } from './tasks'
 import { PlansModal } from './planModal'
+import { WorkspaceBar } from './workspaces'
 
 export function SheetFor({ route }: { route: Route }) {
   if (route.kind === 'alerts') return <AlertsSheet />
@@ -681,8 +683,8 @@ function useFitPreference(): [boolean, (on: boolean) => void] {
   return [fit, set]
 }
 
-/** The + on a source's heading: opens a shell in a new Herdr workspace there, and switches to it. */
-function NewTerminal({ source, sourceName }: { source: number; sourceName: string }) {
+/** The + on a source's heading: opens a shell there (in a new tab of `workspace`, or a new Herdr workspace), and switches to it. */
+function NewTerminal({ source, sourceName, workspace }: { source: number; sourceName: string; workspace?: string }) {
   const { refreshAgents } = useHub()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -690,7 +692,7 @@ function NewTerminal({ source, sourceName }: { source: number; sourceName: strin
     setBusy(true)
     setError('')
     try {
-      const made = await api<{ pane_id: string; source?: number }>('agents/terminal', { method: 'POST', json: { source } })
+      const made = await api<{ pane_id: string; source?: number }>('agents/terminal', { method: 'POST', json: { source, ...(workspace ? { workspace } : {}) } })
       refreshAgents()
       go(agentHref({ pane_id: made.pane_id, source: made.source ?? source }))
     } catch (err) {
@@ -706,7 +708,7 @@ function NewTerminal({ source, sourceName }: { source: number; sourceName: strin
       onClick={open}
       disabled={busy}
       aria-label={`New terminal on ${sourceName}`}
-      title={error ? `Couldn't open a terminal: ${error}` : `Open a shell in a new Herdr workspace on ${sourceName}`}
+      title={error ? `Couldn't open a terminal: ${error}` : workspace ? `Open a shell in a new tab of ${workspace}` : `Open a shell in a new Herdr workspace on ${sourceName}`}
     >
       <Icon name="plus" size={14} />
     </button>
@@ -734,12 +736,23 @@ function InboxBell({ waiting, asks, active }: { waiting: number; asks: number; a
   )
 }
 
-/** The plans, over the Agents page: lay out a new one or follow one, even with no agent running. */
+/** The plans, over the Agents page: lay out a new one or follow one, even with no agent running. Its badge counts
+    the steps of every plan whose turn has come and that wait for your go, those for an agent not started yet too. */
 function PlansButton({ onOpen }: { onOpen: () => void }) {
+  const { plans } = useHub()
+  const asks = (plans ?? []).reduce((n, p) => n + p.asking.length, 0)
+  const what = asks ? `${asks} step${asks === 1 ? '' : 's'} wait${asks === 1 ? 's' : ''} for your go` : ''
   return (
-    <button type="button" className="tool" aria-haspopup="dialog" onClick={onOpen} title="Plans: make a new one, or follow one">
+    <button
+      type="button"
+      className={`tool${asks ? ' is-fault' : ''}`}
+      aria-haspopup="dialog"
+      onClick={onOpen}
+      title={what ? `Plans: ${what}` : 'Plans: make a new one, or follow one'}
+    >
       <Icon name="tasks" size={18} />
-      <span className="sr-only">Plans</span>
+      <CountBadge n={asks} />
+      <span className="sr-only">Plans{what && `: ${what}`}</span>
     </button>
   )
 }
@@ -764,7 +777,7 @@ function AgentTab({ agent: a, active, sub }: { agent: Agent; active: boolean; su
 }
 
 /** A source's heading in the list of agents: whether it answers, its name, and how many agents it runs. */
-function SourceHeading({ source: s, agents, control }: { source: AgentSource; agents: Agent[]; control: boolean }) {
+function SourceHeading({ source: s, agents, control, workspace }: { source: AgentSource; agents: Agent[]; control: boolean; workspace?: string }) {
   const redact = useRedact()
   const live = agents.filter((a) => a.kind !== 'terminal')
   const waiting = live.filter((a) => a.status === 'blocked').length
@@ -777,7 +790,7 @@ function SourceHeading({ source: s, agents, control }: { source: AgentSource; ag
         <span className="agent-group__name" title={redact(s.where)}>
           {s.name}
         </span>
-        {control && s.available && <NewTerminal source={s.id} sourceName={s.name} />}
+        {control && s.available && <NewTerminal source={s.id} sourceName={s.name} workspace={workspace} />}
       </div>
       <span className={`agent-group__count${!s.available || waiting ? ' signal-text' : ''}`}>{count}</span>
       {!s.available && (
@@ -836,7 +849,7 @@ function AgentTask({ agent: a, projectId }: { agent: Agent; projectId: number | 
 }
 
 function AgentsSheet({ sub }: { sub?: string }) {
-  const { agents, projects, refreshAgents } = useHub()
+  const { agents, projects, refreshAgents, needsYou } = useHub()
   const [closeError, setCloseError] = useState('')
   const narrow = useIsNarrow()
   const [view, setView] = useState<'text' | 'screen'>('text')
@@ -845,6 +858,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
   // 'agent': the modal opens on what the current agent does next; 'plans': on the plans alone, whatever is running.
   const [plansOpen, setPlansOpen] = useState<false | 'agent' | 'plans'>(false)
   const plansButton = <PlansButton onOpen={() => setPlansOpen('plans')} />
+  const [pickedWorkspace, setWorkspace] = useWorkspace()
 
   if (sub === 'sources' || sub?.startsWith('sources/')) return <AgentSourcesSheet sub={sub.slice(8)} />
   if (!agents) return <div className="sheet__empty">Loading…</div>
@@ -853,17 +867,24 @@ function AgentsSheet({ sub }: { sub?: string }) {
     a.project !== undefined
       ? a.project
       : (projects ?? []).filter((p) => p.path && (a.cwd === p.path || a.cwd.startsWith(`${p.path}/`))).sort((x, y) => y.path.length - x.path.length)[0]
-  const sources = sourcesOf(agents)
-  const multi = sources.length > 1
+  // The workspace picked shows only its agents, and new terminals open in it. One gone from Herdr shows them all again.
+  const workspace = findWorkspace(agents, pickedWorkspace)
+  const inWorkspace = (a: Agent) => !workspace || (sourceOf(a) === workspace.source && a.workspace_id === workspace.id)
+  const allSources = sourcesOf(agents)
+  const sources = workspace ? allSources.filter((s) => s.id === workspace.source) : allSources
+  const multi = allSources.length > 1
   // Grouped by source (in the order they are listed), then most urgent first. Even one source gets its heading,
   // with the + that opens a terminal there. Older Marumados don't list sources: a plain list then.
   const grouped = sources.length > 0
   const order = (a: Agent) => (grouped ? sources.findIndex((s) => s.id === sourceOf(a)) * 10 : 0) + AGENT_ORDER.indexOf(a.status)
-  const list = [...agents.agents].sort((a, b) => order(a) - order(b))
+  const everyAgent = [...agents.agents].sort((a, b) => order(a) - order(b))
+  const list = everyAgent.filter(inWorkspace)
   const ref = parseAgentRef(sub)
-  const current = (ref && list.find((a) => a.pane_id === ref.pane && sourceOf(a) === ref.source)) || list[0]
+  // A link to an agent in another workspace still opens it.
+  const current = (ref && everyAgent.find((a) => a.pane_id === ref.pane && sourceOf(a) === ref.source)) || list[0]
   const mode = agents.terminal ?? 'control'
-  const sourcesLabel = `Sources${multi ? ` · ${sources.length}` : ''}`
+  const sourcesLabel = `Sources${multi ? ` · ${allSources.length}` : ''}`
+  const workspaceBar = <WorkspaceBar agents={agents} chosen={workspace} onChoose={setWorkspace} control={mode === 'control'} />
 
   if (!agents.available || !current) {
     return (
@@ -874,6 +895,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
             {sourcesLabel}
           </a>
         </SheetHead>
+        {agents.available && workspaceBar}
         {!agents.available ? (
           <div className="notice">
             {multi ? (
@@ -932,11 +954,13 @@ function AgentsSheet({ sub }: { sub?: string }) {
     }
   }
   const inbox = sub === 'inbox'
-  const waiting = list.filter((a) => a.kind !== 'terminal' && a.status === 'blocked')
-  // Plans' steps whose turn has come, waiting for your go: they need you too.
-  const asks = list.flatMap((a) => (a.queued ?? []).filter((q) => q.asking).map((q) => ({ agent: a, step: q })))
+  // Needs you counts every workspace: an agent waiting elsewhere still waits on you.
+  const waiting = everyAgent.filter((a) => a.kind !== 'terminal' && a.status === 'blocked')
+  // Plans' steps whose turn has come, waiting for your go: they need you too, those starting a new agent as well.
+  const asks = needsYou.asks
   const queued = current.queued ?? []
-  const working = list.filter((a) => a.kind !== 'terminal' && a.status === 'working').length
+  const currentAsks = queued.filter((q) => q.asking).length
+  const working = everyAgent.filter((a) => a.kind !== 'terminal' && a.status === 'working').length
   const tab = (a: Agent) => <AgentTab key={agentKey(a)} agent={a} active={!inbox && a === current} sub={projectFor(a)?.name ?? a.cwd} />
   return (
     <div className="sheet sheet--fill agents">
@@ -949,13 +973,14 @@ function AgentsSheet({ sub }: { sub?: string }) {
             <span className="sr-only">{sourcesLabel}</span>
           </a>
         </SheetHead>
-        <nav className="agent-tabs" aria-label="Agents">
+        {workspaceBar}
+        <nav className="agent-tabs" aria-label={workspace ? `Agents in ${workspaceLabel(workspace)}` : 'Agents'}>
           {grouped
             ? sources.map((s) => {
                 const mine = list.filter((a) => sourceOf(a) === s.id)
                 return (
                   <section className="agent-tabs__group" key={s.id}>
-                    <SourceHeading source={s} agents={mine} control={mode === 'control'} />
+                    <SourceHeading source={s} agents={mine} control={mode === 'control'} workspace={workspace?.id} />
                     {mine.map(tab)}
                   </section>
                 )
@@ -991,14 +1016,15 @@ function AgentsSheet({ sub }: { sub?: string }) {
                 {current.kind !== 'terminal' && (
                   <button
                     type="button"
-                    className={`tool tool--bell${queued.some((q) => q.asking) ? ' is-fault' : ''}`}
+                    className={`tool tool--bell${currentAsks ? ' is-fault' : ''}`}
                     aria-haspopup="dialog"
                     onClick={() => setPlansOpen('agent')}
-                    title={queued.length ? `${queued.length} queued for ${current.name || current.kind}: queue more, or open the plans` : `Queue what ${current.name || current.kind} does next, or open the plans`}
+                    title={currentAsks ? `${currentAsks} queued for ${current.name || current.kind} wait${currentAsks === 1 ? 's' : ''} for your go: open to give it` : queued.length ? `${queued.length} queued for ${current.name || current.kind}: queue more, or open the plans` : `Queue what ${current.name || current.kind} does next, or open the plans`}
                   >
                     <Icon name="queue" size={18} />
                     {queued.length > 0 && <span className="tool__count">{queued.length}</span>}
-                    <span className="sr-only">Queue next and plans</span>
+                    <CountBadge n={currentAsks} />
+                    <span className="sr-only">Queue next and plans{currentAsks ? `: ${currentAsks} waiting for your go` : ''}</span>
                   </button>
                 )}
                 {!narrow && mode === 'control' && (

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { CountBadge } from './components/CountBadge'
 import { Dial } from './components/Dial'
 import { Icon } from './components/Icon'
 import { Palette } from './components/Palette'
@@ -10,13 +11,11 @@ import { useMachines } from './lib/machines'
 import { useAgentCallbacks } from './lib/notify'
 import { useStreaming } from './lib/streaming'
 import { useIsNarrow } from './lib/useIsNarrow'
-import { usePins } from './lib/pins'
 import { go, useRoute } from './lib/route'
-import { meta, PANEL_MODULES, useSummaries, type Summary } from './modules/registry'
-import { PinnedProjects } from './modules/projectPin'
+import { meta, useSummaries } from './modules/registry'
+import { pinnedProjects, PinnedProjects } from './modules/projectPin'
 import { SheetFor } from './modules/sheets'
 import { Fleet } from './modules/fleet'
-import { AgentDock } from './modules/agentDock'
 import './app.css'
 
 function Wordmark() {
@@ -120,6 +119,53 @@ function Vitals() {
   )
 }
 
+/** Your work, as small dials in the top bar, one click from anywhere: Projects, Tasks, Agents and URLs. The agents'
+    dial carries a count of what waits on you there (an agent's question or approval, a plan's step waiting for your
+    go) and opens the Agents inbox, where you answer them. */
+const WORK: ModuleId[] = ['projects', 'tasks', 'agents', 'urls']
+
+function WorkDials({ active }: { active?: ModuleId }) {
+  const summaries = useSummaries()
+  const { needsYou: n } = useHub()
+  const waits =
+    [
+      n.waiting.length ? `${n.waiting.length} agent${n.waiting.length === 1 ? '' : 's'} need${n.waiting.length === 1 ? 's' : ''} you` : '',
+      n.asks.length ? `${n.asks.length} step${n.asks.length === 1 ? '' : 's'} wait${n.asks.length === 1 ? 's' : ''} for your go` : '',
+    ]
+      .filter(Boolean)
+      .join(', ') || 'nothing needs you'
+  return (
+    <nav className="work" aria-label="Your work">
+      {WORK.map((id) => {
+        const s = summaries[id]
+        const m = meta(id)
+        const agents = id === 'agents'
+        const fault = !!s?.fault || (agents && n.count > 0)
+        const tone = s?.off ? 'off' : fault ? 'signal' : 'ink'
+        const reading = agents ? waits : [s?.value, s?.caption].filter(Boolean).join(', ')
+        return (
+          <a
+            key={id}
+            className={`cell work__cell mod-${id}${active === id ? ' is-active' : ''}${fault ? ' is-fault' : ''}`}
+            href={agents ? '#/m/agents/inbox' : `#/m/${id}`}
+            aria-current={active === id ? 'page' : undefined}
+            title={reading ? `${m.label}: ${reading}` : m.label}
+          >
+            <span className="work__face">
+              <Dial value={s?.value ?? '··'} fraction={s?.fraction ?? null} tone={tone} chart={s?.chart} quiet={!!s?.quiet && !fault} busy={!!s?.busy} />
+              {agents && <CountBadge n={n.count} />}
+            </span>
+            <span className="cell__label" aria-hidden="true">
+              {m.label}
+            </span>
+            <span className="sr-only">{reading ? `${m.label}: ${reading}` : m.label}</span>
+          </a>
+        )
+      })}
+    </nav>
+  )
+}
+
 function StatusBadge() {
   const { alerts, system, error } = useHub()
   const { currentMachine } = useMachines()
@@ -138,108 +184,9 @@ function StatusBadge() {
   )
 }
 
-function ModuleCell({ id, active, s }: { id: ModuleId; active: boolean; s: Summary | null }) {
-  const m = meta(id)
-  const tone = s?.off ? 'off' : s?.fault ? 'signal' : 'ink'
-  const reading = [s?.value, s?.caption].filter(Boolean).join(', ')
-  return (
-    <a
-      className={`cell mod-${id}${active ? ' is-active' : ''}${s?.fault ? ' is-fault' : ''}`}
-      href={`#/m/${id}`}
-      aria-current={active ? 'page' : undefined}
-      title={reading ? `${m.label}: ${reading}` : m.label}
-    >
-      <span className="cell__label">{m.label}</span>
-      <Dial value={s?.value ?? '··'} fraction={s?.fraction ?? null} tone={tone} caption={s?.caption} chart={s?.chart} quiet={!!s?.quiet && !s.fault} />
-    </a>
-  )
-}
-
-type PanelProps = { pins: ModuleId[]; active?: ModuleId; perRow: number; onEdit: () => void; open: boolean; onToggle: () => void }
-
-function DialPanel({ pins, active, perRow, onEdit, open, onToggle }: PanelProps) {
-  const summaries = useSummaries()
-  const rows: ModuleId[][] = []
-  for (let i = 0; i < pins.length; i += perRow) rows.push(pins.slice(i, i + perRow))
-  return (
-    <section className={`panel${open ? '' : ' panel--rail'}`} aria-label="Modules">
-      <button className="panel__toggle" type="button" onClick={onToggle} aria-expanded={open} title={open ? 'Show only the charts' : 'Show module details'}>
-        <Icon name="back" size={16} />
-        <span className="panel__toggle-text">{open ? 'Less' : 'More'}</span>
-      </button>
-      {rows.map((row, i) => (
-        <div className="panel__row" key={i}>
-          {row.map((id) => (
-            <ModuleCell key={id} id={id} active={active === id} s={summaries[id]} />
-          ))}
-        </div>
-      ))}
-      <PinnedProjects />
-      <button className="panel__edit" type="button" onClick={onEdit} title="Arrange the modules">
-        <Icon name="sliders" size={16} /> <span className="panel__edit-text">Arrange</span>
-      </button>
-    </section>
-  )
-}
-
-function ArrangeSheet({ pins, setPins, onDone }: { pins: ModuleId[]; setPins: (p: ModuleId[]) => void; onDone: () => void }) {
-  const unpinned = PANEL_MODULES.filter((m) => !pins.includes(m.id))
-  const move = (i: number, d: number) => {
-    const next = [...pins]
-    const j = i + d
-    if (j < 0 || j >= next.length) return
-    ;[next[i], next[j]] = [next[j], next[i]]
-    setPins(next)
-  }
-  return (
-    <div className="sheet">
-      <header className="sheet__head">
-        <h2 className="sheet__title">Arrange</h2>
-        <button className="btn" type="button" onClick={onDone}>
-          Done
-        </button>
-      </header>
-      <p className="sheet__lede">Choose what sits on the home panel and in which order.</p>
-      <ol className="list">
-        {pins.map((id, i) => (
-          <li className="row" key={id}>
-            <Icon name={meta(id).icon} size={20} className={`arrange__icon mod-${id}`} />
-            <span className="row__main">{meta(id).label}</span>
-            <span className="row__actions">
-              <button className="btn btn--quiet" type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move ${meta(id).label} up`}>
-                Up
-              </button>
-              <button className="btn btn--quiet" type="button" onClick={() => move(i, 1)} disabled={i === pins.length - 1} aria-label={`Move ${meta(id).label} down`}>
-                Down
-              </button>
-              <button className="btn btn--quiet" type="button" onClick={() => setPins(pins.filter((p) => p !== id))} disabled={pins.length === 1}>
-                Unpin
-              </button>
-            </span>
-          </li>
-        ))}
-        {unpinned.map((m) => (
-          <li className="row row--muted" key={m.id}>
-            <Icon name={m.icon} size={20} className={`arrange__icon mod-${m.id}`} />
-            <span className="row__main">
-              {m.label}
-              <span className="row__sub">{m.blurb}</span>
-            </span>
-            <span className="row__actions">
-              <button className="btn" type="button" onClick={() => setPins([...pins, m.id])}>
-                Pin
-              </button>
-            </span>
-          </li>
-        ))}
-      </ol>
-    </div>
-  )
-}
-
 const SIDEBAR_KEY = 'marumado.sidebar'
 
-/** Whether the module sidebar shows details or only the dials; remembered in this browser. */
+/** Whether the sidebar shows the pinned projects' names or only their first letters; remembered in this browser. */
 function useSidebarOpen(): [boolean, () => void] {
   const [open, setOpen] = useState(() => {
     try {
@@ -263,9 +210,7 @@ function useSidebarOpen(): [boolean, () => void] {
 export default function App() {
   useAgentCallbacks()
   const route = useRoute()
-  // Most modules are your work, the same on every machine: one arrangement for all.
-  const [pins, setPins] = usePins('local')
-  const [arranging, setArranging] = useState(false)
+  const { projects } = useHub()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const narrow = useIsNarrow()
   const [sidebarOpen, toggleSidebar] = useSidebarOpen()
@@ -286,6 +231,8 @@ export default function App() {
 
   const home = route.kind === 'home'
   const activeModule = route.kind === 'module' ? route.id : undefined
+  // The sidebar holds only the pinned projects for now: none pinned (or a phone), no sidebar.
+  const sidebar = !narrow && pinnedProjects(projects).length > 0
 
   return (
     <TokenGate>
@@ -297,6 +244,7 @@ export default function App() {
             <StreamingToggle />
             <LockButton />
           </div>
+          <WorkDials active={activeModule} />
           <button className="search" type="button" onClick={() => setPaletteOpen(true)} title="Search (/)">
             <Icon name="search" size={20} />
             <span className="sr-only">Search</span>
@@ -305,32 +253,32 @@ export default function App() {
           <StatusBadge />
         </header>
 
-        {home && !arranging ? (
+        {home ? (
           <main className="main main--home">
             <Fleet />
           </main>
         ) : (
-          <main className={`main${narrow || sidebarOpen ? '' : ' main--rail'}`}>
-            <DialPanel
-              pins={pins}
-              active={narrow ? undefined : activeModule}
-              perRow={narrow ? 2 : 1}
-              onEdit={() => setArranging(true)}
-              open={narrow || sidebarOpen}
-              onToggle={toggleSidebar}
-            />
-            <section className={`side${activeModule && !arranging ? ` mod-${activeModule}` : ''}`}>
-              {narrow && !arranging && !home && (
+          <main className={`main${sidebar ? (sidebarOpen ? '' : ' main--rail') : ' main--solo'}`}>
+            {sidebar && (
+              <section className={`panel${sidebarOpen ? '' : ' panel--rail'}`} aria-label="Sidebar">
+                <button className="panel__toggle" type="button" onClick={toggleSidebar} aria-expanded={sidebarOpen} title={sidebarOpen ? 'Show only their first letters' : 'Show the names'}>
+                  <Icon name="back" size={16} />
+                  <span className="panel__toggle-text">{sidebarOpen ? 'Less' : 'More'}</span>
+                </button>
+                <PinnedProjects />
+              </section>
+            )}
+            <section className={`side${activeModule ? ` mod-${activeModule}` : ''}`}>
+              {narrow && (
                 <button className="side__back" type="button" onClick={() => go('#/')}>
                   <Icon name="back" size={18} /> Home
                 </button>
               )}
-              {arranging ? <ArrangeSheet pins={pins} setPins={setPins} onDone={() => setArranging(false)} /> : <SheetFor route={route} />}
+              <SheetFor route={route} />
             </section>
           </main>
         )}
 
-        <AgentDock />
         {paletteOpen && <Palette onClose={() => setPaletteOpen(false)} />}
       </div>
     </TokenGate>

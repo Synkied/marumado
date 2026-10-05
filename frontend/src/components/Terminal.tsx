@@ -164,11 +164,13 @@ export function Terminal({
       if (m.type === 'terminal.frame') {
         if (m.width !== term.cols || m.height !== term.rows) {
           term.resize(m.width, m.height)
+          held = null
+          shown = []
           fitFont()
           // Panning: start on the bottom-left, where the agent's prompt is.
           if (pan) requestAnimationFrame(() => el.scrollTo({ top: el.scrollHeight, left: 0 }))
         }
-        term.write(decode(m.bytes))
+        term.write(decode(m.bytes), track)
         setLink((l) => (l.state === 'live' ? l : { state: 'live', message: '', takeover: false }))
       } else if (m.type === 'terminal.closed' || m.type === 'error') {
         ended = true
@@ -219,13 +221,102 @@ export function Terminal({
       el.addEventListener('mousedown', press)
       window.addEventListener('mouseup', release)
     }
+    // Herdr draws the screen and keeps the history, so xterm has none: when the wheel scrolls Herdr (or output pushes
+    // the text up), the text moves under a selection that would stay where it was. Keep the selection on its text:
+    // find how far each frame moved the screen's lines and move it as far. What scrolls out of view stays chosen,
+    // comes back when it scrolls back, and is copied whole. Its rows count from the screen as it was when chosen.
+    let choosing = false
+    let held: { start: number; end: number; first: number; rows: string[]; text: string } | null = null
+    let moved = 0
+    let shown: string[] = []
+    let applied = ''
+    const lines = () => {
+      const b = term.buffer.active
+      return Array.from({ length: term.rows }, (_, i) => b.getLine(b.viewportY + i)?.translateToString(true) ?? '')
+    }
+    // How many rows the text went down (up: negative): the shift that lines up the most lines with words in them.
+    const shift = (was: string[], now: string[]) => {
+      const n = now.length
+      const score = (d: number) => {
+        let s = 0
+        for (let i = Math.max(0, d); i < Math.min(n, n + d); i++) if (now[i] === was[i - d] && /\w/.test(now[i])) s++
+        return s
+      }
+      let best = 0
+      let top = score(0)
+      for (let d = 1 - n; d < n; d++) {
+        const s = d ? score(d) : 0
+        if (s > top) [best, top] = [d, s]
+      }
+      return top >= 2 ? best : 0
+    }
+    // Select what is still in view of the held text: its rows that still read as they did, so a selection doesn't
+    // land on a line that stays put (a prompt at the bottom) or on other text after the screen changed altogether.
+    const reselect = (now: string[]) => {
+      if (!held) return
+      const h = held
+      const top = h.first + moved
+      const same = (i: number) => now[top + i] === h.rows[i]
+      let a = 0
+      let b = h.rows.length - 1
+      while (a <= b && !same(a)) a++
+      while (b >= a && !same(b)) b--
+      const start = a === 0 ? h.start + moved * term.cols : (top + a) * term.cols
+      const end = b === h.rows.length - 1 ? h.end + moved * term.cols : (top + b + 1) * term.cols
+      const key = a > b ? 'none' : `${start}-${end}`
+      if (key === applied && (a > b || term.hasSelection())) return
+      applied = key
+      if (a > b) term.clearSelection()
+      else term.select(start % term.cols, Math.floor(start / term.cols), end - start)
+    }
+    const track = () => {
+      const now = lines()
+      if (held && !choosing && now.length === shown.length) {
+        moved += shift(shown, now)
+        reselect(now)
+      }
+      shown = now
+    }
+    // Chosen with the mouse (a drag, a double or triple click): remember it; a new press lets it go.
+    const choose = (ev: MouseEvent) => {
+      if (ev.button !== 0) return
+      choosing = true
+      held = null
+    }
+    const chosen = () => {
+      if (!choosing) return
+      choosing = false
+      // xterm settles a double or triple click's selection after the button comes up.
+      window.setTimeout(() => {
+        const at = term.getSelectionPosition()
+        if (!at || !term.hasSelection()) return
+        const now = lines()
+        const last = at.end.x ? at.end.y : at.end.y - 1
+        moved = 0
+        applied = ''
+        shown = now
+        held = {
+          start: at.start.y * term.cols + at.start.x,
+          end: at.end.y * term.cols + at.end.x,
+          first: at.start.y,
+          rows: now.slice(at.start.y, last + 1),
+          text: term.getSelection(),
+        }
+      })
+    }
+    el.addEventListener('mousedown', choose)
+    window.addEventListener('mouseup', chosen)
+    const typing = term.onData(() => {
+      held = null
+    })
+
     // Ctrl+Shift+C/V copy and paste, as in a desktop terminal, instead of the browser's inspector.
     term.attachCustomKeyEventHandler((ev) => {
       if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return true
       const key = ev.key.toLowerCase()
       if (key === 'c') {
         ev.preventDefault()
-        if (ev.type === 'keydown' && term.hasSelection()) copy(term.getSelection())
+        if (ev.type === 'keydown' && term.hasSelection()) copy(held?.text ?? term.getSelection())
         return false
       }
       // Left to the browser, which pastes into the terminal.
@@ -262,6 +353,9 @@ export function Terminal({
       settled.disconnect()
       el.removeEventListener('mousedown', press)
       window.removeEventListener('mouseup', release)
+      el.removeEventListener('mousedown', choose)
+      window.removeEventListener('mouseup', chosen)
+      typing.dispose()
       typed?.dispose()
       binary?.dispose()
       if (ws) {

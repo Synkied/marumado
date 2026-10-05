@@ -164,7 +164,8 @@ function AgentCard({ agent: a, control, onClose }: { agent: Agent; control: bool
 
 /** Every agent that is running, from every source, as a critter in the bottom corner of every page, each in the place
     you gave it (drag it, or Alt+arrow keys). One that needs you lifts off the line in persimmon; choosing one opens
-    its card. Folded, only those that need you stay out. */
+    its card. Folded, only those that need you stay out.
+    Not shown since the tray (tray/) took its place; kept for now. */
 export function AgentDock() {
   const { agents } = useHub()
   const [folded, toggleFold] = useFolded()

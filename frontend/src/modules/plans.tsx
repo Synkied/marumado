@@ -59,7 +59,7 @@ function Back() {
 
 /** The owner's go for a step that waits for it: it starts as soon as its agent is free. */
 export function GoButton({ step, title, onDone, className = 'btn' }: { step: number; title: string; onDone?: () => void; className?: string }) {
-  const { refreshTasks, refreshAgents } = useHub()
+  const { refreshTasks, refreshAgents, refreshPlans } = useHub()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const give = async () => {
@@ -69,6 +69,7 @@ export function GoButton({ step, title, onDone, className = 'btn' }: { step: num
       await api(`tasks/${step}/go`, { method: 'POST' })
       refreshTasks()
       refreshAgents()
+      refreshPlans()
       onDone?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't start it.")

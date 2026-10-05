@@ -13,3 +13,7 @@ backend/data/
 
 # curl cookie jars from screenshot logins
 backend/cj
+
+# the tray started by `make up`
+tray/tray.pid
+tray/tray.log

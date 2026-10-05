@@ -25,6 +25,7 @@ from . import sshhome
 log = logging.getLogger(__name__)
 
 PANE_ID = re.compile(r'^w[0-9A-Za-z]+:p[0-9A-Za-z]+$')
+WORKSPACE_ID = re.compile(r'^w[0-9A-Za-z]+$')
 # A branch Marumado names for a plan's step: no spaces, no leading dash, no '..'.
 BRANCH = re.compile(r'^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,100}$')
 TIMEOUT = 4
@@ -415,17 +416,18 @@ def _list(src: Source) -> dict:
     with _failed_lock:
         failed = _failed.get(src)
     if failed and time.monotonic() - failed[0] < RETRY_SECONDS:
-        return {'available': False, 'error': failed[1], 'agents': []}
+        return {'available': False, 'error': failed[1], 'agents': [], 'workspaces': []}
     if src.kind == 'machine':
         return _list_machine(src)
     try:
         # Every pane, so plain shells (from New terminal, say) can be watched too.
         listed = _run(src, 'pane', 'list')['panes']
-        workspaces = {w['workspace_id']: w.get('label') or '' for w in _run(src, 'workspace', 'list')['workspaces']}
+        spaces = _workspaces(_run(src, 'workspace', 'list')['workspaces'])
     except (RuntimeError, ValueError, KeyError, OSError) as exc:
         with _failed_lock:
             _failed[src] = (time.monotonic(), str(exc))
-        return {'available': False, 'error': str(exc), 'agents': []}
+        return {'available': False, 'error': str(exc), 'agents': [], 'workspaces': []}
+    workspaces = {w['id']: w['label'] for w in spaces}
     with _failed_lock:
         _failed.pop(src, None)
     rows = []
@@ -439,10 +441,30 @@ def _list(src: Source) -> dict:
             'title': a.get('terminal_title_stripped') or '',
             'cwd': a.get('foreground_cwd') or a.get('cwd') or '',
             'workspace': workspaces.get(a.get('workspace_id'), ''),
+            'workspace_id': a.get('workspace_id') or '',
             'focused': bool(a.get('focused')),
         })
     _settle_watching(src)
-    return {'available': True, 'error': '', 'agents': rows}
+    return {'available': True, 'error': '', 'agents': rows, 'workspaces': spaces}
+
+
+def _workspaces(listed: list[dict]) -> list[dict]:
+    """Herdr's workspaces, in its order: {id, label, cwd, worktree_of, linked}. A git worktree's workspace is linked to
+    its repository's (`worktree_of`), and Herdr closes that one only with its linked ones (`linked` of them)."""
+    primary = {}
+    for w in listed:
+        tree = w.get('worktree') or {}
+        if tree.get('repo_key') and not tree.get('is_linked_worktree'):
+            primary.setdefault(tree['repo_key'], w['workspace_id'])
+    out = []
+    for w in listed:
+        tree = w.get('worktree') or {}
+        of = primary.get(tree.get('repo_key')) if tree.get('is_linked_worktree') else None
+        out.append({'id': w['workspace_id'], 'label': w.get('label') or '', 'cwd': tree.get('checkout_path') or '',
+                    'worktree_of': of or '', 'linked': 0})
+    for w in out:
+        w['linked'] = sum(1 for o in out if o['worktree_of'] == w['id'])
+    return out
 
 
 def _list_machine(src: Source) -> dict:
@@ -453,13 +475,15 @@ def _list_machine(src: Source) -> dict:
         available = own['available'] if own else data['available']
         error = (own['error'] if own else data.get('error', '')) or ''
         rows = [{**a, 'source': src.id} for a in data['agents'] if a.get('source', ENV) == ENV]
+        # Older Marumados don't list workspaces.
+        spaces = (own or {}).get('workspaces') or []
     except (RuntimeError, ValueError, KeyError, TypeError) as exc:
         with _failed_lock:
             _failed[src] = (time.monotonic(), str(exc))
-        return {'available': False, 'error': str(exc), 'agents': []}
+        return {'available': False, 'error': str(exc), 'agents': [], 'workspaces': []}
     with _failed_lock:
         _failed.pop(src, None)
-    return {'available': available, 'error': error, 'agents': rows if available else []}
+    return {'available': available, 'error': error, 'agents': rows if available else [], 'workspaces': spaces if available else []}
 
 
 def forget_failures() -> None:
@@ -489,7 +513,8 @@ def agents(include_machines: bool = True) -> dict:
         'kinds': AGENT_KINDS,
         'sources': [{'id': s.id, 'name': s.name, 'kind': s.kind, 'where': s.where(), 'available': one['available'],
                      'folders': [{'here': a, 'there': b} for a, b in s.folders],
-                     'error': one['error'], 'agents': len(one['agents'])} for s, one in zip(every, listed)],
+                     'error': one['error'], 'agents': len(one['agents']), 'workspaces': one['workspaces']}
+                    for s, one in zip(every, listed)],
         'agents': rows,
     }
 
@@ -543,14 +568,18 @@ def send(pane_id: str, text: str = '', keys: tuple[str, ...] = (), source: 'int 
         _run(src, 'pane', 'send-keys', pane_id, 'enter', text=True)
 
 
-def new_terminal(near: str = '', source: 'int | Source' = ENV) -> dict:
-    """Open a shell in a new Herdr tab: beside pane `near` (its workspace and folder), or in a new workspace."""
+def new_terminal(near: str = '', source: 'int | Source' = ENV, workspace: str = '') -> dict:
+    """Open a shell in a new Herdr tab: beside pane `near` (its workspace and folder), in `workspace`, or in a new workspace."""
     src = get_source(source)
     if near and not PANE_ID.match(near):
         raise ValueError('Not a Herdr pane id.')
+    if workspace and not WORKSPACE_ID.match(workspace):
+        raise ValueError('Not a Herdr workspace id.')
     if src.kind == 'machine':
-        return {'pane_id': _remote(src, 'POST', 'agents/terminal', {'near': near})['pane_id']}
-    if near:
+        return {'pane_id': _remote(src, 'POST', 'agents/terminal', {'near': near, **({'workspace': workspace} if workspace else {})})['pane_id']}
+    if workspace:
+        made = _run(src, 'tab', 'create', '--workspace', workspace, '--no-focus')
+    elif near:
         pane = _run(src, 'pane', 'get', near)['pane']
         cwd = pane.get('foreground_cwd') or pane.get('cwd') or ''
         made = _run(src, 'tab', 'create', '--workspace', pane['workspace_id'], *(['--cwd', cwd] if cwd else []), '--no-focus')
@@ -575,6 +604,59 @@ def open_workspace(cwd: str = '', label: str = '', source: 'int | Source' = ENV)
     made = _run(src, 'workspace', 'create', *(['--cwd', cwd] if cwd else []), *(['--label', label[:60]] if label else []), '--no-focus')
     pane = made['root_pane']
     return {'pane_id': pane['pane_id'], 'cwd': pane.get('cwd') or ''}
+
+
+def open_tab(workspace: str, cwd: str = '', label: str = '', source: 'int | Source' = ENV) -> dict:
+    """A new tab in an open Herdr workspace (in `cwd`, when that folder exists where Herdr runs): {pane_id, cwd} of its shell."""
+    if not WORKSPACE_ID.match(workspace):
+        raise ValueError('Not a Herdr workspace id.')
+    src = get_source(source)
+    if src.kind == 'machine':
+        made = _remote(src, 'POST', 'agents/workspace', {'cwd': cwd, 'label': label[:60], 'workspace': workspace})
+        if not made.get('tab'):
+            raise RuntimeError(f'The Marumado on {src.name} is too old to open tabs in a workspace: update it.')
+        return {'pane_id': made['pane_id'], 'cwd': made.get('cwd') or ''}
+    made = _run(src, 'tab', 'create', '--workspace', workspace, *(['--cwd', cwd] if cwd else []), *(['--label', label[:60]] if label else []), '--no-focus')
+    pane = made['root_pane']
+    return {'pane_id': pane['pane_id'], 'cwd': pane.get('cwd') or ''}
+
+
+def create_workspace(label: str = '', cwd: str = '', source: 'int | Source' = ENV) -> dict:
+    """A new Herdr workspace with a shell, made from the web: {workspace_id, pane_id, cwd}."""
+    src = get_source(source)
+    label = label.strip()[:60]
+    if src.kind == 'machine':
+        made = _remote(src, 'POST', 'agents/workspaces', {'label': label, 'cwd': cwd})
+        return {'workspace_id': made['workspace_id'], 'pane_id': made['pane_id'], 'cwd': made.get('cwd') or ''}
+    made = _run(src, 'workspace', 'create', *(['--cwd', cwd] if cwd else []), *(['--label', label] if label else []), '--no-focus')
+    pane = made['root_pane']
+    return {'workspace_id': pane['workspace_id'], 'pane_id': pane['pane_id'], 'cwd': pane.get('cwd') or ''}
+
+
+class GroupClose(RuntimeError):
+    """The workspace has git worktrees open as workspaces of their own: Herdr closes it only with them."""
+
+
+def close_workspace(workspace: str, group: bool = False, source: 'int | Source' = ENV) -> None:
+    """Close a Herdr workspace, every tab and pane in it, and whatever runs there (agents too). `group`: with the
+    workspaces of its git worktrees. Raises GroupClose when it has some and `group` is False."""
+    if not WORKSPACE_ID.match(workspace):
+        raise ValueError('Not a Herdr workspace id.')
+    src = get_source(source)
+    if src.kind == 'machine':
+        try:
+            _remote(src, 'POST', f'agents/workspaces/{workspace}/close', {'group': group})
+        except RuntimeError as exc:
+            if 'worktree' in str(exc):
+                raise GroupClose(str(exc))
+            raise
+        return
+    try:
+        _run(src, 'workspace', 'close', workspace, *(['--group'] if group else []), text=True)
+    except RuntimeError as exc:
+        if 'linked worktree' in str(exc) or 'group' in str(exc):
+            raise GroupClose('Its git worktrees are open as workspaces of their own: close them too, or close those first.')
+        raise
 
 
 def open_worktree(cwd: str, branch: str, label: str = '', source: 'int | Source' = ENV) -> dict:
@@ -632,14 +714,15 @@ def free_name(base: str, source: 'int | Source' = ENV) -> str:
     return name
 
 
-def start_agent(kind: str, cwd: str = '', label: str = '', source: 'int | Source' = ENV) -> dict:
-    """Open a workspace in `cwd` and start a `kind` agent there, named after `label`. Answers once the workspace is open
-    ({pane_id, cwd}); the agent keeps starting in Herdr on a thread, so the browser can watch it start."""
+def start_agent(kind: str, cwd: str = '', label: str = '', source: 'int | Source' = ENV, workspace: str = '') -> dict:
+    """Open a workspace in `cwd` (or a tab in `workspace`, an open one) and start a `kind` agent there, named after
+    `label`. Answers once it is open ({pane_id, cwd}); the agent keeps starting in Herdr on a thread, so the browser
+    can watch it start."""
     src = get_source(source)
     if kind not in AGENT_KINDS:
         raise ValueError('Herdr cannot start that kind of agent.')
     name = free_name(label or kind, src)
-    opened = open_workspace(cwd, label, src)
+    opened = open_tab(workspace, cwd, label, src) if workspace else open_workspace(cwd, label, src)
     # Herdr opens a folder it can't find in its home folder, without a word; an agent there is no use to anyone.
     if cwd and opened['cwd'] and opened['cwd'].rstrip('/') != cwd.rstrip('/'):
         try:
