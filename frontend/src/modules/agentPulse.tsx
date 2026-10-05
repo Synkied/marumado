@@ -1,5 +1,5 @@
 import { Critter } from '../components/Critter'
-import { agentHref, agentKey, nameOf, sourceLabel, STATE_WORDS } from '../lib/agents'
+import { agentActionHref, agentKey, nameOf, sourceLabel, STATE_WORDS } from '../lib/agents'
 import { ago, duration } from '../lib/format'
 import { useHub } from '../lib/hub'
 import type { Agent, Pulse, PulseFolder } from '../lib/types'
@@ -26,7 +26,7 @@ export function TopPets() {
   return (
     <span className="toppets">
       {all.slice(0, TOP_PETS).map((a) => (
-        <a key={agentKey(a)} className={`toppets__pet${a.status === 'blocked' ? ' is-fault' : ''}`} href={agentHref(a)} title={label(a)}>
+        <a key={agentKey(a)} className={`toppets__pet${a.status === 'blocked' ? ' is-fault' : ''}`} href={agentActionHref(a)} title={label(a)}>
           <Critter seed={agentKey(a)} status={a.status} size={42} />
           <span className="sr-only">{label(a)}</span>
         </a>
@@ -186,7 +186,7 @@ function LaneRow({ lane: l, peak, pending, now }: { lane: Lane; peak: number; pe
     <li className={`lane${fault ? ' is-fault' : ''}`}>
       <span className="lane__pets">
         {l.agents.slice(0, 3).map((a) => (
-          <a key={agentKey(a)} className="lane__pet" href={agentHref(a)} title={label(a)}>
+          <a key={agentKey(a)} className="lane__pet" href={agentActionHref(a)} title={label(a)}>
             <Critter seed={agentKey(a)} status={a.status} size={50} />
             <span className="sr-only">{label(a)}</span>
           </a>
@@ -194,7 +194,7 @@ function LaneRow({ lane: l, peak, pending, now }: { lane: Lane; peak: number; pe
       </span>
       <a
         className="lane__body"
-        href={agentHref(first)}
+        href={agentActionHref(first)}
         aria-label={`${names}: ${STATE_WORDS[status]}, ${headline}.${turn ? ` Since you last wrote: ${tally}, ${turn.failed} failed.` : ''} ${doing}`}
       >
         <span className="lane__who">

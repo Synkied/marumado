@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ApiError, logIn } from '../lib/api'
+import { desktop, desktopLogIn, inDesktop } from '../lib/desktop'
 import { useHub } from '../lib/hub'
 
 /** Marumado always needs its password or access token: ask for it once, and the browser stays logged in. */
@@ -8,7 +9,14 @@ export function TokenGate({ children }: { children: ReactNode }) {
   const [value, setValue] = useState('')
   const [problem, setProblem] = useState('')
   const [busy, setBusy] = useState(false)
-  if (!(error instanceof ApiError && error.status === 403)) return <>{children}</>
+  const locked = error instanceof ApiError && error.status === 403
+  // The desktop app logs its window in with the token it was given; the form shows if that is refused.
+  const [auto, setAuto] = useState(inDesktop)
+  useEffect(() => {
+    if (locked && auto) desktopLogIn().then((ok) => (ok ? window.location.reload() : setAuto(false)))
+  }, [locked, auto])
+  if (!locked) return <>{children}</>
+  if (auto) return <main className="app" aria-busy="true" />
   return (
     <main className="app" style={{ alignContent: 'center', justifyItems: 'center' }}>
       <form
@@ -52,6 +60,14 @@ export function TokenGate({ children }: { children: ReactNode }) {
         <button className="btn" type="submit" disabled={busy}>
           {busy ? 'Checking…' : 'Unlock'}
         </button>
+        {inDesktop && (
+          <p className="sheet__lede">
+            The desktop app&rsquo;s token was refused.{' '}
+            <button type="button" className="btn btn--quiet" onClick={() => desktop('reconnect')}>
+              Connect again or to another Marumado…
+            </button>
+          </p>
+        )}
       </form>
     </main>
   )

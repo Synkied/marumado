@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Connect · Marumado</title>
+    <!-- The one page the desktop app bundles: everything else is Marumado's own, loaded from its address. -->
+    <style>
+      :root {
+        --ground: #ecebe4;
+        --raised: #f5f4ef;
+        --ink: #23231f;
+        --ink-2: #57564f;
+        --rule: #bfbcb1;
+        --solid: #2b2b27;
+        --on-solid: #f5f4ef;
+        --signal-text: #a3411f;
+        --focus: #23231f;
+        --f-sans: 'Iosevka Aile', ui-sans-serif, system-ui, sans-serif;
+        --f-mono: 'Iosevka', ui-monospace, 'SFMono-Regular', monospace;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ground: #22221f;
+          --raised: #2d2d29;
+          --ink: #eeebe3;
+          --ink-2: #bdbab0;
+          --rule: #5a5851;
+          --solid: #e2dfd5;
+          --on-solid: #22221f;
+          --signal-text: #ec8a5c;
+          --focus: #eeebe3;
+          color-scheme: dark;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px 16px;
+        background: var(--ground);
+        color: var(--ink);
+        font: 400 16px/1.5 var(--f-sans);
+      }
+      form {
+        width: min(440px, 100%);
+        display: grid;
+        gap: 18px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 28px;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      h1 svg {
+        width: 30px;
+        height: 30px;
+      }
+      p {
+        margin: 0;
+        color: var(--ink-2);
+        font-size: 14px;
+      }
+      code {
+        font-family: var(--f-mono);
+        font-size: 0.92em;
+      }
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 14px;
+        color: var(--ink-2);
+      }
+      input[type='text'],
+      input[type='password'] {
+        height: 40px;
+        padding: 0 12px;
+        border: 1px solid var(--rule);
+        border-radius: 4px;
+        background: var(--raised);
+        color: var(--ink);
+        font: 400 16px var(--f-mono);
+      }
+      input:focus-visible,
+      button:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--ink);
+      }
+      .check input {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        accent-color: var(--solid);
+      }
+      button {
+        height: 40px;
+        border: 0;
+        border-radius: 4px;
+        background: var(--solid);
+        color: var(--on-solid);
+        font: 500 15px var(--f-sans);
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: progress;
+      }
+      [role='alert'] {
+        color: var(--signal-text);
+      }
+      [role='alert']:empty {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <form id="connect">
+      <h1>
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <circle cx="16" cy="16" r="14.5" fill="none" stroke="currentColor" stroke-opacity="0.5" stroke-width="1.2" />
+          <circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-opacity="0.5" stroke-width="1.2" />
+          <circle cx="16" cy="16" r="7.5" fill="currentColor" />
+        </svg>
+        Marumado
+      </h1>
+      <p>
+        Which Marumado should this app open? The one on this machine answers at <code>http://127.0.0.1:7878</code>;
+        for another machine, use its address on your network or an SSH tunnel to it.
+      </p>
+      <label>
+        Address
+        <input id="url" type="text" name="url" required autocomplete="url" spellcheck="false" />
+      </label>
+      <label>
+        Access token
+        <input id="token" type="password" name="token" required autocomplete="current-password" aria-describedby="token-hint" />
+      </label>
+      <p id="token-hint"><code>make access-token</code> prints it on the machine Marumado runs on.</p>
+      <label class="check">
+        <input id="autostart" type="checkbox" name="autostart" checked />
+        Start with the session, in the tray
+      </label>
+      <p id="problem" role="alert"></p>
+      <button id="go" type="submit">Connect</button>
+    </form>
+    <script>
+      const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args)
+      const $ = (id) => document.getElementById(id)
+      invoke('current').then((c) => {
+        $('url').value = c.url
+        if (c.connected) $('autostart').checked = c.autostart
+        ;(c.connected ? $('token') : $('url')).focus()
+      })
+      $('connect').addEventListener('submit', async (e) => {
+        e.preventDefault()
+        $('go').disabled = true
+        $('go').textContent = 'Connecting…'
+        $('problem').textContent = ''
+        try {
+          // Checks the token by logging in (POST /api/auth), then opens Marumado in this window.
+          await invoke('connect', { url: $('url').value, token: $('token').value, autostart: $('autostart').checked })
+        } catch (err) {
+          $('problem').textContent = String(err)
+          $('go').disabled = false
+          $('go').textContent = 'Connect'
+        }
+      })
+    </script>
+  </body>
+</html>

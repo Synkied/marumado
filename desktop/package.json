@@ -1,0 +1,15 @@
+{
+  "name": "marumado-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "icons": "rsvg-convert -w 1024 -h 1024 app-icon.svg -o app-icon.png && tauri icon app-icon.png -o src-tauri/icons && rm -r app-icon.png src-tauri/icons/android src-tauri/icons/ios src-tauri/icons/*Logo.png"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

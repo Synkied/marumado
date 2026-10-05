@@ -150,7 +150,7 @@ function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: 
     if (a.status === 'blocked') {
       const where = a.cwd.split('/').filter(Boolean).pop() || a.cwd
       const on = sourceLabel(agents, a)
-      out.push({ id: `agent:${agentKey(a)}`, module: 'agents', title: `${a.name || a.kind} in ${where}${on ? ` on ${on}` : ''} is waiting for you`, detail: a.title || 'Approval or question', href: '#/m/agents/inbox' })
+      out.push({ id: `agent:${agentKey(a)}`, module: 'agents', title: `${a.name || a.kind} in ${where}${on ? ` on ${on}` : ''} is waiting for you`, detail: a.title || 'Open the question and choose a response', href: `#/m/agents/inbox/${agentKey(a)}` })
     }
   }
   // With one source, an unreachable Herdr is the Agents module being off, not an alarm. With several, one that drops is news.

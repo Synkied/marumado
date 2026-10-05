@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { agentHref, agentKey, sourceLabel } from './agents'
+import { inDesktop } from './desktop'
 import { useHub } from './hub'
 import { go } from './route'
 import type { Agent, AgentStatus } from './types'
@@ -60,8 +61,8 @@ export function useAgentCallbacks() {
     const now = new Map(live.map((a) => [agentKey(a), a.status]))
     const before = last.current
     last.current = now
-    // The first listing only sets what is known: nothing changed yet.
-    if (!before || !on || !canNotify() || Notification.permission !== 'granted') return
+    // The first listing only sets what is known: nothing changed yet. The desktop app notifies by itself, from the tray.
+    if (!before || inDesktop || !on || !canNotify() || Notification.permission !== 'granted') return
     if (document.visibilityState === 'visible' && document.hasFocus()) return
     for (const a of live) {
       const was = before.get(agentKey(a))

@@ -3,7 +3,7 @@ COMPOSE ?= docker compose
 SERVICE := marumado
 
 .DEFAULT_GOAL := help
-.PHONY: help env mounts up down tray tray-stop restart build rebuild logs ps shell scan migrate secret token access-token password clean dev
+.PHONY: help env mounts up down restart build rebuild logs ps shell scan migrate secret token access-token password clean dev
 
 help: ## List the shortcuts
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  \033[1m%-9s\033[0m %s\n", $$1, $$2}'
@@ -14,19 +14,12 @@ env: ## Create .env from .env.example (with a fresh secret key) if missing
 mounts: env ## Regenerate compose.override.yaml (folder mounts) from .env
 	@./scripts/compose-mounts.sh
 
-up: mounts ## Build if needed and start Marumado and its tray in the background
+up: mounts ## Build if needed and start Marumado in the background
 	$(COMPOSE) up -d --build
 	@. ./.env; echo "Marumado → http://$${MARUMADO_BIND:-127.0.0.1}:$${MARUMADO_PORT:-7878}"
-	@./scripts/tray.sh start
 
-down: tray-stop ## Stop and remove the container (data volume is kept) and the tray
+down: ## Stop and remove the container (data volume is kept)
 	$(COMPOSE) down
-
-tray: ## Start the tray alone (MARUMADO_TRAY=0 in .env keeps `make up` from starting it)
-	@./scripts/tray.sh start
-
-tray-stop: ## Stop the tray
-	@./scripts/tray.sh stop
 
 restart: mounts ## Restart the container (picks up .env and folder changes)
 	$(COMPOSE) up -d --force-recreate

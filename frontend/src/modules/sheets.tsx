@@ -971,7 +971,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
       setCloseError(err instanceof Error ? `Couldn't close it: ${err.message}` : "Couldn't close it.")
     }
   }
-  const inbox = sub === 'inbox'
+  const inbox = sub === 'inbox' || Boolean(sub?.startsWith('inbox/'))
   // Needs you counts every workspace: an agent waiting elsewhere still waits on you.
   const waiting = everyAgent.filter((a) => a.kind !== 'terminal' && a.status === 'blocked')
   // Plans' steps whose turn has come, waiting for your go: they need you too, those starting a new agent as well.
@@ -1019,7 +1019,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
             </div>
             <p className="agent-head__meta">Every agent waiting on an answer, from every source, and every step waiting for your go. Answer here, or open its terminal.</p>
           </header>
-          <AgentInbox waiting={waiting} asks={asks} working={working} control={mode === 'control'} />
+          <AgentInbox target={sub?.startsWith('inbox/') ? sub.slice(6) : undefined} waiting={waiting} asks={asks} working={working} control={mode === 'control'} />
         </div>
       ) : (
         <div className={`agents__stage${full && !narrow ? ' is-full' : ''}`}>

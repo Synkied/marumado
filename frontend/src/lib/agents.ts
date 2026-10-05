@@ -10,6 +10,9 @@ export const sourceOf = (a: { source?: number }) => a.source ?? 0
 /** `#/m/agents/<source>/<pane>`. */
 export const agentHref = (a: { source?: number; pane_id: string }) => `#/m/agents/${sourceOf(a)}/${a.pane_id}`
 
+/** Waiting agents open their decision; other agents open their terminal. */
+export const agentActionHref = (a: Agent) => a.status === 'blocked' ? `#/m/agents/inbox/${agentKey(a)}` : agentHref(a)
+
 export const agentKey = (a: { source?: number; pane_id: string }) => `${sourceOf(a)}/${a.pane_id}`
 
 /** The agent a route names: `<source>/<pane>`, or a bare `<pane>` (older links) in the .env source. */

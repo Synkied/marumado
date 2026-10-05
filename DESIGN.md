@@ -284,3 +284,8 @@ An eye toggle next to the machine picker (on by default, and forced by `?stream`
 - **Don't** add kicker labels above titles or numbered section indexes.
 - **Don't** give home fixed columns. Home is wrapping reading cells; details live in each module's page.
 - **Don't** animate layout properties. Use transform, opacity or stroke drawing, with a short fade under reduced motion.
+
+### Agent decisions (2026-10-05)
+Waiting-agent alerts and home agent links open `#/m/agents/inbox/<source>/<pane>`. The named question comes first among agent questions and receives keyboard focus. Its project links back to the project page; the terminal remains available for fuller context.
+
+After a successful input request, keep the question and the selected response in the inbox for the current visit. “Response sent” acknowledges delivery; “Agent resumed” requires a reported working state. Idle and finished states are named separately. Failed sends leave controls available for retry; unreadable screens disable input. Read-only connections explain where to answer. Responses are temporary UI receipts, not a persistent approval history.

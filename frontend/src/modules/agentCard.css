@@ -1,0 +1,139 @@
+/* The desktop app's agents card (agentCard.tsx): the whole of a small borderless window by the tray icon. */
+
+/* As tall as its content: the window follows it (fit_card), up to a cap past which the list scrolls. */
+.acard {
+  max-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-7) var(--sp-8) var(--sp-6);
+  border: 1px solid var(--rule-soft);
+  background: var(--ground);
+}
+
+.acard__head,
+.acard__foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-6);
+}
+
+.acard__title {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-strong);
+}
+
+.acard__fault {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.acard__link {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.acard__link:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.acard__list {
+  flex: 0 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  align-content: start;
+  gap: var(--sp-3);
+  overflow-y: auto;
+}
+
+.acard__agent {
+  width: 100%;
+  display: grid;
+  gap: var(--sp-1);
+  padding: var(--sp-5) var(--sp-6);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-md);
+  background: var(--ground-raised);
+  text-align: left;
+  transition: border-color var(--dur-quick) var(--ease);
+}
+
+.acard__agent:hover {
+  border-color: var(--rule);
+}
+
+.acard__agent.is-blocked {
+  border-color: var(--signal);
+}
+
+/* Name, kind and state on one line; everything under it lines up with the name, past the lamp. */
+.acard__top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+.acard__agent > :not(.acard__top) {
+  padding-left: calc(12px + var(--sp-4));
+}
+
+.acard__lamp--working {
+  background: var(--c-agents);
+  border-color: var(--c-agents);
+}
+
+.acard__name {
+  font-weight: var(--weight-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acard__kind {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.acard__state {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.is-blocked .acard__state {
+  color: var(--signal-text);
+}
+
+.acard__doing {
+  font-size: var(--text-md);
+}
+
+.acard__where {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.acard__screen {
+  margin-top: var(--sp-1);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

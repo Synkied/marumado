@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { agentHref, agentKey, sourceLabel, sourceOf, sourceQuery } from '../lib/agents'
 import { Icon } from '../components/Icon'
 import { api } from '../lib/api'
 import { useHub, type Ask } from '../lib/hub'
+import { inDesktop } from '../lib/desktop'
 import { canNotify, useNotifyPreference } from '../lib/notify'
 import type { Agent } from '../lib/types'
 import { usePoll } from '../lib/usePoll'
@@ -47,21 +48,34 @@ const KEYS: [string, string][] = [
 
 /** One agent waiting on you: what its screen asks, and the keys to answer without opening its terminal. `head` false
     leaves out its name and link, for a place that already shows them (the agent dock's card). */
-export function Question({ agent: a, control, head = true }: { agent: Agent; control: boolean; head?: boolean }) {
+export function Question({ agent: a, control, head = true, onAnswered, focused = false }: { agent: Agent; control: boolean; head?: boolean; onAnswered?: (agent: Agent) => void; focused?: boolean }) {
   const { agents, refreshAgents } = useHub()
   const source = sourceOf(a)
   const out = usePoll<{ output: string }>(`agents/${encodeURIComponent(a.pane_id)}/output?lines=60&${sourceQuery(source)}`, 3000)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [sent, setSent] = useState('')
+  const article = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (focused) {
+      article.current?.focus()
+    }
+  }, [focused])
+  const current = agents?.available ? agents.agents.find((other) => agentKey(other) === agentKey(a)) : undefined
+  const resumed = Boolean(sent && current && current.status !== 'blocked' && current.status !== 'unknown')
+  const receiptTitle = !resumed ? 'Response sent' : current?.status === 'working' ? 'Agent resumed' : current?.status === 'done' ? 'Agent finished its turn' : 'Agent is idle at its prompt'
+  const canAnswer = control && !resumed && Boolean(out.data) && !out.error
   const screen = out.data?.output ?? ''
   const picks = choices(screen)
-  const press = async (key: string) => {
+  const press = async (key: string, label: string) => {
+    if (busy || !canAnswer) return
     setBusy(true)
     setError('')
     try {
       await api(`agents/${encodeURIComponent(a.pane_id)}/input?${sourceQuery(source)}`, { method: 'POST', json: { keys: [key] } })
-      out.refresh()
-      refreshAgents()
+      setSent(label)
+      onAnswered?.(a)
+      await Promise.all([out.refresh(), refreshAgents()])
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't reach the agent.")
     } finally {
@@ -70,51 +84,64 @@ export function Question({ agent: a, control, head = true }: { agent: Agent; con
   }
   const on = sourceLabel(agents, a)
   return (
-    <article className="question" aria-labelledby={head ? `q-${agentKey(a)}` : undefined} aria-label={head ? undefined : 'Its question'}>
+    <article ref={article} tabIndex={focused ? -1 : undefined} className={`question${focused ? ' question--focused' : ''}`} aria-labelledby={head ? `q-${agentKey(a)}` : undefined} aria-label={head ? undefined : 'Its question'}>
       {head && <header className="question__head">
-        <span className="row__lamp row__lamp--fault" aria-hidden="true" />
+        <span className={`row__lamp${resumed ? "" : " row__lamp--fault"}`} aria-hidden="true" />
         <h3 className="question__title" id={`q-${agentKey(a)}`}>
           {a.title && a.title !== a.kind ? a.title : a.name || a.kind}
         </h3>
         <span className="question__where">
           {a.name ? `${a.name} · ` : ''}
           {a.kind}
-          {a.project ? ` · ${a.project.name}` : ''}
+          {a.project && <> · <a href={`#/m/projects/${a.project.id}`}>{a.project.name}</a></>}
           {on ? ` on ${on}` : ''}
         </span>
         <a className="agent-fit question__open" href={agentHref(a)}>
           Open terminal
         </a>
       </header>}
+      <p className="question__guidance">{resumed ? 'Your response was sent. The latest agent state is shown below.' : control ? 'Review the question below, then choose a response. For more context, open the terminal.' : 'This connection is read-only. Answer in the agent’s terminal outside Marumado.'}</p>
+      {sent && (
+        <p className="question__receipt" role="status">
+          <strong>{receiptTitle}</strong>
+          <span>{sent}{!resumed ? ' · Waiting for the agent’s next state. If it still needs you, check its screen below.' : ''}</span>
+        </p>
+      )}
       <pre className="logs question__screen">{out.error ? `Couldn't read its screen: ${out.error.message}` : out.data ? tail(screen) || 'Nothing on its screen.' : 'Reading its screen…'}</pre>
-      {control && picks.length > 0 && (
+      {control && !resumed && picks.length > 0 && (
         <div className="question__choices" role="group" aria-label="Answer">
           {picks.map((c) => (
-            <button key={c.key} className={`btn${c.current ? '' : ' btn--quiet'} question__choice`} type="button" disabled={busy} onClick={() => press(c.key)}>
+            <button key={c.key} className={`btn${c.current ? '' : ' btn--quiet'} question__choice`} type="button" disabled={busy || !canAnswer} onClick={() => press(c.key, c.text)}>
               <kbd>{c.key}</kbd> {c.text}
             </button>
           ))}
         </div>
       )}
-      {control && (
-        <div className="composer__keys" role="group" aria-label="Keys">
+      {control && !resumed && (
+        <div className="composer__keys" role="group" aria-label="Terminal keys">
           {KEYS.map(([key, text]) => (
-            <button key={key} className="composer__key" type="button" disabled={busy} onClick={() => press(key)}>
+            <button key={key} className="composer__key" type="button" disabled={busy || !canAnswer} onClick={() => press(key, `${text} key`)}>
               {text}
             </button>
           ))}
         </div>
       )}
-      {error && <p className="signal-text question__error">{error}</p>}
+      {busy && <p className="question__guidance" role="status">Sending response…</p>}
+      {error && <p role="alert" className="signal-text question__error">{error}</p>}
     </article>
   )
 }
 
 /** Every agent waiting on you, from every source, answerable from here; every plan's step waiting for your go. And
     whether this browser calls you back. */
-export function AgentInbox({ waiting, asks, working, control }: { waiting: Agent[]; asks: Ask[]; working: number; control: boolean }) {
+export function AgentInbox({ waiting, asks, working, control, target }: { waiting: Agent[]; asks: Ask[]; working: number; control: boolean; target?: string }) {
+  const [answered, setAnswered] = useState<Agent[]>([])
+  const remember = (a: Agent) => setAnswered((previous) => previous.some((other) => agentKey(other) === agentKey(a)) ? previous : [...previous, a])
+  const questions = [...waiting, ...answered.filter((a) => !waiting.some((other) => agentKey(other) === agentKey(a)))]
+  questions.sort((a, b) => Number(agentKey(b) === target) - Number(agentKey(a) === target))
   return (
     <div className="inbox">
+      {target && !questions.some((a) => agentKey(a) === target) && <p className="question__guidance" role="status">This agent is no longer waiting for an answer. <a href={`#/m/agents/${target}`}>Check its terminal</a> for its latest state.</p>}
       {asks.map(({ agent: a, step }) => (
         <article className="question question--ask" key={`go${step.id}`}>
           <p className="question__ask">
@@ -133,8 +160,8 @@ export function AgentInbox({ waiting, asks, working, control }: { waiting: Agent
           </span>
         </article>
       ))}
-      {waiting.length ? (
-        waiting.map((a) => <Question agent={a} control={control} key={agentKey(a)} />)
+      {questions.length ? (
+        questions.map((a) => <Question agent={a} control={control} key={agentKey(a)} onAnswered={remember} focused={agentKey(a) === target} />)
       ) : asks.length ? null : (
         <p className="sheet__lede">
           Nothing needs you. {working ? `${working} agent${working === 1 ? ' is' : 's are'} working.` : 'No agent is working.'} Questions and approvals land here as
@@ -148,6 +175,8 @@ export function AgentInbox({ waiting, asks, working, control }: { waiting: Agent
 
 function NotifyToggle() {
   const [on, set] = useNotifyPreference()
+  if (inDesktop)
+    return <p className="agent-hint">The desktop app notifies you when an agent starts waiting on you or finishes its turn (<em>Notify me</em> in its tray menu).</p>
   if (!canNotify())
     return <p className="agent-hint">Notifications need HTTPS or localhost; the tab&rsquo;s title still counts who needs you.</p>
   const denied = Notification.permission === 'denied'

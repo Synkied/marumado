@@ -20,12 +20,32 @@ Two layers. **Your work** (projects, tasks, agents, skills, URLs) lives on the M
 
 Press `/` (or ⌘K / Ctrl+K) anywhere to search projects, processes, ports, and containers. Projects, Tasks, Agents and URLs sit in the top bar as small dials, next to up to four of your running agents as critters (the ones that need you or are at work first; each opens its agent); the sidebar lists your pinned projects. Home shows what your agents are doing (one ribbon per agent: what it did each minute of the last hour, reading, editing, running or thinking, where you wrote to it and where a step failed; what it did last; and how its turn goes: how long it has been at it or waiting, files changed, steps failed; read from Claude Code's and Codex's session records), then every machine, as rows or side-by-side columns.
 
+## The desktop app
+
+Marumado runs in the browser, and also as a desktop app (`desktop/`, Tauri) for Linux, Windows and macOS, beside it.
+The app is one window that every page opens in (the browser can't hand an open tab to another program), the tray,
+and notifications:
+
+- **The tray icon**: one arc per agent, wisteria while working, blue once it has finished its turn, grey when idle; in
+  the middle, how many need you on a persimmon disc, or else how many are working; a grey ring struck through when
+  Marumado can't be read. Its menu starts with *Show agents…* (the card), then who needs you and who is working, each
+  opening its page in the app's window.
+- **The card**: a small window by the icon (Windows, macOS: a click on the icon) or at the top right of the main
+  monitor (Linux: *Show agents…*), listing every agent: who needs you first, then who is working and for how long,
+  what each is doing, where, what a plan has queued for it, and the last line of its screen.
+- **Notifications** when an agent starts waiting on you or finishes its turn, whether the window is open or not.
+
+On first run it asks for Marumado's address (`http://127.0.0.1:7878`, or another machine's) and its access token
+(`make access-token`), and can start with your session. It loads Marumado from that address rather than bundling the
+web app, so one build works with any Marumado. Builds for each system come from GitHub Actions (`.github/workflows/desktop.yml`);
+see [desktop/README.md](desktop/README.md) to build it yourself and for Linux's tray.
+
 ## Run it with Docker (recommended)
 
 ```sh
-make up        # creates .env on first run, builds, starts → http://127.0.0.1:7878, and the tray
+make up        # creates .env on first run, builds, starts → http://127.0.0.1:7878
 make logs      # follow logs
-make down      # stop (the tray too)
+make down      # stop
 make           # every shortcut
 ```
 
@@ -81,4 +101,5 @@ cd frontend && npm install && npx vite          # dev UI on :5173, proxies /api
 |---|---|
 | `backend/` | Django + DRF API. `core/monitor.py` samples the host on background threads; `core/discovery.py` scans projects. |
 | `frontend/` | React + TypeScript (Vite). `src/modules/` holds one sheet per module; `src/modules/registry.ts` lists the modules. Add a new module there to put it on the hub. |
+| `desktop/` | The desktop app (Tauri 2): `src-tauri/` the window, tray, card window and notifications in Rust; `setup/` the first-run page. The card itself is the frontend's `#/card` page. |
 | `PRODUCT.md`, `.impeccable/` | Product and design records. |

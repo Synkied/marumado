@@ -1,0 +1,67 @@
+# The desktop app (desktop/), built for Linux, Windows and macOS. The bundles are kept as the run's artifacts.
+# Not signed yet: macOS and Windows warn before opening them the first time.
+name: Desktop app
+
+on:
+  push:
+    branches: [main]
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+  pull_request:
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+          - os: windows-latest
+          - os: macos-latest
+            args: --target universal-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - run: npm ci
+        working-directory: desktop
+
+      - name: Tests and lints
+        if: runner.os == 'Linux'
+        working-directory: desktop/src-tauri
+        run: |
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+
+      - run: npm run build -- ${{ matrix.args }}
+        working-directory: desktop
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: marumado-desktop-${{ runner.os }}
+          path: |
+            desktop/src-tauri/target/release/bundle/
+            desktop/src-tauri/target/universal-apple-darwin/release/bundle/
+          if-no-files-found: error

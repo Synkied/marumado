@@ -3959,3 +3959,25 @@ details[open] > summary.rstep__line .rstep__title {
     display: none;
   }
 }
+
+/* Keep the decision and its acknowledgement together as the live inbox updates. */
+.question__guidance {
+  margin: 0;
+  max-width: 70ch;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+}
+.question__receipt {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: var(--sp-4) 0;
+  border-block: 1px solid var(--rule);
+  overflow-wrap: anywhere;
+  font-size: var(--text-md);
+}
+.question__receipt span { color: var(--ink-2); }
+.question--focused { scroll-margin-block: var(--sp-5); }
+.question__choice,
+.question .composer__key { min-height: 44px; }
+.question__screen { overflow-wrap: anywhere; }
