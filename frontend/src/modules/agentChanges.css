@@ -13,8 +13,13 @@
 .changes__tree summary span { overflow-wrap: anywhere; }
 .changes__file { display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-height: 36px; padding: var(--sp-3); border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink); font: inherit; font-size: var(--text-md); text-align: left; cursor: pointer; }
 .changes__file svg, .changes__tree summary svg { flex: none; }
-.changes__filename { flex: 1; overflow-wrap: anywhere; min-width: 0; }
-.changes__status { font-size: var(--text-xs); color: var(--ink-2); }
+.changes__file { --change-color: var(--c-momentum); }
+.changes__file[data-status='new'], .changes__file[data-status='added'] { --change-color: var(--moss); }
+.changes__file[data-status='deleted'], .changes__file[data-status='conflict'] { --change-color: var(--signal-text); }
+.changes__file[data-status='renamed'] { --change-color: var(--c-agents); }
+.changes__file > svg { color: var(--change-color); }
+.changes__filename { flex: 1; overflow-wrap: anywhere; min-width: 0; color: var(--change-color); }
+.changes__status { flex: none; padding: 2px var(--sp-2); border-radius: var(--radius-sm); font-size: var(--text-sm); font-weight: var(--weight-strong); color: var(--change-color); background: color-mix(in oklab, var(--change-color) 10%, var(--ground)); }
 .changes__file:hover { background: var(--track); }
 .changes__file[aria-pressed='true'] { background: color-mix(in oklab, var(--c-agents) 12%, var(--ground)); }
 .changes__file:focus-visible, .changes__tree summary:focus-visible, .changes__diff:focus-visible { outline: 2px solid var(--c-agents); outline-offset: -2px; }

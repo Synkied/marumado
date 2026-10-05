@@ -46,7 +46,7 @@ function FileTree({ node, selected, select }: { node: Folder; selected: string; 
       ))}
       {[...node.files].sort((a, b) => a.path.localeCompare(b.path)).map((file) => (
         <li key={file.path}>
-          <button type="button" className="changes__file" aria-pressed={selected === file.path} onClick={() => select(file.path)} title={file.path}>
+          <button type="button" className="changes__file" data-status={statusOf(file).toLowerCase()} aria-pressed={selected === file.path} onClick={() => select(file.path)} title={file.path}>
             <Icon name="file" size={16} />
             <span className="changes__filename">{file.path.split('/').at(-1)}</span>
             <span className="changes__status">{statusOf(file)}</span>
