@@ -555,6 +555,16 @@
   pointer-events: none;
 }
 
+.tool__badge--scheduled {
+  background: var(--c-momentum);
+  color: var(--on-mod);
+}
+
+.tool__badge--lower {
+  top: auto;
+  bottom: -6px;
+}
+
 .tool.is-fault:not(.tool--bell) {
   border-color: var(--signal);
   color: var(--signal-text);

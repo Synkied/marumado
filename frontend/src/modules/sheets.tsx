@@ -741,7 +741,11 @@ function InboxBell({ waiting, asks, active }: { waiting: number; asks: number; a
 function PlansButton({ onOpen }: { onOpen: () => void }) {
   const { plans } = useHub()
   const asks = (plans ?? []).reduce((n, p) => n + p.asking.length, 0)
-  const what = asks ? `${asks} step${asks === 1 ? '' : 's'} wait${asks === 1 ? 's' : ''} for your go` : ''
+  const scheduled = (plans ?? []).filter((p) => p.start_at && !p.running && !(p.steps.length && p.steps.every((t) => t.state === 'review' || t.state === 'done'))).length
+  const what = [
+    asks ? `${asks} step${asks === 1 ? '' : 's'} wait${asks === 1 ? 's' : ''} for your go` : '',
+    scheduled ? `${scheduled} scheduled plan${scheduled === 1 ? '' : 's'}` : '',
+  ].filter(Boolean).join('; ')
   return (
     <button
       type="button"
@@ -752,10 +756,16 @@ function PlansButton({ onOpen }: { onOpen: () => void }) {
     >
       <Icon name="tasks" size={18} />
       <CountBadge n={asks} />
+      {scheduled > 0 && (
+        <span className={`tool__badge tool__badge--scheduled${asks ? ' tool__badge--lower' : ''}`} aria-hidden="true">
+          {scheduled > 9 ? '9+' : scheduled}
+        </span>
+      )}
       <span className="sr-only">Plans{what && `: ${what}`}</span>
     </button>
   )
 }
+
 
 function AgentTab({ agent: a, active, sub }: { agent: Agent; active: boolean; sub: string }) {
   const lamp = lampOf(a)
