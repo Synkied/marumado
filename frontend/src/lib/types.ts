@@ -296,6 +296,8 @@ export type Plan = {
   kind: string
   source: number
   running: boolean
+  /** when it starts by itself, if it isn't running yet (core/plans.py start_due) */
+  start_at: string | null
   /** an agent's own queue: the steps queued from its page (empty for other plans) */
   pane_id: string
   pane_source: number

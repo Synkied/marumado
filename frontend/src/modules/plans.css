@@ -1053,3 +1053,11 @@
 .builder__add textarea {
   resize: vertical;
 }
+
+.plan__hint {
+  color: var(--ink-3);
+}
+
+.plan__clear {
+  margin-left: var(--sp-2);
+}

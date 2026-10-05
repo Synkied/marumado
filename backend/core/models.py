@@ -158,6 +158,8 @@ class Plan(models.Model):
     source = models.PositiveIntegerField(default=0)
     # Steps start by themselves only while the plan runs; paused, those not started yet wait.
     running = models.BooleanField(default=False)
+    # When it starts by itself (plans.start_due), if the owner set one and it isn't running yet.
+    start_at = models.DateTimeField(null=True, blank=True)
     # An agent's own queue: the plan its steps go into when they are queued from its page (plans.queue_for).
     pane_id = models.CharField(max_length=40, blank=True, default='')
     pane_source = models.PositiveIntegerField(default=0)

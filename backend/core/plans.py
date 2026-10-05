@@ -12,6 +12,7 @@ A new agent for a step that runs beside others gets a git worktree of the projec
 don't write over each other; the steps under it continue there. Merging is the owner's.
 An agent takes a step only when it is free (idle at its prompt, or finished its turn): one at work, or waiting on
 the owner, keeps the step queued. A failed step holds back the rows under it; the rest of its row carries on.
+A plan given a start time (start_at) starts by itself when that time comes, as if the owner pressed Start.
 A step marked `ask` doesn't start by itself: when its turn comes it waits for the owner's go (go()), so they can
 check the steps above it first.
 An agent's own queue is a plan too (queue_for): steps queued from the agent's page, one row each, all on that agent.
@@ -208,12 +209,21 @@ def arrange(plan: Plan, layout: list[list[int]]) -> None:
 def start(plan: Plan) -> None:
     """Let the plan run: its steps still to do are queued, and start as their turn comes."""
     with transaction.atomic():
-        plan.running = True
-        plan.save(update_fields=['running', 'updated_at'])
+        plan.running, plan.start_at = True, None
+        plan.save(update_fields=['running', 'start_at', 'updated_at'])
         for t in plan.steps.filter(state=Task.TODO):
             t.state = Task.QUEUED
             t.save(update_fields=['state', 'updated_at'])
             tasks.event(t, 'moved', f'Queued in “{plan.title}”')
+
+
+def start_due() -> None:
+    """Start the plans whose start time has come. One with no steps yet keeps waiting; while giving tasks to
+    agents is turned off, they all do."""
+    if herdr.terminal_mode() != 'control':
+        return
+    for plan in Plan.objects.filter(start_at__lte=tasks._now(), running=False, archived_at__isnull=True, steps__isnull=False).distinct():
+        start(plan)
 
 
 def go(step: Task) -> None:

@@ -151,7 +151,7 @@ class PlanSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Plan
-        fields = ['id', 'title', 'project', 'project_name', 'kind', 'source', 'running', 'pane_id', 'pane_source', 'archived_at', 'created_at',
+        fields = ['id', 'title', 'project', 'project_name', 'kind', 'source', 'running', 'start_at', 'pane_id', 'pane_source', 'archived_at', 'created_at',
                   'updated_at', 'steps', 'asking']
         read_only_fields = ['running', 'pane_id', 'pane_source', 'archived_at', 'created_at', 'updated_at', 'steps', 'asking']
 
@@ -181,4 +181,14 @@ class PlanSerializer(serializers.ModelSerializer):
             herdr.get_source(value)
         except ValueError as exc:
             raise serializers.ValidationError(str(exc))
+        return value
+
+    def validate_start_at(self, value):
+        """A time to come, for a plan that isn't running yet; none takes it off."""
+        if value is None:
+            return value
+        if self.instance and self.instance.running:
+            raise serializers.ValidationError('It is already running.')
+        if value <= tasks._now():
+            raise serializers.ValidationError('Pick a time still to come.')
         return value

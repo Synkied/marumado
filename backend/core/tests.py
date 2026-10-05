@@ -1,6 +1,7 @@
 import os
 import subprocess
 import tempfile
+from datetime import timedelta
 from unittest import mock
 
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -395,6 +396,25 @@ class PlanTests(TestCase):
         with mock.patch.object(herdr, 'agents', return_value=agents(('w2:p1', 'a', 'claude', 'idle', ''))):
             listed = self.api.get('/api/agents').json()
         self.assertEqual([q['title'] for q in listed['agents'][0]['queued']], ['Two', 'Three'])
+
+    def test_a_plan_with_a_start_time_starts_by_itself_when_it_comes(self):
+        pid, ids = self.plan(['One'])
+        url = f'/api/plans/{pid}'
+        self.assertEqual(self.api.patch(url, {'start_at': '2000-01-01T00:00:00Z'}, format='json').status_code, 400, 'a time gone by')
+        later = tasks._now() + timedelta(hours=1)
+        self.assertEqual(self.api.patch(url, {'start_at': later.isoformat()}, format='json').status_code, 200)
+        with mock.patch.object(tasks.herdr, 'agents', return_value=agents()):
+            plans.start_due()
+            plans.advance()
+        self.assertEqual((Plan.objects.get(pk=pid).running, self.prompted), (False, []), 'not before its time')
+
+        with mock.patch.object(tasks, '_now', return_value=later + timedelta(seconds=1)), mock.patch.object(tasks.herdr, 'agents', return_value=agents()):
+            plans.start_due()
+            plans.advance()
+        plan = Plan.objects.get(pk=pid)
+        self.assertEqual((plan.running, plan.start_at), (True, None))
+        self.assertEqual(self.prompted, [('w2:p1', 'One')])
+        self.assertEqual(self.api.patch(url, {'start_at': (later + timedelta(hours=1)).isoformat()}, format='json').status_code, 400, 'already running')
 
     def test_a_step_that_asks_waits_for_the_go(self):
         pid, ids = self.plan(['One'], ['Two'], ['Three'])
@@ -934,4 +954,3 @@ class ProjectAgentSourceTests(TestCase):
         self.assertEqual(herdr.source_of_folder('/projects/work/api', defaults), 2)
         self.assertEqual(herdr.source_of_folder('/projects/blog', defaults), 1)
         self.assertIsNone(herdr.source_of_folder('/projectsx/blog', defaults))
-

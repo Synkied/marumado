@@ -405,7 +405,8 @@ def _rescan_step(now: float):
 def _tasks_step(now: float):
     from . import plans, tasks
     tasks.watch(now)
-    # Then the plans: a step whose agent just finished can go now.
+    # Then the plans: those whose start time has come, and a step whose agent just finished can go now.
+    plans.start_due()
     plans.advance()
 
 

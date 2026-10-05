@@ -107,15 +107,61 @@ function layoutOf(plan: Plan): Task[][] {
 
 const ids = (rows: Task[][]) => rows.map((r) => r.map((t) => t.id)).filter((r) => r.length)
 
-type PlanState = 'draft' | 'running' | 'paused' | 'finished'
+type PlanState = 'draft' | 'scheduled' | 'running' | 'paused' | 'finished'
 
 function planState(plan: Plan): PlanState {
   if (plan.steps.length && plan.steps.every((t) => FINISHED.includes(t.state))) return 'finished'
   if (plan.running) return 'running'
+  if (plan.start_at) return 'scheduled'
   return plan.steps.some((t) => !NOT_STARTED.includes(t.state)) ? 'paused' : 'draft'
 }
 
-const STATE_WORDS: Record<PlanState, string> = { draft: 'Draft', running: 'Running', paused: 'Paused', finished: 'Finished' }
+const STATE_WORDS: Record<PlanState, string> = { draft: 'Draft', scheduled: 'Scheduled', running: 'Running', paused: 'Paused', finished: 'Finished' }
+
+/** A start time, as the owner reads it: "Mon 6 Oct, 09:00". */
+const when = (iso: string) =>
+  new Date(iso).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+
+/** An ISO time as the value of a datetime-local input, in local time. */
+function localInput(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+}
+
+/** When the plan starts by itself: a date and time, kept on leaving the field (not on every keystroke); emptied, it
+    starts only by hand. */
+function StartAt({ plan, disabled, patch }: { plan: Plan; disabled: boolean; patch: (json: object) => void }) {
+  const saved = localInput(plan.start_at)
+  const [draft, setDraft] = useState(saved)
+  useEffect(() => setDraft(saved), [saved])
+  const commit = () => {
+    if (draft === saved) return
+    patch({ start_at: draft ? new Date(draft).toISOString() : null })
+  }
+  return (
+    <label title="It starts by itself then, as if you pressed Start">
+      starts{' '}
+      <input
+        className="plan__inline"
+        type="datetime-local"
+        value={draft}
+        min={localInput(new Date().toISOString())}
+        disabled={disabled}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && commit()}
+        aria-label="Start time"
+      />
+      {!plan.start_at && !draft && <span className="plan__hint"> by hand</span>}
+      {plan.start_at && (
+        <button className="btn btn--quiet plan__clear" type="button" disabled={disabled} onClick={() => patch({ start_at: null })} title="Start it only by hand">
+          Clear
+        </button>
+      )}
+    </label>
+  )
+}
 
 /** The state of a step, as a mark: the class of its cell in the strips and lanes. */
 function mark(t: Task, asking: number[] = []): string {
@@ -166,7 +212,7 @@ export function PlansList() {
                   <span className="plans__name">{p.title}</span>
                   {state === 'scheduled' && <Icon name="clock" size={18} className="plans__scheduled-icon" />}
                   <span className="plans__meta">
-                    {p.project_name || 'No project'} · {STATE_WORDS[state].toLowerCase()} · {done} of {p.steps.length} done
+                    {p.project_name || 'No project'} · {state === 'scheduled' && p.start_at ? `starts ${when(p.start_at)}` : STATE_WORDS[state].toLowerCase()} · {done} of {p.steps.length} done
                     {p.asking.length ? <span className="signal-text"> · {p.asking.length} waiting for your go</span> : null}
                   </span>
                   <Strip plan={p} />
@@ -420,6 +466,12 @@ function PlanView({ plan, refresh, back }: { plan: Plan; refresh: () => void; ba
         ) : (
           place && <span>on {place.name}</span>
         )}
+        {!plan.running && state !== 'finished' && !plan.archived_at && (
+          <>
+            <span className="plan__sep" aria-hidden="true">·</span>
+            <StartAt plan={plan} disabled={busy || !control} patch={patch} />
+          </>
+        )}
       </p>
 
       {plan.archived_at && (
@@ -445,6 +497,12 @@ function PlanView({ plan, refresh, back }: { plan: Plan; refresh: () => void; ba
           <GoButton step={t.id} title={t.title} onDone={refresh} />
         </p>
       ))}
+      {state === 'scheduled' && plan.start_at && (
+        <p className="notice">
+          Starts by itself {when(plan.start_at)}
+          {plan.steps.length ? '' : ', once it has a step'}. Press Start to run it now.
+        </p>
+      )}
       {error && <p className="notice signal-text">{error}</p>}
 
       {plan.steps.length > 0 && <Lanes rows={rows} agents={agents} asking={plan.asking} />}
