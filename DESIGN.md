@@ -18,12 +18,12 @@ colors:
   moss: "#5d6b3a"
   persimmon: "#c2502b"
   persimmon-text: "#a3411f"
-  night-paper: "#1a1a18"
-  night-disc: "#201f1d"
-  night-ink: "#e8e5dc"
-  night-ink-2: "#a9a69c"
-  night-grid: "#2b2a27"
-  night-grid-major: "#44423d"
+  night-paper: "#22221f"
+  night-disc: "#292925"
+  night-ink: "#eeebe3"
+  night-ink-2: "#bdbab0"
+  night-grid: "#32312d"
+  night-grid-major: "#4b4944"
   night-moss: "#93a666"
   night-persimmon: "#e0703f"
   pen-projects: "oklch(0.44 0.1 266)"
@@ -72,7 +72,7 @@ rounded:
   xl: "8px"
 spacing:
   unit: "2px"
-  gutter: "clamp(16px, 2.6vw, 48px)"
+  gutter: "clamp(16px, 1.2vw, 24px)"
   control: "40px"
   touch: "44px"
 components:
@@ -147,7 +147,7 @@ Paper, graticule and ink; one muted pen per module; two pigments used only as si
 - **Ink** (`ink`): text and the darkest marks. **Ink-2** (6.3:1 on paper): all secondary text, axis labels. **Ink-3**: the "now" tick, baselines, strokes; never text.
 - **Graticule** (`grid`, `grid-major`): the paper's ruling, the rings and spokes inside a disc, off lanes.
 - **Pen off** (`pen-off`): the dashed rim of a channel that is off or unavailable.
-- **The recorder at night** (`prefers-color-scheme: dark`): near-black paper, each disc a sheet a shade lighter (`night-disc`), firmer graticule, pale pens. The roles stay the same.
+- **The recorder at night** (`prefers-color-scheme: dark`): charcoal paper, not black (a side screen in a dim room must stay easy to read), each disc and home reading a sheet a shade lighter (`night-disc`), firmer graticule and hairlines, `ink-2` at 8:1, pale pens. The roles stay the same.
 
 ### Named Rules
 **The Pen Rule.** A module's colour is identity, and only that module draws with it. Pens stay muted and keep clear of olive and orange, so they never read as moss or persimmon. A channel that needs you keeps its pen; persimmon goes on its rim and its newest record. Projects, categories and items inside a module get no colours of their own.
@@ -178,7 +178,7 @@ Paper, graticule and ink; one muted pen per module; two pigments used only as si
 
 ## Layout
 
-- The app is a quiet top bar (the round chart mark and wordmark, machine picker, streaming and lock toggles, active agents, an underlined "/ search", CPU/RAM, the status dot and words) over the main area.
+- The app is a quiet top bar (the round chart mark and wordmark, machine picker, streaming and lock toggles, an underlined "/ search", CPU/RAM, the status dot and words) over the main area. Running agents live in the agent dock, in the bottom-right corner of every page (see Agent critters).
 - **Home** is every machine, one block each, on the graticule, edge to edge (see The machine blocks).
 - **A module page** swaps home for a sidebar of small discs (a 104px rail with names under them, or a wider list with the caption beside each) next to the sheet. On wide screens the app is one viewport tall and each column scrolls on its own.
 - **Below 860px** home is the same blocks with two readings per line. A module page shows only its sheet with a Home back link. Every control is at least 44px tall.
@@ -232,13 +232,34 @@ Off is a blank disc with a dashed `pen-off` rim and "OFF" in light italic. Fault
 ### The machine blocks (home)
 Home (`modules/fleet.tsx`, readings in `modules/readouts.ts`) shows every machine as a block:
 - **Header:** the round-window lamp (a hollow ink ring when all is well, filled persimmon when something needs you, dashed while connecting), the machine's name (opens its Machine page), a context line in mono, its status ("all clear", "2 need you", "unreachable"), and Arrange and Fold buttons.
-- **Readings:** fixed-anatomy cells: the name in tracked caps in its module's pen (RAM in the Processes pen, Disk in Momentum's) with its **seal** beside it, the value large in mono (`--text-3xl`) on its own line, and under it a line of words (up to two lines) or, for CPU, its last half hour as a pen line with a dot at "now" and its budget as a dashed rule. The seal is the module's disc in miniature (36px, read from twelve o'clock): a share is one arc with a tick at its budget (CPU, RAM, Disk); parts are one arc per item, pen for on, pale for off, persimmon for needs you (URLs, Agents, Docker, Tasks, Projects; past 12 items it becomes a share). Cells are separated by a left hairline, never boxed. A reading that needs you keeps its place, on a faint persimmon wash with a 3px persimmon left rule; an absent module is pale with a dashed seal.
-- **Extensible by construction:** cells lay on `repeat(auto-fill, minmax(148px, 1fr))` (140px on phones), so they wrap onto as many lines as needed and stretch to fill each line, and every block shares the same columns: the same reading sits in the same place on every machine. Nine readings fit one line at 1440px. A new module adds an entry to `READOUTS`, built from the machine's summary and `/api/overview` digest only, so it reads the same for every machine.
+- **Readings:** fixed-anatomy cells: the name in tracked caps in its module's pen (RAM in the Processes pen, Disk in Momentum's) with its **seal** (32px) beside it, the value large in mono (`--text-3xl`) on its own line, and under it a line of words (up to two lines) or, for CPU, its last half hour as a pen line with a dot at "now" and its budget as a dashed rule. The seal is the module's disc in miniature (32px, read from twelve o'clock): a share is one arc with a tick at its budget (CPU, RAM, Disk); parts are one arc per item, pen for on, pale for off, persimmon for needs you (URLs, Agents, Docker, Tasks, Projects; past 12 items it becomes a share). Cells are separated by a left hairline, never boxed. A reading that needs you keeps its place, on a faint persimmon wash with a 3px persimmon left rule; an absent module is pale with a dashed seal.
+- **Extensible by construction:** cells lay on `repeat(auto-fill, minmax(136px, 1fr))` (140px on phones), so they wrap onto as many lines as needed and stretch to fill each line, and every block shares the same columns: the same reading sits in the same place on every machine. Ten readings fit one line at 1440px. Each cell is a sheet (`--disc`: the paper itself by day, a shade lighter at night); an off reading keeps its words in `ink-2`, only its value pales. A new module adds an entry to `READOUTS`, built from the machine's summary and `/api/overview` digest only, so it reads the same for every machine.
 - **Per machine:** Arrange lets you show, hide and reorder a machine's readings; "Use on every machine" copies them so the blocks line up again. Saved per viewer in browser storage.
 - **Order and folding:** machines that need you (or are unreachable) rise to the top and are always open; this machine is open; calm remote machines fold to one line carrying their vitals (`CPU 8% · RAM 30% · disk 40%`), and any fold can be changed by hand. An unreachable machine is one persimmon line with Retry. Problems no reading shows are listed under the block.
 
 ### Strip charts
 On module pages (`DotChart`): the pen running across ruled paper, oldest at the left, the pen tip at "now" on the right, axis values in mono on the left and the span ("−30 min … now") under it. A channel that went quiet (a URL down) ends at its last reading, marked by a dashed persimmon break. Meters are 6px grooves in `track` with a pen fill and a budget tick.
+
+### Tasks board
+As on a GitHub project board: five columns (To do, Working, Needs you, To review, Done), each headed by a small lamp in its state's colour (an outline for To do, moss for Working, persimmon for Needs you, a blue ring for To review, solid blue for Done), its name and its count. On desktop the board takes the page's leftover height; each column scrolls its own cards. At the foot of every column but Needs you, a quiet full-width "+ Add a task" (Add and hand over, Add to review, Add as done) opens into a small card in the Tasks pen: the title (Enter adds and keeps it open for the next one; Escape closes it), the project (remembered per browser), Add and Cancel. A task added under Working is made, then goes to choosing its agent. On phones, a column per screen width, swiped across. Cards move between columns by dragging.
+
+### Plans
+On Tasks, above the board: each plan a soft-ruled item with its name, project, state and progress, and its **strip**, the plan's shape in miniature (a column per row, a cell per step: the Tasks pen when at work, paler once finished, persimmon when it needs you, an outline while queued). A plan's page:
+- **Setup** as a sentence with inline selects on a soft underline ("demo · new agents are claude on vm"); Start / Pause / Resume and Delete beside the title.
+- **Lanes**, the plan as a chart record: one lane per agent (named in mono), time running left to "now" over three quarters of the width; what ran inked in the Tasks pen (solid at work, paler finished, persimmon needing you), what is queued past "now", dashed, in the order it will start.
+- **The builder**: the rows hang off a rail on the left: a numbered mono node per row (outlined; ringed while at work; filled in the Tasks pen once finished, persimmon when it needs you), "at once" under it when the row has several steps, a hairline with an arrowhead down to the next row, ending on a dashed "+" node for the next step. A row's steps sit side by side as cards: a grip, the lamp and title, quiet arrow buttons top-right (up: earlier, on its own; down: later, on its own; join: with the row above; ×: remove), who takes it, and the who-select. A step that continues with the agent of the step above it is tied to it by a dotted line in the Tasks pen. A step that hasn't started is dragged onto a row (a dashed "Runs at the same time" card shows where it lands) or between rows (the gap opens into a dashed "Run on its own here" slot). After a row's steps, a dashed card the size of a step, "+ At the same time", opens into a card with a roomy text box (Enter adds, Escape cancels); the last line adds the next step or takes one from To do.
+- A queued task's lamp is a dashed ring.
+- **Asking first**: a step marked "Ask me before it starts" (a checkbox on the step, and under the next-step field) doesn't start by itself. Once its turn comes it reads as needing you: persimmon lamp, cell and node, "waits for your go" in its sub-line, a Go button on the card, and a notice under the setup with the same Go. The Agents bell counts these steps, and the inbox lists each one above the questions, with its Go.
+- **The plans modal**, over the Agents page (`modules/planModal.tsx`): the queue button in the agent's toolbar (a list with an arrow, the count of steps queued for it, persimmon when the next one waits for your go) and "Next: …" in its header line open it. It is a modal `<dialog>` on the floating shadow over a blurred ground, nearly the window's size (full screen on a phone), with a segmented control: **Next for <agent>**, a roomy text box (first line names the step, the rest goes to the agent too; Ctrl/⌘+Enter queues it), "Ask me before it starts" (remembered per browser), a sentence saying when it will start, and the queue as numbered dashed rings in the Tasks pen (solid persimmon when waiting for your go); and **Plans**, the plans list, a new plan and a plan's page, moving between them inside the modal. Escape or a click on the backdrop closes it.
+
+### Agent critters (the dock)
+Every running agent, from every source (plain terminals aside), is a small ink critter on a strip of chart paper floating in the bottom-right corner of every page (`modules/agentDock.tsx`, `components/Critter.tsx`). Each critter is generated from its agent's source and pane, so the same agent always looks the same: body proportions, a topper (ears, points, antenna, sprout, tuft, horns or none), a marking (a graticule ring, spots, a band, a belly or none), eyes and feet. They are all drawn in the agents' pen, because items get no colours of their own; the shape is what tells them apart. The pose says the state:
+- **working**: nods over a pen and writes a trace along the ground, as every channel here writes its record.
+- **needs you**: persimmon, lifts off the line and settles, and holds up a question mark. It stays in its place: state never reorders the dock.
+- **finished its turn**: content eyes, a small bow, a check drawn once in the done blue.
+- **idle**: asleep, breathing slowly, with a z.
+- **unknown**: a dashed `pen-off` outline, still.
+Blinks and breaths are out of step from one critter to the next. Under reduced motion every loop stops, and the poses alone tell the states apart. Choosing a critter opens its card above the dock (not modal; Escape or a click elsewhere closes it): name, kind, project, source, state, its live terminal (fitted: the pane takes the card's size while it is open, and you can type into it in control mode; Escape there goes to the agent), or, when it needs you, its question with the answer keys (`Question` from the inbox), then Open terminal and Project page. Folding the dock leaves out only the critters that need you (a small tab with the count otherwise), remembered per browser. Each critter keeps the place you give it, so an agent is always found where you left it: drag it along the line (touch too), or Alt+←/→ on a focused one; a new agent joins at the end; the order is remembered per browser (`marumado.dock.order`). Up to 8 critters (5 on a phone), then "+N" to the Agents page, in persimmon when one past the edge needs you. With no agents running, there is no dock. Pages pad their ends so the dock never hides the last row.
 
 ### Streaming mode
 An eye toggle next to the machine picker (on by default, and forced by `?stream`) masks SSH logins, host names, paths, addresses, commands and logs with a quiet "… hidden" placeholder (`Secret`, `useRedact`). On, it fills with solid.

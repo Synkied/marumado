@@ -1,0 +1,345 @@
+/* ---------- the agent dock: every running agent as a critter, in the corner of every page ---------- */
+
+.dock {
+  position: fixed;
+  right: var(--gutter);
+  bottom: var(--gutter);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--sp-5);
+  max-width: calc(100vw - 2 * var(--gutter));
+  pointer-events: none;
+}
+
+.dock > * {
+  pointer-events: auto;
+}
+
+/* A strip of chart paper the critters stand on, with the line they stand on. */
+.dock__plate {
+  --grid-fine: color-mix(in oklab, var(--grid) 30%, var(--ground-raised));
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border-radius: var(--radius-xl);
+  background-color: var(--ground-raised);
+  background-image:
+    linear-gradient(var(--grid-fine) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-fine) 1px, transparent 1px);
+  background-size: 16px 16px;
+  background-position: -1px 5px;
+  box-shadow: var(--shadow-float);
+  animation: dock-in var(--dur-enter) var(--ease) 1;
+}
+
+.dock__plate::before {
+  content: '';
+  position: absolute;
+  left: var(--sp-4);
+  right: var(--sp-4);
+  /* the critters' ground: 42 of their 48, drawn at 52 */
+  top: calc(var(--sp-3) + 45.5px);
+  height: 1px;
+  background: var(--rule);
+}
+
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.dock__pets {
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-3) var(--sp-3) 0;
+  display: flex;
+  min-width: 0;
+}
+
+.dock__pet {
+  display: block;
+  width: 56px;
+  height: 60px;
+  padding: 0 var(--sp-1);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  cursor: pointer;
+}
+
+.dock__pet .critter {
+  transition: transform var(--dur-quick) var(--ease);
+}
+
+.dock__pet:hover .critter,
+.dock__pet[aria-expanded='true'] .critter {
+  transform: translateY(-2px);
+}
+
+/* A critter is moved by dragging it along the line; on a touch screen too, so the finger doesn't scroll the page. */
+.dock__pet {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.dock__pet.is-dragged {
+  cursor: grabbing;
+}
+
+.dock__pet.is-dragged .critter {
+  transform: translateY(-6px);
+}
+
+.dock__pet:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.dock__more,
+.dock__fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-width: 36px;
+  border: 0;
+  border-left: 1px solid var(--rule-soft);
+  background: none;
+  color: var(--ink-2);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.dock__fold {
+  border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
+}
+
+.dock__more:hover,
+.dock__fold:hover {
+  color: var(--ink);
+}
+
+.dock__more:focus-visible,
+.dock__fold:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.dock__fold-icon {
+  transition: transform var(--dur-base) var(--ease);
+}
+
+.dock--folded .dock__fold-icon {
+  transform: rotate(180deg);
+}
+
+/* Folded with nobody waiting: a small tab with the count. */
+.dock--folded .dock__pets:empty {
+  display: none;
+}
+
+.dock--folded .dock__pets:empty ~ .dock__fold {
+  min-height: var(--control);
+  padding: 0 var(--sp-5);
+  border-left: 0;
+  border-radius: var(--radius-xl);
+}
+
+.dock--folded .dock__plate:has(.dock__pets:empty)::before {
+  display: none;
+}
+
+.dock__count {
+  font-family: var(--f-mono);
+}
+
+/* ---------- one agent's card ---------- */
+
+.dock__card {
+  width: min(440px, calc(100vw - 2 * var(--gutter)));
+  max-height: calc(100dvh - 140px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  gap: var(--sp-7);
+  padding: var(--sp-8) var(--sp-9) var(--sp-9);
+  border-radius: var(--radius-xl);
+  background: var(--ground-raised);
+  color: var(--ink);
+  box-shadow: var(--shadow-float);
+  animation: dock-card-in var(--dur-base) var(--ease) 1;
+}
+
+.dock__card:focus {
+  outline: none;
+}
+
+@keyframes dock-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+
+.dock__card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-6);
+}
+
+.dock__card-who {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: var(--sp-1);
+  padding-top: var(--sp-2);
+}
+
+.dock__card-title {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-strong);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.dock__card-where,
+.dock__card-state {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.dock__card-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+}
+
+.dock__card-next {
+  margin: var(--sp-1) 0 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock__card-next a {
+  color: var(--ink);
+}
+
+.dock__card-state .row__lamp {
+  width: 9px;
+  height: 9px;
+}
+
+.dock__card-state.signal-text {
+  color: var(--signal-text);
+}
+
+.dock__close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin: calc(-1 * var(--sp-2)) calc(-1 * var(--sp-3)) 0 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.dock__close:hover {
+  color: var(--ink);
+}
+
+/* With the live terminal: the pane takes the card's size while it is open (Herdr gets its own back on closing),
+   so the card is wide enough for a full line of an agent's output at a readable size. */
+.dock__card--term {
+  width: min(860px, calc(100vw - 2 * var(--gutter)));
+}
+
+.dock__term {
+  display: flex;
+  height: min(480px, calc(100dvh - 300px));
+  min-height: 240px;
+}
+
+.dock__term .term {
+  min-height: 0;
+  padding: var(--sp-3);
+}
+
+.dock__card .question__screen {
+  max-height: 16lh;
+  overflow: auto;
+  font-size: var(--text-xs);
+}
+
+.dock__card-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+}
+
+.critter--done .critter__check {
+  stroke: var(--done);
+}
+
+/* The corner is kept clear for the dock: the pages scroll their ends out from under it. */
+.app:has(.dock) .side,
+.app:has(.dock) .main--home {
+  padding-bottom: calc(var(--sp-16) + 72px);
+}
+
+@media (max-width: 860px) {
+  .dock__pet {
+    width: 50px;
+  }
+  .dock__card {
+    max-height: calc(100dvh - 120px);
+  }
+  .dock__more,
+  .dock__fold {
+    min-width: var(--touch);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dock__plate,
+  .dock__card {
+    animation: dock-fade var(--dur-quick) ease-out 1;
+  }
+}
+
+@keyframes dock-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The next step waits for your go: the go sits on the line, so it may wrap. */
+.dock__card-next.signal-text {
+  white-space: normal;
+}
+
+.dock__go {
+  min-height: 28px;
+  margin-left: var(--sp-2);
+  padding: 0 var(--sp-4);
+  font-size: var(--text-sm);
+  vertical-align: middle;
+}

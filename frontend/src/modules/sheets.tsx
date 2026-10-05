@@ -15,12 +15,14 @@ import type { Agent, AgentSource, AgentStatus, Container, Proc, ProjectRef } fro
 import { useIsNarrow } from '../lib/useIsNarrow'
 import { usePoll } from '../lib/usePoll'
 import { MomentumSheet, SkillsSheet, useView, ViewSwitch } from './growth'
+import { AgentInbox } from './agentInbox'
 import { AgentSourcesSheet } from './agentSources'
 import { MachinesSheet } from './machines'
 import { Fleet } from './fleet'
 import { ProjectForm, ProjectsSheet } from './projects'
-import { SheetHead } from './sheetHead'
+import { SheetHead, ViewTabs } from './sheetHead'
 import { TasksSheet } from './tasks'
+import { PlansModal } from './planModal'
 
 export function SheetFor({ route }: { route: Route }) {
   if (route.kind === 'alerts') return <AlertsSheet />
@@ -28,25 +30,30 @@ export function SheetFor({ route }: { route: Route }) {
   if (route.kind !== 'module') return null
   switch (route.id) {
     case 'projects':
+      if (route.sub === 'momentum') return <MomentumSheet />
+      if (route.sub === 'skills' || route.sub?.startsWith('skills/')) {
+        const skill = route.sub.slice('skills/'.length) || undefined
+        return <SkillsSheet sub={skill} key={skill ?? 'list'} />
+      }
       return <ProjectsSheet sub={route.sub} key={route.sub ?? 'list'} />
     case 'machine':
+      if (route.sub === 'processes') return <ProcessesSheet />
+      if (route.sub === 'ports') return <PortsSheet />
+      if (route.sub === 'docker') return <DockerSheet />
       return <MachineSheet />
     case 'urls':
       return route.sub === 'new' ? <ProjectForm kind="link" onDone={() => go('#/m/urls')} /> : <UrlsSheet />
-    case 'ports':
-      return <PortsSheet />
-    case 'docker':
-      return <DockerSheet />
-    case 'processes':
-      return <ProcessesSheet />
     case 'agents':
       return <AgentsSheet sub={route.sub} />
     case 'tasks':
       return <TasksSheet sub={route.sub} key={route.sub ?? 'list'} />
+    // Read as tabs of Projects and Machine (VIEW_OF): the route never lands on them.
     case 'momentum':
-      return <MomentumSheet />
     case 'skills':
-      return <SkillsSheet sub={route.sub} key={route.sub ?? 'list'} />
+    case 'processes':
+    case 'ports':
+    case 'docker':
+      return null
     case 'machines':
       return <MachinesSheet sub={route.sub} />
   }
@@ -112,6 +119,7 @@ function MachineSheet() {
   return (
     <div className="sheet">
       <SheetHead id="machine" />
+      <ViewTabs at="machine" />
       <p className="sheet__lede">
         <Secret label="Host name">{s.host.hostname}</Secret> · {s.host.os} · {s.host.cpu_model || s.host.arch} · {s.host.cores_logical} cores · up {duration(s.time - s.host.boot_time)}
       </p>
@@ -262,7 +270,8 @@ function PortsSheet() {
   const hidden = ports?.some((p) => p.pid == null)
   return (
     <div className="sheet">
-      <SheetHead id="ports" />
+      <SheetHead id="machine" />
+      <ViewTabs at="ports" />
       {!ports ? (
         <div className="sheet__empty">Loading…</div>
       ) : ports.length === 0 ? (
@@ -375,9 +384,10 @@ function DockerSheet() {
 
   return (
     <div className="sheet">
-      <SheetHead id="docker">
+      <SheetHead id="machine">
         {docker.available && docker.containers.length > 0 && <ViewSwitch value={view} views={[['grid', 'Grid'], ['list', 'List']]} onChange={setView} />}
       </SheetHead>
+      <ViewTabs at="docker" />
       {!docker.available ? (
         <p className="notice">
           <strong>Docker is off.</strong> <Redacted text={docker.error} /> Containers show up here as soon as the Docker daemon is reachable.
@@ -479,7 +489,7 @@ function ProcessesSheet() {
 
   return (
     <div className="sheet">
-      <SheetHead id="processes">
+      <SheetHead id="machine">
         <button className={`btn${sort === 'cpu' ? '' : ' btn--quiet'}`} type="button" onClick={() => setSort('cpu')} aria-pressed={sort === 'cpu'}>
           By CPU
         </button>
@@ -487,6 +497,7 @@ function ProcessesSheet() {
           By memory
         </button>
       </SheetHead>
+      <ViewTabs at="processes" />
       <label className="filter">
         <Icon name="search" size={18} />
         <span className="sr-only">Filter processes</span>
@@ -704,8 +715,27 @@ function NewTerminal({ source, sourceName }: { source: number; sourceName: strin
 
 const agentLabel = (a: Agent) => (a.title && a.title !== a.kind ? a.title : a.name || a.kind)
 
+const lampOf = (a: Agent) =>
+  a.status === 'blocked' ? ' row__lamp--fault' : a.status === 'working' ? ' row__lamp--on' : a.status === 'done' ? ' row__lamp--done' : ''
+
+/** The bell beside the Agents title: how many agents wait on you, and the way to them. */
+function InboxBell({ waiting, asks, active }: { waiting: number; asks: number; active: boolean }) {
+  const what =
+    [waiting ? `${waiting} agent${waiting === 1 ? '' : 's'} need${waiting === 1 ? 's' : ''} you` : '', asks ? `${asks} step${asks === 1 ? '' : 's'} wait${asks === 1 ? 's' : ''} for your go` : '']
+      .filter(Boolean)
+      .join(', ') || 'Nothing needs you'
+  const count = waiting + asks
+  return (
+    <a className={`tool tool--bell${count ? ' is-fault' : ''}`} href="#/m/agents/inbox" aria-current={active ? 'page' : undefined} title={`${what}: answer them here`}>
+      <Icon name="bell" size={18} />
+      {count > 0 && <span className="tool__count">{count}</span>}
+      <span className="sr-only">Needs you: {what}</span>
+    </a>
+  )
+}
+
 function AgentTab({ agent: a, active, sub }: { agent: Agent; active: boolean; sub: string }) {
-  const lamp = a.status === 'blocked' ? ' row__lamp--fault' : a.status === 'working' ? ' row__lamp--on' : a.status === 'done' ? ' row__lamp--done' : ''
+  const lamp = lampOf(a)
   return (
     <a
       className={`agent-tab${active ? ' is-active' : ''}${a.status === 'blocked' ? ' is-fault' : ''}`}
@@ -757,9 +787,12 @@ function AgentTask({ agent: a, projectId }: { agent: Agent; projectId: number | 
   const task = (tasks ?? []).find((t) => t.live && t.pane_id === a.pane_id && t.agent_source === sourceOf(a))
   if (task)
     return (
-      <p className="agent-task mod-tasks">
-        Task: <a href={`#/m/tasks/${task.id}`}>{task.title}</a>
-      </p>
+      <span className="agent-head__item mod-tasks">
+        <Icon name="tasks" size={15} />
+        <a href={`#/m/tasks/${task.id}`} title={`Task: ${task.title}`}>
+          {task.title}
+        </a>
+      </span>
     )
   const make = async () => {
     setBusy(true)
@@ -776,13 +809,19 @@ function AgentTask({ agent: a, projectId }: { agent: Agent; projectId: number | 
     }
   }
   return (
-    <p className="agent-task mod-tasks">
-      Not on a task.{' '}
-      <button className="chip" type="button" onClick={make} disabled={busy} title="Follow what this agent does as a task: its states, what it changed, and a review when it finishes. Nothing is sent to it.">
+    <span className="agent-head__item mod-tasks">
+      <Icon name="tasks" size={15} />
+      <button
+        className="agent-head__link"
+        type="button"
+        onClick={make}
+        disabled={busy}
+        title="Follow what this agent does as a task: its states, what it changed, and a review when it finishes. Nothing is sent to it."
+      >
         {busy ? 'Making it a task…' : 'Make it a task'}
       </button>
-      {error && <span className="signal-text"> {error}</span>}
-    </p>
+      {error && <span className="signal-text">{error}</span>}
+    </span>
   )
 }
 
@@ -793,6 +832,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
   const [view, setView] = useState<'text' | 'screen'>('text')
   const [fit, setFit] = useFitPreference()
   const [full, setFull] = useState(false)
+  const [plansOpen, setPlansOpen] = useState(false)
 
   if (sub === 'sources' || sub?.startsWith('sources/')) return <AgentSourcesSheet sub={sub.slice(8)} />
   if (!agents) return <div className="sheet__empty">Loading…</div>
@@ -877,11 +917,23 @@ function AgentsSheet({ sub }: { sub?: string }) {
       setCloseError(err instanceof Error ? `Couldn't close it: ${err.message}` : "Couldn't close it.")
     }
   }
-  const tab = (a: Agent) => <AgentTab key={agentKey(a)} agent={a} active={a === current} sub={projectFor(a)?.name ?? a.cwd} />
+  const inbox = sub === 'inbox'
+  const waiting = list.filter((a) => a.kind !== 'terminal' && a.status === 'blocked')
+  // Plans' steps whose turn has come, waiting for your go: they need you too.
+  const asks = list.flatMap((a) => (a.queued ?? []).filter((q) => q.asking).map((q) => ({ agent: a, step: q })))
+  const queued = current.queued ?? []
+  const working = list.filter((a) => a.kind !== 'terminal' && a.status === 'working').length
+  const tab = (a: Agent) => <AgentTab key={agentKey(a)} agent={a} active={!inbox && a === current} sub={projectFor(a)?.name ?? a.cwd} />
   return (
     <div className="sheet sheet--fill agents">
       <aside className="agents__side">
-        <SheetHead id="agents" />
+        <SheetHead id="agents">
+          <InboxBell waiting={waiting.length} asks={asks.length} active={inbox} />
+          <a className="tool" href="#/m/agents/sources" title="Where your agents run: add, edit or remove sources">
+            <Icon name="sliders" size={18} />
+            <span className="sr-only">{sourcesLabel}</span>
+          </a>
+        </SheetHead>
         <nav className="agent-tabs" aria-label="Agents">
           {grouped
             ? sources.map((s) => {
@@ -897,62 +949,122 @@ function AgentsSheet({ sub }: { sub?: string }) {
         </nav>
         <p className="agent-hint">{TERMINAL_HINT[mode]}</p>
       </aside>
-      <div className={`agents__stage${full && !narrow ? ' is-full' : ''}`}>
-        <div className="agent-bar">
-          <p className="agent-meta">
-            {currentSourceName && (
-              <a className="agent-source" href="#/m/agents/sources" title="Where this agent runs">
-                {currentSourceName}
-              </a>
-            )}
-            {current.name ? `${current.name} · ` : ''}
-            {current.kind} · {project ? <a href={`#/m/projects/${project.id}`}>{project.name}</a> : <Secret label="Folder">{current.cwd}</Secret>}
-            {current.workspace ? ` · ${current.workspace} ${current.pane_id}` : ` · ${current.pane_id}`}
-          </p>
-          <a className="agent-fit" href="#/m/agents/sources" title="Where your agents run: add, edit or remove sources">
-            {sourcesLabel}
-          </a>
-          {!narrow && mode === 'control' && (
-            <button
-              type="button"
-              className="agent-fit"
-              aria-pressed={fit}
-              onClick={() => setFit(!fit)}
-              title={fit ? 'Show the pane at its Herdr size, scaled to fit' : 'Resize the pane to this window while you watch (the Herdr TUI gets it back when you leave)'}
-            >
-              Fit to window
-            </button>
-          )}
-          {!narrow && mode !== 'off' && (
-            <button type="button" className="agent-fit" aria-pressed={full} onClick={() => setFull(!full)}>
-              {full ? 'Exit full screen' : 'Full screen'}
-            </button>
-          )}
-          {mode === 'control' && (
-            <ConfirmButton className="agent-fit" confirmLabel={current.kind === 'terminal' ? 'Confirm close' : `Close and end ${current.kind}`} onConfirm={closePane}>
-              Close
-            </ConfirmButton>
-          )}
+      {inbox ? (
+        <div className="agents__stage">
+          <header className="agent-head">
+            <div className="agent-head__line">
+              <span className={`agent-head__bell${waiting.length ? ' signal-text' : ''}`} aria-hidden="true">
+                <Icon name="bell" size={20} />
+              </span>
+              <h3 className="agent-head__title">Needs you</h3>
+              <span className={`agent-head__state${waiting.length + asks.length ? ' signal-text' : ''}`}>{waiting.length + asks.length ? `${waiting.length + asks.length} waiting` : 'none'}</span>
+            </div>
+            <p className="agent-head__meta">Every agent waiting on an answer, from every source, and every step waiting for your go. Answer here, or open its terminal.</p>
+          </header>
+          <AgentInbox waiting={waiting} asks={asks} working={working} control={mode === 'control'} />
         </div>
-        {closeError && <p className="notice signal-text">{closeError}</p>}
-        {current.kind !== 'terminal' && <AgentTask agent={current} projectId={project?.id ?? null} />}
-        {narrow && mode !== 'off' && (
-          <div className="seg" role="group" aria-label="View">
-            <button type="button" className="seg__btn" aria-pressed={view === 'text'} onClick={() => setView('text')}>
-              Text
-            </button>
-            <button type="button" className="seg__btn" aria-pressed={view === 'screen'} onClick={() => setView('screen')}>
-              Screen
-            </button>
-          </div>
-        )}
-        {mode === 'off' || (narrow && view === 'text') ? (
-          <AgentOutput paneId={current.pane_id} source={currentSource} key={agentKey(current)} />
-        ) : (
-          <Terminal paneId={current.pane_id} source={currentSource} control={mode === 'control'} phone={narrow} fit={fit} key={agentKey(current)} />
-        )}
-        {narrow && mode === 'control' && <AgentComposer paneId={current.pane_id} source={currentSource} key={`c${agentKey(current)}`} />}
-      </div>
+      ) : (
+        <div className={`agents__stage${full && !narrow ? ' is-full' : ''}`}>
+          <header className="agent-head">
+            <div className="agent-head__line">
+              <span className={`row__lamp${lampOf(current)}`} role="img" aria-label={current.status} />
+              <h3 className="agent-head__title" title={agentLabel(current)}>
+                {agentLabel(current)}
+              </h3>
+              <span className={`agent-head__state${current.status === 'blocked' ? ' signal-text' : ''}`}>{AGENT_STATE[current.status]}</span>
+              <div className="agent-tools" role="toolbar" aria-label="Terminal">
+                {current.kind !== 'terminal' && (
+                  <button
+                    type="button"
+                    className={`tool tool--bell${queued.some((q) => q.asking) ? ' is-fault' : ''}`}
+                    aria-haspopup="dialog"
+                    onClick={() => setPlansOpen(true)}
+                    title={queued.length ? `${queued.length} queued for ${current.name || current.kind}: queue more, or open the plans` : `Queue what ${current.name || current.kind} does next, or open the plans`}
+                  >
+                    <Icon name="queue" size={18} />
+                    {queued.length > 0 && <span className="tool__count">{queued.length}</span>}
+                    <span className="sr-only">Queue next and plans</span>
+                  </button>
+                )}
+                {!narrow && mode === 'control' && (
+                  <button
+                    type="button"
+                    className="tool"
+                    aria-pressed={fit}
+                    onClick={() => setFit(!fit)}
+                    title={fit ? 'Fit to window is on: show the pane at its Herdr size instead, scaled to fit' : 'Fit to window: resize the pane to this window while you watch (the Herdr TUI gets it back when you leave)'}
+                  >
+                    <Icon name="fit" size={18} />
+                    <span className="sr-only">Fit to window</span>
+                  </button>
+                )}
+                {!narrow && mode !== 'off' && (
+                  <button type="button" className="tool" aria-pressed={full} onClick={() => setFull(!full)} title={full ? 'Exit full screen' : 'Full screen'}>
+                    <Icon name={full ? 'collapse' : 'expand'} size={18} />
+                    <span className="sr-only">Full screen</span>
+                  </button>
+                )}
+                {mode === 'control' && (
+                  <ConfirmButton
+                    className="tool tool--danger"
+                    confirmLabel={current.kind === 'terminal' ? 'Close it' : `End ${current.kind}`}
+                    onConfirm={closePane}
+                    title={current.kind === 'terminal' ? 'Close this terminal' : `Close this pane and end ${current.kind}`}
+                  >
+                    <Icon name="close" size={18} />
+                    <span className="sr-only">Close</span>
+                  </ConfirmButton>
+                )}
+              </div>
+            </div>
+            <p className="agent-head__meta">
+              {currentSourceName && (
+                <a className="agent-source" href="#/m/agents/sources" title="Where this agent runs">
+                  {currentSourceName}
+                </a>
+              )}
+              <span className="agent-head__item mod-projects">
+                <Icon name="folder" size={15} />
+                {project ? <a href={`#/m/projects/${project.id}`}>{project.name}</a> : <Secret label="Folder">{current.cwd}</Secret>}
+              </span>
+              <span className="agent-head__item agent-head__mono" title="Herdr workspace and pane">
+                <Icon name="terminal" size={15} />
+                {current.name ? `${current.name} · ` : ''}
+                {current.kind}
+                {current.workspace ? ` · ${current.workspace}` : ''} · {current.pane_id}
+              </span>
+              {current.kind !== 'terminal' && <AgentTask agent={current} projectId={project?.id ?? null} />}
+              {queued.length > 0 && (
+                <span className={`agent-head__item mod-tasks${queued[0].asking ? ' signal-text' : ''}`}>
+                  <Icon name="queue" size={15} />
+                  <button className="agent-head__link" type="button" onClick={() => setPlansOpen(true)} title="What this agent does next">
+                    Next: {queued[0].title}
+                  </button>
+                  {queued[0].asking ? ' · waits for your go' : queued.length > 1 ? ` · ${queued.length - 1} more` : ''}
+                </span>
+              )}
+            </p>
+          </header>
+          {closeError && <p className="notice signal-text">{closeError}</p>}
+          {narrow && mode !== 'off' && (
+            <div className="seg" role="group" aria-label="View">
+              <button type="button" className="seg__btn" aria-pressed={view === 'text'} onClick={() => setView('text')}>
+                Text
+              </button>
+              <button type="button" className="seg__btn" aria-pressed={view === 'screen'} onClick={() => setView('screen')}>
+                Screen
+              </button>
+            </div>
+          )}
+          {mode === 'off' || (narrow && view === 'text') ? (
+            <AgentOutput paneId={current.pane_id} source={currentSource} key={agentKey(current)} />
+          ) : (
+            <Terminal paneId={current.pane_id} source={currentSource} control={mode === 'control'} phone={narrow} fit={fit} key={agentKey(current)} />
+          )}
+          {narrow && mode === 'control' && <AgentComposer paneId={current.pane_id} source={currentSource} key={`c${agentKey(current)}`} />}
+        </div>
+      )}
+      {plansOpen && <PlansModal agent={current.kind !== 'terminal' && !inbox ? current : null} onClose={() => setPlansOpen(false)} key={agentKey(current)} />}
     </div>
   )
 }

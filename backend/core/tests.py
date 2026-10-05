@@ -3,11 +3,11 @@ import subprocess
 import tempfile
 from unittest import mock
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 
-from . import herdr, monitor, tasks
-from .models import AgentSource, Project, Task
+from . import herdr, monitor, plans, tasks, terminal
+from .models import AgentSource, Plan, Project, Task
 
 GIT = {'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'safe.directory', 'GIT_CONFIG_VALUE_0': '*',
        'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
@@ -28,7 +28,7 @@ def agents(*rows, down=()):
 class SyncThread:
     """Runs the handover at once, so tests don't race it."""
 
-    def __init__(self, target, args, **_):
+    def __init__(self, target, args=(), **_):
         self.run = lambda: target(*args)
 
     def start(self):
@@ -255,6 +255,163 @@ class TaskFlowTests(TestCase):
         self.assertEqual(Task.objects.get(pk=tid).state, 'todo')
 
 
+@override_settings(MARUMADO_TOKEN='test-token')
+@mock.patch.object(monitor, 'ensure_started', lambda: None)
+@mock.patch.object(tasks.threading, 'Thread', SyncThread)
+@mock.patch.object(tasks.herdr, 'read', lambda pane, lines=80, source=0: f'output of {pane}')
+class PlanTests(TestCase):
+    """A plan's steps start by themselves: row after row, a row's steps at once, a step under another on its agent."""
+
+    def setUp(self):
+        env = mock.patch.dict(os.environ, GIT)
+        env.start()
+        self.addCleanup(env.stop)
+        self.repo = tempfile.mkdtemp()
+        subprocess.run(['git', 'init', '-q', self.repo], check=True)
+        self.project = Project.objects.create(name='demo', path=self.repo)
+        self.api = APIClient()
+        self.api.credentials(HTTP_AUTHORIZATION='Bearer test-token')
+        self.prompted = []
+        self.opened = []
+        self.panes = iter(['w2:p1', 'w3:p1', 'w4:p1', 'w5:p1'])
+        for name, fake in {
+            'prompt_task': lambda pane, text, source=0: self.prompted.append((pane, text.split('\n')[0])) or True,
+            'open_workspace': lambda cwd, label, source=0: self.opened.append(('workspace', cwd)) or {'pane_id': next(self.panes), 'cwd': cwd},
+            'open_worktree': lambda cwd, branch, label, source=0: self.opened.append(('worktree', branch)) or {'pane_id': next(self.panes), 'cwd': f'{cwd}-{branch}'},
+            'launch_agent': lambda name, kind, pane, source=0: True,
+        }.items():
+            patch = mock.patch.object(tasks.herdr, name, fake)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def plan(self, *rows):
+        plan = self.api.post('/api/plans', {'title': 'Ship it', 'project': self.project.id, 'kind': 'claude'}, format='json').json()
+        ids = {}
+        for r, row in enumerate(rows):
+            for title in row:
+                plan = self.api.post(f'/api/plans/{plan["id"]}/add', {'title': title, 'row': r}, format='json').json()
+                ids[title] = plan['steps'][-1]['id'] if plan['steps'][-1]['title'] == title else next(t['id'] for t in plan['steps'] if t['title'] == title)
+        return plan['id'], ids
+
+    def step(self, ids, title):
+        return Task.objects.get(pk=ids[title])
+
+    def tick(self, *rows):
+        """One pass of the monitor: follow the tasks, then advance the plans."""
+        with mock.patch.object(tasks.herdr, 'agents', return_value=agents(*rows)):
+            tasks.watch()
+            plans.advance()
+
+    def test_rows_run_in_order_side_by_side_steps_at_once(self):
+        pid, ids = self.plan(['Plan the API'], ['Build the API', 'Write the docs'], ['Release'])
+        self.assertEqual([t['plan_row'] for t in self.api.get(f'/api/plans/{pid}').json()['steps']], [0, 1, 1, 2])
+        self.tick()
+        self.assertEqual(self.prompted, [], 'nothing runs before the plan starts')
+
+        with mock.patch.object(tasks.herdr, 'agents', return_value=agents()):
+            self.assertEqual(self.api.post(f'/api/plans/{pid}/start').status_code, 200)
+        self.assertEqual(self.prompted, [('w2:p1', 'Plan the API')])
+        self.assertEqual(self.opened, [('workspace', self.repo)])
+        self.assertEqual({self.step(ids, t).state for t in ('Build the API', 'Write the docs', 'Release')}, {'queued'})
+
+        # At work, or waiting on you: the next row waits.
+        self.tick(('w2:p1', 'a', 'claude', 'working', ''))
+        self.tick(('w2:p1', 'a', 'claude', 'blocked', ''))
+        self.assertEqual(len(self.prompted), 1)
+        # Finished: the step under it continues on its agent; the one beside it gets a new agent in a worktree.
+        self.tick(('w2:p1', 'a', 'claude', 'done', ''))
+        self.assertEqual(self.step(ids, 'Plan the API').state, 'review')
+        self.assertFalse(self.step(ids, 'Plan the API').live, 'its agent moved on to the next step')
+        self.assertEqual(self.prompted[1:], [('w2:p1', 'Build the API'), ('w3:p1', 'Write the docs')])
+        docs = self.step(ids, 'Write the docs')
+        self.assertTrue(docs.worktree.startswith(f'marumado/p{pid}-{docs.id}-write-the-docs'))
+        self.assertEqual(self.opened[-1], ('worktree', docs.worktree))
+
+        # Release waits for both, then continues on the first one's agent.
+        self.tick(('w2:p1', 'a', 'claude', 'done', ''), ('w3:p1', 'b', 'claude', 'working', ''))
+        self.tick(('w2:p1', 'a', 'claude', 'working', ''), ('w3:p1', 'b', 'claude', 'working', ''))
+        self.tick(('w2:p1', 'a', 'claude', 'done', ''), ('w3:p1', 'b', 'claude', 'working', ''))
+        self.assertEqual(self.step(ids, 'Release').state, 'queued')
+        self.tick(('w2:p1', 'a', 'claude', 'done', ''), ('w3:p1', 'b', 'claude', 'done', ''))
+        self.assertEqual(self.prompted[-1], ('w2:p1', 'Release'))
+
+    def test_a_failed_step_holds_back_the_rows_under_it(self):
+        pid, ids = self.plan(['One', 'Two'], ['Three'])
+        with mock.patch.object(tasks.herdr, 'agents', return_value=agents()):
+            self.api.post(f'/api/plans/{pid}/start')
+        # Two's agent is closed while it works: Two fails, Three never starts.
+        self.tick(('w2:p1', 'a', 'claude', 'working', ''), ('w3:p1', 'b', 'claude', 'working', ''))
+        self.tick(('w2:p1', 'a', 'claude', 'done', ''))
+        self.assertEqual((self.step(ids, 'One').state, self.step(ids, 'Two').state), ('review', 'failed'))
+        self.tick(('w2:p1', 'a', 'claude', 'idle', ''))
+        self.assertEqual(self.step(ids, 'Three').state, 'queued')
+
+    def test_paused_plans_start_nothing_and_agents_list_what_waits_for_them(self):
+        pid, ids = self.plan(['One'], ['Two'], ['Three'])
+        with mock.patch.object(tasks.herdr, 'agents', return_value=agents()):
+            self.api.post(f'/api/plans/{pid}/start')
+        self.api.post(f'/api/plans/{pid}/pause')
+        self.tick(('w2:p1', 'a', 'claude', 'done', ''))
+        self.assertEqual(self.step(ids, 'Two').state, 'queued')
+        with mock.patch.object(herdr, 'agents', return_value=agents(('w2:p1', 'a', 'claude', 'idle', ''))):
+            listed = self.api.get('/api/agents').json()
+        self.assertEqual([q['title'] for q in listed['agents'][0]['queued']], ['Two', 'Three'])
+
+    def test_a_step_that_asks_waits_for_the_go(self):
+        pid, ids = self.plan(['One'], ['Two'], ['Three'])
+        two = ids['Two']
+        self.assertEqual(self.api.patch(f'/api/tasks/{two}', {'ask': True}, format='json').status_code, 200)
+        with mock.patch.object(tasks.herdr, 'agents', return_value=agents()):
+            self.api.post(f'/api/plans/{pid}/start')
+        self.assertEqual(self.api.get(f'/api/plans/{pid}').json()['asking'], [], 'not its turn yet')
+        self.tick(('w2:p1', 'a', 'claude', 'done', ''))
+        self.tick(('w2:p1', 'a', 'claude', 'idle', ''))
+        self.assertEqual((self.step(ids, 'One').state, self.step(ids, 'Two').state), ('review', 'queued'))
+        self.assertEqual(self.api.get(f'/api/plans/{pid}').json()['asking'], [two])
+        with mock.patch.object(herdr, 'agents', return_value=agents(('w2:p1', 'a', 'claude', 'idle', ''))):
+            self.assertEqual([(q['title'], q['asking']) for q in self.api.get('/api/agents').json()['agents'][0]['queued']],
+                             [('Two', True), ('Three', False)])
+            self.assertEqual(self.api.post(f'/api/tasks/{two}/go').status_code, 200)
+            self.assertEqual(self.prompted[-1], ('w2:p1', 'Two'))
+            self.assertEqual(self.api.post(f'/api/tasks/{ids["Three"]}/go').status_code, 200, 'a go given ahead of time')
+            self.assertEqual(self.api.post(f'/api/tasks/{ids["One"]}/go').status_code, 400)
+
+    def test_steps_queued_on_an_agent_run_one_after_the_other_on_it(self):
+        busy = agents(('w9:p1', 'mine', 'claude', 'working', ''))
+        with mock.patch.object(herdr, 'agents', return_value=busy):
+            first = self.api.post('/api/agents/w9:p1/queue', {'title': 'Then the docs', 'source': 0}, format='json')
+            second = self.api.post('/api/agents/w9:p1/queue', {'title': 'Then release', 'ask': True, 'source': 0}, format='json')
+            self.assertEqual(self.api.post('/api/agents/w9:p2/queue', {'title': 'x', 'source': 0}, format='json').status_code, 404)
+        self.assertEqual((first.status_code, second.status_code), (201, 201), first.content)
+        plan = Plan.objects.get()
+        self.assertEqual((plan.title, plan.running, plan.pane_id), ('Next for mine', True, 'w9:p1'))
+        self.assertEqual([[t.title for t in row] for row in plans.rows(plan)], [['Then the docs'], ['Then release']])
+        self.assertEqual(self.prompted, [], 'it is at work')
+        self.tick(('w9:p1', 'mine', 'claude', 'done', ''))
+        self.assertEqual(self.prompted, [('w9:p1', 'Then the docs')])
+        self.tick(('w9:p1', 'mine', 'claude', 'working', ''))
+        self.tick(('w9:p1', 'mine', 'claude', 'done', ''))
+        self.tick(('w9:p1', 'mine', 'claude', 'done', ''))
+        self.assertEqual(len(self.prompted), 1, 'the second asks first')
+        with mock.patch.object(herdr, 'agents', return_value=agents(('w9:p1', 'mine', 'claude', 'done', ''))):
+            self.api.post(f'/api/tasks/{second.json()["id"]}/go')
+        self.assertEqual(self.prompted[-1], ('w9:p1', 'Then release'))
+
+    def test_arranging_and_deleting_give_steps_back_to_the_ideas(self):
+        pid, ids = self.plan(['One'], ['Two'])
+        idea = self.api.post('/api/tasks', {'title': 'Idea', 'project': self.project.id}, format='json').json()['id']
+        res = self.api.post(f'/api/plans/{pid}/arrange', {'rows': [[ids['Two'], idea], [ids['One']]]}, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual([(t['title'], t['plan_row'], t['plan_col']) for t in res.json()['steps']], [('Two', 0, 0), ('Idea', 0, 1), ('One', 1, 0)])
+        res = self.api.post(f'/api/plans/{pid}/arrange', {'rows': [[ids['One']]]}, format='json')
+        self.assertEqual([t['title'] for t in res.json()['steps']], ['One'])
+        self.assertIsNone(Task.objects.get(pk=idea).plan)
+        self.assertEqual(self.api.post(f'/api/plans/{pid}/arrange', {'rows': [[ids['One'], ids['One']]]}, format='json').status_code, 400)
+        self.api.delete(f'/api/plans/{pid}')
+        self.assertFalse(Plan.objects.exists())
+        self.assertEqual((self.step(ids, 'One').plan, self.step(ids, 'One').state), (None, 'todo'))
+
+
 def fake_herdr(panes: dict):
     """A herdr._run answering `pane list` and `workspace list` for each source name in `panes`; None fails."""
     calls = []
@@ -269,6 +426,40 @@ def fake_herdr(panes: dict):
             return {'workspaces': [{'workspace_id': 'w1', 'label': src.name}]}
         return 'output' if text else {}
     return run, calls
+
+
+class SeenTests(SimpleTestCase):
+    """Herdr keeps a finished turn `done` until it's focused there; looking at it in Marumado counts too."""
+
+    def listing(self, panes):
+        def run(src, *args, text=False, timeout=0):
+            if args[:2] == ('pane', 'list'):
+                return {'panes': panes}
+            return {'workspaces': []}
+        with mock.patch.object(herdr, '_run', run):
+            return [a['status'] for a in herdr._list(self.src)['agents']]
+
+    def setUp(self):
+        self.src = herdr.Source(77, 'seen', 'smolvm', 'seen')
+        herdr.forget_failures()
+
+    def test_a_turn_watched_in_marumado_reads_as_idle(self):
+        done = {'pane_id': 'w1:p1', 'terminal_id': 't1', 'agent': 'claude', 'agent_status': 'done', 'completion_seq': 5}
+        self.assertEqual(self.listing([done]), ['done'])
+        herdr.watch(77, 'w1:p1')
+        self.assertEqual(self.listing([done]), ['idle'])
+        herdr.unwatch(77, 'w1:p1')
+        self.assertEqual(self.listing([done]), ['idle'])
+        # A turn finished after the terminal closed is new; so is another terminal in the same pane.
+        self.assertEqual(self.listing([{**done, 'completion_seq': 6}]), ['done'])
+        self.assertEqual(self.listing([{**done, 'terminal_id': 't2'}]), ['done'])
+
+    def test_a_turn_finished_just_before_closing_is_seen(self):
+        herdr.watch(77, 'w1:p2')
+        herdr.unwatch(77, 'w1:p2')
+        done = {'pane_id': 'w1:p2', 'terminal_id': 't1', 'agent': 'claude', 'agent_status': 'done', 'completion_seq': 9}
+        self.assertEqual(self.listing([done]), ['idle'])
+        self.assertEqual(self.listing([{**done, 'completion_seq': 10}]), ['done'])
 
 
 @override_settings(MARUMADO_TOKEN='test-token')
@@ -463,3 +654,88 @@ class ProjectFolderTests(TestCase):
             self.assertEqual(discovery.roots(), [])
         with override_settings(MARUMADO_PROJECT_ROOTS=['/no/such/folder'], MARUMADO_PROJECT_ROOTS_DEFAULT=False):
             self.assertEqual([r['path'] for r in discovery.roots()], ['/no/such/folder'])
+
+
+@override_settings(MARUMADO_TOKEN='test-token')
+@mock.patch.object(monitor, 'ensure_started', lambda: None)
+@mock.patch.object(herdr.threading, 'Thread', SyncThread)
+class StartAgentTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.api.credentials(HTTP_AUTHORIZATION='Bearer test-token')
+        self.project = Project.objects.create(name='My Blog', path='/projects/my-blog')
+
+    def test_starts_in_the_project_folder_under_a_free_name(self):
+        listed = {'available': True, 'error': '', 'agents': [{'name': 'my-blog'}]}
+        with mock.patch.object(herdr, '_list', return_value=listed), \
+                mock.patch.object(herdr, 'open_workspace', return_value={'pane_id': 'w4:p1', 'cwd': '/projects/my-blog'}) as opened, \
+                mock.patch.object(herdr, 'launch_agent', return_value=True) as launched:
+            res = self.api.post('/api/agents/start', {'project': self.project.id, 'kind': 'claude', 'source': 0}, format='json')
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.json(), {'pane_id': 'w4:p1', 'cwd': '/projects/my-blog', 'name': 'my-blog-2', 'source': 0})
+        self.assertEqual(opened.call_args.args[:2], ('/projects/my-blog', 'My Blog'))
+        self.assertEqual(launched.call_args.args[:3], ('my-blog-2', 'claude', 'w4:p1'))
+
+    def test_refuses_a_folder_herdr_cannot_see(self):
+        # Herdr opens a folder it doesn't have in its home folder: close that and say why, rather than start there.
+        with mock.patch.object(herdr, '_list', return_value={'agents': []}), \
+                mock.patch.object(herdr, 'open_workspace', return_value={'pane_id': 'w4:p1', 'cwd': '/root'}), \
+                mock.patch.object(herdr, 'close') as closed, \
+                mock.patch.object(herdr, 'launch_agent') as launched:
+            res = self.api.post('/api/agents/start', {'project': self.project.id, 'kind': 'claude', 'source': 0}, format='json')
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("/projects/my-blog isn't there", res.json()['detail'])
+        self.assertEqual(closed.call_args.args[0], 'w4:p1')
+        launched.assert_not_called()
+
+    def test_a_source_sees_folders_where_it_says(self):
+        res = self.api.patch('/api/agents/env-source', {'folders': [{'here': '/home/me/projects/', 'there': '/projects'},
+                                                                    {'here': '/home/me/projects/blog', 'there': '/srv/blog'}]}, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['folders'][0], {'here': '/home/me/projects', 'there': '/projects'})
+        self.assertEqual(herdr.folder_in('/home/me/projects/shop/api'), '/projects/shop/api')
+        self.assertEqual(herdr.folder_in('/home/me/projects/blog'), '/srv/blog')  # the closest folder wins
+        self.assertEqual(herdr.folder_in('/home/me/projectsX'), '/home/me/projectsX')
+        self.assertEqual(herdr.folder_here('/projects/shop'), '/home/me/projects/shop')
+        self.project.path = '/home/me/projects/my-blog'
+        self.assertEqual(tasks.folder_for(self.project, 0), '/projects/my-blog')
+        res = self.api.patch('/api/agents/env-source', {'folders': [{'here': 'projects', 'there': '/projects'}]}, format='json')
+        self.assertEqual(res.status_code, 400)
+
+    def test_an_added_source_keeps_its_own_folders(self):
+        res = self.api.post('/api/agent-sources', {'name': 'vm', 'kind': 'smolvm', 'target': 'vm',
+                                                   'folders': [{'here': '/home/me/dev', 'there': '/dev-share'}]}, format='json')
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(herdr.folder_in('/home/me/dev/x', res.json()['id']), '/dev-share/x')
+        self.assertEqual(herdr.folder_in('/home/me/dev/x'), '/home/me/dev/x')
+
+    def test_pane_ids_past_the_ninth_workspace(self):
+        # Herdr counts workspaces w1…w9, then wA, wB…
+        with mock.patch.object(herdr, '_run') as ran:
+            herdr.close('wJ:p1')
+        self.assertEqual(ran.call_args.args[1:], ('pane', 'close', 'wJ:p1'))
+        with self.assertRaises(ValueError):
+            herdr.close('wJ:p1; rm -rf /')
+
+    def test_refuses_an_unknown_kind_or_project(self):
+        res = self.api.post('/api/agents/start', {'project': self.project.id, 'kind': 'rm -rf'}, format='json')
+        self.assertEqual(res.status_code, 400)
+        res = self.api.post('/api/agents/start', {'project': 999, 'kind': 'claude'}, format='json')
+        self.assertEqual(res.status_code, 400)
+
+    def test_names_are_valid_agent_names(self):
+        with mock.patch.object(herdr, '_list', return_value={'agents': []}):
+            for base in ('My Blog!', '2048 game', '', 'Ünïcode'):
+                self.assertRegex(herdr.free_name(base), herdr.AGENT_NAME)
+
+
+class TerminalCommandTests(TestCase):
+    def test_scroll_and_clicks_reach_the_cell_under_the_pointer(self):
+        scroll = terminal._command({'type': 'terminal.scroll', 'direction': 'down', 'lines': 3, 'column': 130, 'row': 20}, fit=False)
+        self.assertEqual(scroll, {'type': 'terminal.scroll', 'direction': 'down', 'lines': 3, 'column': 130, 'row': 20})
+        # Without a position Herdr picks its own, as before.
+        self.assertNotIn('column', terminal._command({'type': 'terminal.scroll', 'direction': 'up'}, fit=False))
+        click = terminal._command({'type': 'terminal.mouse', 'action': 'down', 'button': 'left', 'column': '9', 'row': -4}, fit=False)
+        self.assertEqual(click, {'type': 'terminal.mouse', 'action': 'down', 'button': 'left', 'column': 9, 'row': 0})
+        self.assertIsNone(terminal._command({'type': 'terminal.mouse', 'action': 'move', 'button': 'left'}, fit=False))
+        self.assertIsNone(terminal._command({'type': 'terminal.mouse', 'action': 'down', 'button': 'wheel'}, fit=False))

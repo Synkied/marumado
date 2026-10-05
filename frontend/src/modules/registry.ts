@@ -1,9 +1,9 @@
 import type { IconName } from '../components/Icon'
 import { ago } from '../lib/format'
-import { pace, skillMap, tracked } from '../lib/growth'
 import { downsample, niceMax } from '../lib/chart'
 import type { HistoryPoint } from '../lib/types'
 import type { ModuleId } from '../lib/hub'
+import { VIEW_OF } from '../lib/route'
 import { useHub } from '../lib/hub'
 import { useMachines } from '../lib/machines'
 
@@ -44,18 +44,24 @@ export type ModuleMeta = { id: ModuleId; label: string; icon: IconName; blurb: s
 export const MODULES: ModuleMeta[] = [
   { id: 'projects', label: 'Projects', icon: 'folder', blurb: 'Every project folder and its links' },
   { id: 'machine', label: 'Machine', icon: 'chip', blurb: 'CPU, memory, disks and network' },
-  { id: 'agents', label: 'Agents', icon: 'agent', blurb: 'Coding agents in Herdr and what they are doing' },
-  { id: 'tasks', label: 'Tasks', icon: 'tasks', blurb: 'A to-do list you can hand to agents, and what they did' },
-  { id: 'urls', label: 'URLs', icon: 'globe', blurb: 'Up or down, checked every minute' },
+  { id: 'processes', label: 'Processes', icon: 'processes', blurb: 'What is running, and what is heavy' },
   { id: 'ports', label: 'Ports', icon: 'ports', blurb: 'What is listening, and for which project' },
   { id: 'docker', label: 'Docker', icon: 'container', blurb: 'Containers and their logs' },
-  { id: 'processes', label: 'Processes', icon: 'processes', blurb: 'What is running, and what is heavy' },
+  { id: 'tasks', label: 'Tasks', icon: 'tasks', blurb: 'A to-do list you can hand to agents, and what they did' },
+  { id: 'agents', label: 'Agents', icon: 'agent', blurb: 'Coding agents in Herdr and what they are doing' },
+  { id: 'urls', label: 'URLs', icon: 'globe', blurb: 'Up or down, checked every minute' },
   { id: 'momentum', label: 'Momentum', icon: 'momentum', blurb: 'Which projects are moving, and what to push or park' },
   { id: 'skills', label: 'Skills', icon: 'skills', blurb: 'What you use, what is getting rusty, what to learn' },
   { id: 'machines', label: 'Machines', icon: 'server', blurb: 'Other machines, reached over SSH, side by side' },
 ]
 
 export const meta = (id: ModuleId) => MODULES.find((m) => m.id === id)!
+
+/** The modules that can sit on the panel: everything but the views inside another module. */
+export const PANEL_MODULES = MODULES.filter((m) => !VIEW_OF[m.id])
+
+/** A module's page and the views read as its tabs, in order. */
+export const viewsOf = (home: ModuleId) => [home, ...MODULES.filter((m) => VIEW_OF[m.id] === home).map((m) => m.id)]
 
 /** Commits per week summed over every project, oldest first. */
 function weeklyCommits(projects: { detected: { weekly_commits?: number[] } }[]): number[] {
@@ -83,7 +89,7 @@ function latencyTrace(series: (number | null)[][]): Chart {
 
 /** One dial's worth of state for every module. */
 export function useSummaries(): Record<ModuleId, Summary | null> {
-  const { system, history, projects, ports, docker, agents, tasks, skills, alerts } = useHub()
+  const { system, history, projects, agents, tasks, alerts } = useHub()
   const { machines } = useMachines()
   const faulty = new Set(alerts.map((a) => a.module))
 
@@ -109,7 +115,8 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
         value: `${Math.round(system.cpu.percent)}%`,
         fraction: system.cpu.percent / 100,
         caption: `cpu · mem ${Math.round(system.memory.percent)}%`,
-        fault: faulty.has('machine'),
+        // Its tabs' alarms (an unhealthy container) show on its dial.
+        fault: ['machine', 'processes', 'ports', 'docker'].some((id) => faulty.has(id as ModuleId)),
         quiet: system.cpu.percent < 15 && system.memory.percent < 70,
         busy: system.cpu.percent >= 50,
         chart: { kind: 'trace', values: downsample(history.map((h) => h.cpu / 100), 180), span: minutes(history) },
@@ -133,48 +140,6 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
         }
       : { value: '—', fraction: null, caption: 'no live URLs yet', fault: false, quiet: true }
   }
-
-  let portsSum: Summary | null = null
-  if (ports) {
-    const linked = ports.filter((p) => p.project)
-    portsSum = {
-      value: String(ports.length),
-      fraction: ports.length ? linked.length / ports.length : 0,
-      caption: `${linked.length} linked`,
-      fault: false,
-      quiet: !linked.length,
-      subject: linked.length ? names(linked.map((p) => `:${p.port} ${p.project!.name}`)) : undefined,
-      chart: { kind: 'lanes', items: [...ports].sort((a, b) => a.port - b.port).map((p) => (p.project ? 'on' : 'off')) },
-    }
-  }
-
-  let dockerSum: Summary | null = null
-  if (docker) {
-    const running = docker.containers.filter((c) => c.status === 'running')
-    dockerSum = docker.available
-      ? {
-          value: String(running.length),
-          fraction: docker.containers.length ? running.length / docker.containers.length : 0,
-          caption: `${docker.containers.length} total`,
-          fault: faulty.has('docker'),
-          quiet: !running.length,
-          subject: running.length ? names(running.map((c) => c.compose_project || c.name)) : undefined,
-          chart: { kind: 'lanes', items: docker.containers.map((c) => (c.health === 'unhealthy' ? 'fault' : c.status === 'running' ? 'on' : 'off')) },
-        }
-      : { value: 'OFF', fraction: null, caption: 'not available', fault: false, off: true }
-  }
-
-  const processesSum: Summary | null = system
-    ? {
-        value: String(system.process_count ?? '—'),
-        fraction: Math.min(1, system.cpu.load[0] / system.host.cores_logical),
-        caption: `load ${system.cpu.load[0].toFixed(2)}`,
-        fault: false,
-        quiet: system.cpu.load[0] / system.host.cores_logical < 0.3,
-        busy: system.cpu.load[0] / system.host.cores_logical >= 0.7,
-        chart: { kind: 'trace', values: downsample(history.map((h) => h.mem / 100), 180), span: `mem · ${minutes(history)}` },
-      }
-    : null
 
   let agentsSum: Summary | null = null
   if (agents) {
@@ -237,37 +202,6 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
     }
   }
 
-  let momentumSum: Summary | null = null
-  if (projects) {
-    const judged = tracked(projects).filter((p) => pace(p) !== 'none')
-    const moving = judged.filter((p) => pace(p) === 'moving').length
-    const undecided = judged.filter((p) => pace(p) === 'stalled' && !p.focus).length
-    momentumSum = {
-      value: String(moving),
-      fraction: judged.length ? moving / judged.length : 0,
-      caption: faulty.has('momentum') ? 'push slipping' : undecided ? `${undecided} to decide` : 'moving',
-      fault: faulty.has('momentum'),
-      quiet: !moving && !undecided,
-      chart: { kind: 'lanes', items: judged.map((p) => (faulty.has('momentum') && p.focus === 'push' && pace(p) !== 'moving' ? 'fault' : pace(p) === 'moving' ? 'on' : pace(p) === 'slowing' ? 'done' : 'off')) },
-    }
-  }
-
-  let skillsSum: Summary | null = null
-  if (projects && skills) {
-    const rows = skillMap(projects, skills).filter((r) => r.intent !== 'ignore')
-    const used = rows.filter((r) => r.projects.length)
-    const active = used.filter((r) => r.use === 'active').length
-    const learning = rows.filter((r) => r.intent === 'learn').length
-    skillsSum = {
-      value: String(active),
-      fraction: used.length ? active / used.length : 0,
-      caption: learning ? `active · ${learning} to learn` : 'active',
-      fault: false,
-      quiet: !active && !learning,
-      chart: { kind: 'lanes', items: used.map((r) => (r.use === 'active' ? 'on' : r.use === 'cooling' ? 'done' : 'off')) },
-    }
-  }
-
   let machinesSum: Summary | null = null
   if (machines) {
     const up = machines.filter((m) => m.state === 'up').length
@@ -283,5 +217,5 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
     }
   }
 
-  return { tasks: tasksSum, machines: machinesSum, momentum: momentumSum, skills: skillsSum, agents: agentsSum, projects: projectsSum, machine: machineSum, urls: urlsSum, ports: portsSum, docker: dockerSum, processes: processesSum }
+  return { tasks: tasksSum, machines: machinesSum, momentum: null, skills: null, agents: agentsSum, projects: projectsSum, machine: machineSum, urls: urlsSum, ports: null, docker: null, processes: null }
 }

@@ -403,8 +403,10 @@ def _rescan_step(now: float):
 
 
 def _tasks_step(now: float):
-    from . import tasks
+    from . import plans, tasks
     tasks.watch(now)
+    # Then the plans: a step whose agent just finished can go now.
+    plans.advance()
 
 
 def ensure_started():

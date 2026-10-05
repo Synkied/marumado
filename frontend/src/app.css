@@ -23,7 +23,7 @@
 
 .top {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: clamp(var(--sp-6), 2vw, var(--sp-16));
   padding: clamp(var(--sp-7), 2.2vh, var(--sp-12)) 0 clamp(var(--sp-5), 1.6vh, var(--sp-9));
@@ -76,7 +76,7 @@
   color: var(--ink-2);
 }
 
-/* Just the magnifier, styled like the other header buttons: the bar's room goes to the active agents. */
+/* Just the magnifier, styled like the other header buttons: the bar keeps its room. */
 .search {
   flex: none;
   display: inline-flex;
@@ -315,11 +315,11 @@
 
   /* The module panel is a sidebar: one row per module (dial, label, reading), or only the dials as a rail. */
   .main {
-    grid-template-columns: clamp(236px, 18vw, 300px) minmax(0, 1fr);
+    grid-template-columns: clamp(196px, 14vw, 236px) minmax(0, 1fr);
     transition: grid-template-columns var(--dur-base) var(--ease);
   }
   .main--rail {
-    grid-template-columns: 104px minmax(0, 1fr);
+    grid-template-columns: 64px minmax(0, 1fr);
   }
   .panel .cell {
     display: grid;
@@ -329,18 +329,20 @@
       'face caption';
     align-items: center;
     justify-items: start;
-    gap: 0 var(--sp-5);
-    padding: var(--sp-1) var(--sp-5);
+    gap: 0 var(--sp-4);
+    /* Flush with the wordmark above: the app's gutter is the only left margin. */
+    padding: var(--sp-1) var(--sp-3) var(--sp-1) 0;
   }
   .panel .cell .dial {
     display: contents;
   }
   .panel .cell .dial__face {
     grid-area: face;
-    --dial-size: 92px;
+    /* Small: a glanceable lamp per module, not a chart to read. The module's page has the full one. */
+    --dial-size: 56px;
   }
   .panel .cell .dial__value {
-    font-size: 16cqi;
+    font-size: 19cqi;
   }
   .panel .cell .dial__caption {
     grid-area: caption;
@@ -359,14 +361,14 @@
     text-indent: 0;
   }
   .panel__edit {
-    margin-left: var(--sp-7);
+    margin-left: 0;
   }
 
   .panel__toggle {
     display: flex;
     align-items: center;
     gap: var(--sp-4);
-    padding: var(--sp-5) var(--sp-7);
+    padding: var(--sp-5) 0;
     border: 0;
     background: none;
     color: var(--ink-2);
@@ -394,7 +396,13 @@
     grid-template-areas: 'face' 'label';
     justify-items: center;
     gap: var(--sp-1);
-    padding: 0 0 var(--sp-4);
+    padding: 0 0 var(--sp-3);
+  }
+  .panel--rail .cell .dial__face {
+    --dial-size: 48px;
+  }
+  .panel--rail .cell .dial__value {
+    font-size: 21cqi;
   }
   /* A small name under each maru so the rail still says what it is. */
   .panel--rail .cell__label {
@@ -485,7 +493,211 @@
 }
 
 .agents .sheet__head {
+  align-items: center;
   padding-bottom: var(--sp-5);
+}
+
+/* The bell sits right after the title; the sources' setting at the far end. */
+.agents__side .sheet__actions {
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+/* An icon button: a 32px square, quiet until hovered; pressed fills with solid. */
+.tool {
+  position: relative;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  min-width: var(--control-sm);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: border-color var(--dur-quick) ease-out, color var(--dur-quick) ease-out, background-color var(--dur-quick) ease-out;
+}
+
+.tool:hover,
+.tool:focus-visible {
+  border-color: var(--rule);
+  color: var(--ink);
+}
+
+.tool[aria-pressed='true'],
+.tool[aria-current='page'] {
+  border-color: var(--solid);
+  background: var(--solid);
+  color: var(--on-solid);
+}
+
+/* Armed, the close button says what it will end. */
+.tool.btn--armed {
+  width: auto;
+  padding: 0 var(--sp-5);
+  font-size: var(--text-md);
+  white-space: nowrap;
+}
+
+.tool--bell {
+  display: inline-flex;
+  gap: var(--sp-2);
+  width: auto;
+  padding: 0 var(--sp-3);
+}
+
+.tool--bell.is-fault {
+  border-color: var(--signal);
+  color: var(--signal-text);
+}
+
+.tool--bell.is-fault[aria-current='page'] {
+  background: var(--signal);
+  color: var(--on-signal);
+}
+
+.tool__count {
+  font-family: var(--f-mono);
+  font-size: var(--text-md);
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.tool--danger:hover {
+  color: var(--signal-text);
+}
+
+/* The open agent: its lamp, name and state, the terminal's tools, and one line of where it runs. */
+.agent-head {
+  flex: none;
+  display: grid;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.agent-head__line {
+  display: flex;
+  flex-wrap: nowrap;
+  min-width: 0;
+  align-items: center;
+  gap: var(--sp-5);
+  min-height: var(--control-sm);
+}
+
+.agent-head__line > .row__lamp {
+  flex: none;
+}
+
+.agent-head__bell {
+  flex: none;
+  display: grid;
+  color: var(--ink-2);
+}
+
+.agent-head__title {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-head__state {
+  flex: none;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.agent-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-left: auto;
+}
+
+.agent-head__meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--sp-8);
+  min-width: 0;
+  white-space: nowrap;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.agent-head__meta > .agent-source {
+  margin-right: 0;
+}
+
+.agent-head__item {
+  flex: none;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+/* One line, always: the task's name gives way first, then the folder's. */
+.agent-head__item.mod-tasks {
+  flex: 0 1 auto;
+}
+
+.agent-head__item.mod-projects {
+  flex: 0 1 auto;
+  min-width: 6ch;
+}
+
+.agent-head__item > a,
+.agent-head__item > .agent-head__link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Each item's icon in its module's pen: the project's folder, the task's checklist. */
+.agent-head__item > svg {
+  flex: none;
+  color: var(--mod, var(--ink-3));
+}
+
+.agent-head__item a {
+  color: var(--ink);
+}
+
+.agent-head__mono {
+  font-family: var(--f-mono);
+}
+
+.agent-head__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.agent-head__link:hover {
+  text-decoration-color: var(--ink);
 }
 
 .agents__stage {
@@ -551,6 +763,87 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Each agent waiting on you: what its screen asks, then the answers. */
+.inbox {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+}
+
+.question {
+  display: grid;
+  gap: var(--sp-5);
+}
+
+/* A plan's step whose turn has come, waiting for the owner's go: what it is, and the go. */
+.question--ask {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: var(--sp-5) var(--sp-6);
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-lg);
+}
+
+.question__ask {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.question__ask strong {
+  color: var(--ink);
+}
+
+.question__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-5);
+}
+
+.question__title {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-strong);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.question__where {
+  flex: 1 1 auto;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.question__screen {
+  max-height: none;
+  white-space: pre-wrap;
+}
+
+.question__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+
+.question__choice {
+  justify-content: start;
+  text-align: start;
+}
+
+.question__choice kbd {
+  font-family: var(--f-mono);
+  font-weight: var(--weight-strong);
+}
+
+.question__error {
+  margin: 0;
+  font-size: var(--text-md);
 }
 
 .agent-tab__state {
@@ -676,14 +969,6 @@
   color: var(--ink-2);
 }
 
-.agent-bar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-6);
-}
-
 .agent-fit {
   flex: none;
   min-height: var(--control-sm);
@@ -696,9 +981,11 @@
   letter-spacing: var(--track-snug);
 }
 
-a.agent-fit {
+a.agent-fit,
+.agent-fit--icon {
   display: inline-flex;
   align-items: center;
+  gap: var(--sp-3);
   text-decoration: none;
 }
 
@@ -726,30 +1013,6 @@ a.agent-fit {
   z-index: 40;
   padding: var(--sp-4) var(--sp-6) var(--sp-6);
   background: var(--ground);
-}
-
-/* The task an agent is on, under its bar; or the offer to make one. */
-.agent-task {
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-3);
-  font-family: var(--f-mono);
-  font-size: var(--text-md);
-  color: var(--ink-2);
-}
-
-.agent-meta {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--f-mono);
-  font-size: var(--text-md);
-  color: var(--ink-2);
 }
 
 .seg {
@@ -839,6 +1102,11 @@ a.agent-fit {
 }
 
 @media (max-width: 860px) {
+  .tool {
+    width: var(--touch);
+    height: var(--touch);
+    min-width: var(--touch);
+  }
   .agents {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;
@@ -943,11 +1211,13 @@ a.agent-fit {
 
 .side {
   min-width: 0;
-  padding: clamp(var(--sp-9), 2.2vw, var(--sp-18)) 0 var(--sp-16) clamp(var(--sp-10), 2.6vw, var(--sp-22));
+  padding: clamp(var(--sp-9), 2.2vw, var(--sp-18)) 0 var(--sp-16) clamp(var(--sp-6), 1vw, var(--sp-10));
 }
 
 .side__back {
   display: inline-flex;
+  justify-self: start;
+  align-self: start;
   align-items: center;
   gap: var(--sp-4);
   margin-bottom: var(--sp-9);
@@ -990,6 +1260,7 @@ a.agent-fit {
 
 /* A detail page's state (running, idle, file…) is read after its title, as a quiet line under it. */
 .sheet__head > div:has(> .sheet__index) {
+  min-width: 0;
   display: flex;
   flex-direction: column-reverse;
   gap: var(--sp-3);
@@ -1252,14 +1523,25 @@ a.row:hover .row__main {
   max-width: 48ch;
 }
 
-/* The side column's rows are denser than the main list's. */
+/* The side column's rows are denser than the main list's. A place reads three lines (name, what runs, path),
+   so its lamp sits on the name, not between the lines. */
 .list--compact .row {
   min-height: 0;
+  align-items: start;
   gap: var(--sp-5);
 }
 
 .list--compact .row__main {
   font-size: var(--text-lg);
+}
+
+.list--compact .row__lamp {
+  margin-top: calc((var(--text-lg) * 1.45 - 12px) / 2);
+}
+
+.response ~ .btn,
+.project__hint + .btn {
+  justify-self: start;
 }
 
 /* The next task, typed into the work list's last line: no box, only the row's rule and a plus. */
@@ -1303,6 +1585,34 @@ a.row:hover .row__main {
   color: var(--ink);
 }
 
+/* A new agent in the project's folder: the button, then what kind and where, as quiet pickers. */
+.start-agent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.start-agent__pick {
+  min-height: var(--control-sm);
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-control);
+  background: var(--ground-raised);
+  color: var(--ink-2);
+  font-size: var(--text-md);
+}
+
+.start-agent__pick:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+.start-agent__error {
+  flex-basis: 100%;
+  font-size: var(--text-md);
+}
+
 .work__done {
   justify-self: start;
   font-size: var(--text-md);
@@ -1332,32 +1642,32 @@ a.row:hover .row__main {
 }
 
 /* The record as a strip chart: a bar per week on ruled paper, oldest at the left, "now" at the right. */
-.strip {
+.record {
   display: grid;
   gap: var(--sp-2);
 }
 
-.strip svg {
+.record svg {
   display: block;
   width: 100%;
   height: 48px;
 }
 
-.strip__rule {
+.record__rule {
   stroke: var(--grid);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 
-.strip__bar {
+.record__bar {
   fill: var(--mod, var(--ink));
 }
 
-.strip__none {
+.record__none {
   fill: var(--track);
 }
 
-.strip__axis {
+.record__axis {
   display: flex;
   justify-content: space-between;
   font-family: var(--f-mono);
@@ -1674,126 +1984,9 @@ button.chip:hover {
   color: var(--ink-2);
 }
 
-/* ---------- active now (in the header, next to the wordmark) ---------- */
-
-.active {
-  container-type: inline-size;
-  min-width: 0;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-6);
-  padding-left: clamp(var(--sp-6), 1.6vw, var(--sp-12));
-  border-left: 1px solid var(--rule-soft);
-}
-
-.active__title {
-  flex: none;
-  margin: 0;
-  font-size: var(--text-xs);
-  font-weight: var(--weight-strong);
-  letter-spacing: var(--track-caps-wide);
-  text-transform: uppercase;
-  color: var(--ink-2);
-}
-
-/* A squeezed bar keeps what is live and drops the label. */
-@container (max-width: 170px) {
-  .active__title {
-    display: none;
-  }
-}
-
-.active__empty {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: var(--text-md);
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-
-.active__tiles {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
-  display: flex;
-  gap: var(--sp-4);
-  overflow: hidden;
-}
-
-.tile {
-  flex: 0 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  height: 36px;
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--radius-control);
-  transition: border-color var(--dur-quick) ease-out;
-}
-
-.tile:hover {
-  border-color: var(--ink);
-}
-
-.tile__main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-4);
-  align-self: stretch;
-  padding: 0 var(--sp-2) 0 var(--sp-6);
-  text-decoration: none;
-  color: var(--ink);
-}
-
-.tile__name {
-  font-size: var(--text-sm);
-  max-width: 32ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tile__main > svg {
-  flex: none;
-  color: var(--ink-2);
-}
-
-.tile__main:last-child {
-  padding-right: var(--sp-6);
-}
-
-.tile.is-fault {
-  border-color: var(--signal);
-}
-
-/* Live items get a dot instead of a word, to stay compact: green working, signal waiting on you. */
-.tile__live {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--moss);
-  font-size: 0;
-}
-
-.tile__live--fault {
-  background: var(--signal);
-}
-
 /* ---------- narrow screens ---------- */
 
-@media (max-width: 1180px) {
-  .active__title {
-    display: none;
-  }
-}
-
-/* A crowded bar (machine picker, active agents) keeps the name and lets 丸窓 go first. */
+/* A crowded bar (machine picker) keeps the name and lets 丸窓 go first. */
 @media (max-width: 1365px) {
   .top__brand:has(.picker) .wordmark__kanji {
     display: none;
@@ -1840,9 +2033,6 @@ button.chip:hover {
     padding: var(--sp-9) 0 var(--sp-14);
   }
   .app--sheet-only .panel {
-    display: none;
-  }
-  .active {
     display: none;
   }
 }
@@ -1909,6 +2099,36 @@ button.chip:hover {
 .seg--mod .seg__btn[aria-pressed='true'] {
   background: var(--mod, var(--ink));
   color: var(--on-mod);
+}
+
+/* A module's views as tabs: plain words on the head's rule, the one on screen inked and underlined in the module's
+   pen, so they never read as another view switch. */
+.seg--tabs {
+  justify-self: start;
+  gap: var(--sp-10);
+  margin-top: calc(var(--sp-7) * -1);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.seg--tabs .seg__btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch);
+  padding: 0;
+  border-radius: 0;
+  text-decoration: none;
+  transition: color var(--dur-quick) var(--ease), box-shadow var(--dur-quick) var(--ease);
+}
+
+.seg--tabs .seg__btn:hover {
+  color: var(--ink);
+}
+
+.seg--tabs .seg__btn[aria-current='page'] {
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--mod, var(--ink));
 }
 
 /* heatmap: a row per project, a cell per week */
@@ -2209,6 +2429,24 @@ a.itemcard__name:hover {
   padding-top: var(--sp-2);
 }
 
+/* Project cards: name, state, one line of news and the links. What it's built with is on the project's page and in list view. */
+.itemcard--compact {
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-6);
+}
+
+.itemcard--compact .itemcard__name {
+  font-size: var(--text-lg);
+}
+
+.itemcard--compact .itemcard__sub {
+  font-size: var(--text-sm);
+}
+
+.itemcard--compact .chips:empty {
+  display: none;
+}
+
 /* ---------- streaming mode ---------- */
 
 .stream {
@@ -2436,21 +2674,8 @@ a.files__row:hover .row__main {
   border-color: var(--ink);
 }
 
-.addline--task {
-  flex-wrap: wrap;
-}
-
-.addline--task .field:first-child {
-  flex: 1 1 260px;
-}
-
-.addline--task .field:nth-child(2) {
-  flex: 0 1 220px;
-}
-
 .task__title {
   text-transform: none;
-  overflow-wrap: anywhere;
 }
 
 .sheet__index--fault {
@@ -2651,14 +2876,380 @@ a.files__row:hover .row__main {
   }
 }
 
+/* ---------- tasks: what the agent did ---------- */
+
+/* The recording: one channel per kind of work, each in its own pen, on chart paper ruled in equal divisions. */
+.rec {
+  --lane-think: var(--c-agents);
+  --lane-read: var(--c-momentum);
+  --lane-edit: var(--c-urls);
+  --lane-run: var(--c-ports);
+  --lane-you: var(--ink);
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: var(--sp-2) var(--sp-6);
+  align-items: center;
+}
+
+.rec__lane {
+  display: contents;
+}
+
+.rec__name {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.rec__track {
+  position: relative;
+  height: 18px;
+  cursor: pointer;
+  background-color: var(--ground-raised);
+  background-image: linear-gradient(to right, var(--grid) 1px, transparent 1px);
+  background-size: calc(100% / var(--ticks, 4)) 100%;
+  box-shadow: inset 0 -1px 0 var(--grid-major);
+}
+
+.rec__mark {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  min-width: 2px;
+  border-radius: 1px;
+  background: var(--pen);
+}
+
+.rec__lane--think { --pen: var(--lane-think); }
+.rec__lane--read { --pen: var(--lane-read); }
+.rec__lane--edit { --pen: var(--lane-edit); }
+.rec__lane--run { --pen: var(--lane-run); }
+.rec__lane--you { --pen: var(--lane-you); }
+
+/* A tool that failed draws an empty box in its pen; one still running fades at its leading edge. */
+.rec__mark--failed {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--pen);
+}
+
+.rec__mark--open {
+  background: linear-gradient(to right, var(--pen) 60%, color-mix(in oklab, var(--pen) 25%, transparent));
+}
+
+.rec__mark--wait {
+  top: 6px;
+  bottom: 6px;
+  background: var(--ink-3);
+}
+
+.rec__mark--now {
+  top: 3px;
+  bottom: 3px;
+  background: var(--signal);
+}
+
+.rec__time {
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.rec__axis {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.diff-add {
+  color: var(--moss);
+}
+
+.diff-del {
+  color: var(--syn-tag);
+}
+
+.diff-hunk {
+  color: var(--ink-3);
+}
+
+/* Files touched: the most worked on first, with a bar of how often (edits in the editing pen, reads in the reading pen). */
+.rfiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rfiles__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px minmax(9.5em, max-content);
+  gap: var(--sp-6);
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  border-bottom: 1px solid var(--rule-soft);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rfiles__row:hover {
+  background: var(--ground-raised);
+}
+
+.rfiles__row[aria-pressed='true'] {
+  background: var(--ground-raised);
+  box-shadow: inset 0 -2px 0 var(--ink);
+}
+
+.rfiles__path {
+  font-family: var(--f-mono);
+  font-size: var(--text-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.rfiles__heat {
+  display: flex;
+  height: 8px;
+  background: var(--track);
+}
+
+.rfiles__edits {
+  background: var(--c-urls);
+}
+
+.rfiles__reads {
+  background: var(--c-momentum);
+  opacity: 0.55;
+}
+
+.rfiles__counts {
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.rfiles + .btn {
+  justify-self: start;
+  margin-top: var(--sp-4);
+}
+
+/* Every step, in order: time into the task, its channel's pen, what it did, how long it took. */
+.rsteps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rsteps--inner {
+  margin-left: calc(var(--sp-6) + 3.6em);
+  border-left: 1px solid var(--rule);
+  padding-left: var(--sp-4);
+}
+
+.rstep,
+.rsteps__run {
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.rsteps--inner .rstep:last-child {
+  border-bottom: 0;
+}
+
+.rstep__line {
+  display: grid;
+  grid-template-columns: 3.6em 10px minmax(0, 1fr) max-content;
+  gap: var(--sp-6);
+  align-items: baseline;
+  padding: var(--sp-4) 0;
+  list-style: none;
+}
+
+summary.rstep__line {
+  cursor: pointer;
+}
+
+summary.rstep__line::-webkit-details-marker {
+  display: none;
+}
+
+summary.rstep__line:hover .rstep__title {
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 3px;
+}
+
+details[open] > summary.rstep__line .rstep__title {
+  font-weight: var(--weight-strong);
+}
+
+.rstep__at {
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.rstep__key {
+  align-self: center;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.rstep__key--think { background: var(--c-agents); }
+.rstep__key--read { background: var(--c-momentum); }
+.rstep__key--edit { background: var(--c-urls); }
+.rstep__key--run { background: var(--c-ports); }
+.rstep__key--you { background: var(--ink); }
+
+/* Thinking is a hollow key: the channel's pen, unfilled, when it says nothing more than that it thought. */
+.rstep--think .rstep__key {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--c-agents);
+}
+
+.rstep__title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rstep--think:not(:has(details)) .rstep__title {
+  color: var(--ink-2);
+}
+
+.rstep__sub {
+  display: block;
+  margin-top: var(--sp-1);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rstep__took {
+  display: flex;
+  gap: var(--sp-5);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.rstep__failed {
+  font-family: var(--f-sans);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  font-size: var(--text-xs);
+  color: var(--ink);
+}
+
+.rstep details > :not(summary) {
+  margin: 0 0 var(--sp-5) calc(3.6em + 10px + var(--sp-6) * 2);
+}
+
+/* What you told it reads as yours: set on a fresh sheet. */
+.rstep--you > .rstep__line,
+.rstep--you summary.rstep__line {
+  font-weight: var(--weight-strong);
+}
+
+.rstep__prose {
+  max-width: 72ch;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.rstep--you .rstep__prose {
+  padding: var(--sp-5) var(--sp-7);
+  background: var(--ground-raised);
+  border-radius: var(--radius-md);
+}
+
+.rstep__diff-body {
+  max-height: 480px;
+}
+
+.rsteps__filter,
+.rsteps__live {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.rsteps__filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+@media (max-width: 860px) {
+  .rec {
+    grid-template-columns: max-content minmax(0, 1fr);
+  }
+  .rec__time {
+    display: none;
+  }
+  .rfiles__row {
+    grid-template-columns: minmax(0, 1fr) max-content;
+    grid-template-rows: auto auto;
+    min-height: var(--touch);
+  }
+  .rfiles__heat {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    height: 4px;
+  }
+  .rstep__line {
+    grid-template-columns: 3.2em 10px minmax(0, 1fr);
+    min-height: var(--touch);
+    align-items: center;
+  }
+  .rstep__took {
+    grid-column: 3;
+  }
+  .rstep details > :not(summary) {
+    margin-left: 0;
+  }
+  .rsteps--inner {
+    margin-left: var(--sp-3);
+  }
+}
+
 /* ---------- tasks: the board ---------- */
 
 /* Columns side by side; on a narrow screen the board scrolls sideways inside itself, a column at a time. */
+/* The board, as on a GitHub project: columns the full height of the page, each scrolling its own cards, with the
+   way to add a task to it at its foot. */
 .board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(220px, 1fr));
-  gap: var(--sp-6);
-  align-items: start;
+  grid-template-columns: repeat(5, minmax(240px, 1fr));
+  gap: var(--sp-5);
+  align-items: stretch;
+  min-height: 0;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scrollbar-width: thin;
@@ -2666,15 +3257,151 @@ a.files__row:hover .row__main {
 }
 
 .kcol {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: var(--sp-4);
   min-width: 0;
-  padding: var(--sp-5);
+  min-height: 0;
+  padding: var(--sp-5) var(--sp-4) var(--sp-4);
   border: 1px solid var(--rule-soft);
   border-radius: var(--radius-lg);
   background: var(--ground-raised);
   scroll-snap-align: start;
   transition: border-color var(--dur-quick) ease-out;
+}
+
+.kcol__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  /* Room for a card's border and the dragged card's tilt. */
+  margin: 0 calc(var(--sp-2) * -1);
+  padding: var(--sp-1) var(--sp-2);
+}
+
+.kcol__lamp {
+  flex: none;
+  align-self: center;
+  width: 10px;
+  height: 10px;
+  margin-right: var(--sp-4);
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-2);
+}
+
+.kcol__lamp--working {
+  background: var(--moss);
+  border-color: var(--moss);
+}
+
+.kcol__lamp--needs {
+  background: var(--signal);
+  border-color: var(--signal);
+}
+
+.kcol__lamp--review {
+  border-color: var(--done);
+}
+
+.kcol__lamp--done {
+  background: var(--done);
+  border-color: var(--done);
+}
+
+/* The foot of a column: a quiet full-width "+ Add a task" that opens into a small card. */
+.kcol__add {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: 40px;
+  padding: 0 var(--sp-4);
+  border: 1px dashed transparent;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-quick) ease-out, color var(--dur-quick) ease-out, background-color var(--dur-quick) ease-out;
+}
+
+.kcol__add:hover,
+.kcol__add:focus-visible {
+  border-color: var(--rule);
+  background: var(--ground);
+  color: var(--ink);
+}
+
+.kadd {
+  flex: none;
+  display: grid;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid var(--mod);
+  border-radius: var(--radius-lg);
+  background: var(--ground);
+}
+
+.kadd__title {
+  width: 100%;
+  min-height: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-control);
+  background: var(--ground-raised);
+  color: var(--ink);
+  font: inherit;
+  font-weight: var(--weight-strong);
+  resize: none;
+}
+
+.kadd__title:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+.kadd select {
+  width: 100%;
+  font-size: var(--text-md);
+}
+
+.kadd__bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+
+.kadd__bar .btn {
+  min-height: 36px;
+}
+
+/* Desktop: the board takes the page's leftover height; the page scrolls only if the plans above leave it too little. */
+@media (min-width: 861px) {
+  .sheet--board {
+    overflow-y: auto;
+    scrollbar-width: thin;
+    padding-right: var(--sp-6);
+  }
+  .sheet--board .board {
+    flex: 1 0 min(560px, 72dvh);
+  }
+}
+
+/* Phones: a column per screen width, swiped across, each as tall as the screen allows. */
+@media (max-width: 860px) {
+  .board {
+    grid-template-columns: repeat(5, minmax(78vw, 1fr));
+    height: calc(100dvh - 180px);
+    min-height: 420px;
+  }
 }
 
 .kcol--over {
@@ -2715,8 +3442,13 @@ a.files__row:hover .row__main {
   padding: 0;
 }
 
-.kcol .btn {
-  justify-self: start;
+.kcol__name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.kcol__body > .btn {
+  align-self: flex-start;
 }
 
 .kcard {
@@ -2851,5 +3583,257 @@ a.files__row:hover .row__main {
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: thin;
+  }
+}
+
+/* ---------- projects, by the folder they were found in ---------- */
+
+.pgroup {
+  display: grid;
+  gap: var(--sp-6);
+  margin-top: var(--sp-12);
+}
+
+.pgroup__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2) var(--sp-7);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.pgroup__title {
+  margin: 0;
+  font-family: var(--f-mono);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-strong);
+  overflow-wrap: anywhere;
+}
+
+.pgroup__line {
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+/* ---------- pinned projects: a pin on each, and a short list in the sidebar ---------- */
+
+.pin {
+  display: inline-grid;
+  place-items: center;
+  margin-left: auto;
+  padding: var(--sp-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-3);
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
+}
+
+.pin--on {
+  color: var(--mod, var(--ink));
+  opacity: 1;
+}
+
+/* Unpinned ones show their pin on hover or keyboard focus, so a grid of projects doesn't read as a grid of pins. */
+.itemcard:hover .pin,
+.row:hover .pin,
+.pin:focus-visible {
+  opacity: 1;
+}
+
+.pin:hover {
+  color: var(--ink);
+}
+
+@media (hover: none) {
+  .pin {
+    opacity: 1;
+  }
+}
+
+.row > .pin {
+  margin-left: 0;
+}
+
+.pinned {
+  display: grid;
+  gap: var(--sp-2);
+  margin: var(--sp-6) var(--sp-3) 0 0;
+  padding-top: var(--sp-5);
+  border-top: 1px solid var(--rule-soft);
+}
+
+.pinned__title {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps-wide);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.pinned__list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pinned__item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-2) 0;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  text-decoration: none;
+}
+
+.pinned__item:hover,
+.pinned__item.is-active {
+  color: var(--ink);
+}
+
+.pinned__item.is-active .pinned__name {
+  text-decoration: underline;
+  text-decoration-color: var(--mod);
+  text-underline-offset: 0.3em;
+}
+
+.pinned__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pinned__short {
+  display: none;
+}
+
+/* On the rail: the first letters of each, in a small ring, under the dials. */
+.panel--rail .pinned {
+  margin: var(--sp-4) 0 0;
+  justify-items: center;
+}
+
+.panel--rail .pinned__title {
+  font-size: var(--text-2xs);
+  letter-spacing: var(--track-caps);
+}
+
+.panel--rail .pinned__list {
+  gap: var(--sp-2);
+}
+
+.panel--rail .pinned__item {
+  position: relative;
+  justify-content: center;
+  padding: 0;
+}
+
+.panel--rail .pinned__name {
+  display: none;
+}
+
+.panel--rail .pinned__short {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--rule);
+  border-radius: 50%;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  text-transform: uppercase;
+}
+
+.panel--rail .pinned__item:hover .pinned__short,
+.panel--rail .pinned__item.is-active .pinned__short {
+  border-color: var(--mod);
+}
+
+.panel--rail .pinned__item .row__lamp {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+.panel--rail .pinned__item .row__lamp:not(.row__lamp--on) {
+  display: none;
+}
+
+/* One line: a long title is cut with an ellipsis; Watch live, Save and Delete sit together at its end, centred on it. */
+.task__titleline {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--sp-7);
+  min-width: 0;
+}
+
+.task__titleline > .task__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task__watch {
+  flex: none;
+  margin-left: auto;
+}
+
+.task__titleline > .task__title + .task__bar {
+  margin-left: auto;
+}
+
+/* Agents → Sources: shared folders, a folder here → the same folder there per row */
+.folders {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.folders legend {
+  padding: 0;
+  margin-bottom: var(--sp-3);
+}
+
+.folders .agent-hint {
+  margin: 0;
+  font-weight: var(--weight-body);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.folders__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-4);
+  color: var(--ink-2);
+}
+
+.folders__row input {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.folders__add {
+  justify-self: start;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+@media (max-width: 520px) {
+  .folders__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .folders__row > span {
+    display: none;
   }
 }

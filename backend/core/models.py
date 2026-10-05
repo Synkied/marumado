@@ -123,6 +123,8 @@ class AgentSource(models.Model):
     kind = models.CharField(max_length=10, choices=KINDS, default=SSH)
     # ssh: user@host, ssh://user@host:port or a ~/.ssh/config alias (key login). smolvm: the machine's name.
     target = models.CharField(max_length=255)
+    # Where it sees this machine's folders: [{"here": "/home/me/projects", "there": "/projects"}, …] (see herdr.folder_in).
+    folders = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -132,10 +134,46 @@ class AgentSource(models.Model):
         return self.name
 
 
+class Setting(models.Model):
+    """A setting kept in the database rather than .env, by key: `env_source_folders` (the .env agent source's folders)."""
+
+    key = models.CharField(max_length=60, unique=True)
+    value = models.JSONField(default=dict, blank=True)
+
+    def __str__(self):
+        return self.key
+
+
+class Plan(models.Model):
+    """Steps for agents to take over on their own, in order or side by side (core/plans.py). Its steps are tasks, laid
+    out in rows: a row starts once every step of the row above is finished; the steps of one row run at the same
+    time, each on its own agent (in its own git worktree). A step under another continues with that step's agent."""
+
+    title = models.CharField(max_length=200)
+    project = models.ForeignKey(Project, null=True, blank=True, on_delete=models.SET_NULL, related_name='plans')
+    # What a step that needs a new agent starts, and where (an agent source, as on Task).
+    kind = models.CharField(max_length=20, default='claude')
+    source = models.PositiveIntegerField(default=0)
+    # Steps start by themselves only while the plan runs; paused, those not started yet wait.
+    running = models.BooleanField(default=False)
+    # An agent's own queue: the plan its steps go into when they are queued from its page (plans.queue_for).
+    pane_id = models.CharField(max_length=40, blank=True, default='')
+    pane_source = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return self.title
+
+
 class Task(models.Model):
     """Something to do, which can be handed to a coding agent in Herdr and followed (core/tasks.py)."""
 
     TODO = 'todo'
+    QUEUED = 'queued'
     STARTING = 'starting'
     WORKING = 'working'
     BLOCKED = 'blocked'
@@ -144,6 +182,7 @@ class Task(models.Model):
     FAILED = 'failed'
     STATES = [
         (TODO, 'To do'),
+        (QUEUED, 'Queued'),  # a step of a running plan, waiting for the steps above it or for its agent
         (STARTING, 'Starting'),  # being handed to the agent, or sent but not picked up yet
         (WORKING, 'Working'),
         (BLOCKED, 'Needs you'),  # the agent is waiting on an approval or a question
@@ -168,10 +207,28 @@ class Task(models.Model):
     agent_title = models.CharField(max_length=200, blank=True, default='')
     # Whether the agent is still being watched.
     live = models.BooleanField(default=False)
+    # A plan's step: its row (rows run one after the other) and its place in the row (side by side, at once).
+    plan = models.ForeignKey(Plan, null=True, blank=True, on_delete=models.SET_NULL, related_name='steps')
+    plan_row = models.PositiveIntegerField(default=0)
+    plan_col = models.PositiveIntegerField(default=0)
+    # Who takes the step: '' (the agent of the step above it, or a new one), 'new' (always a new agent), or 'agent'
+    # (the open agent in want_pane, in want_source).
+    RUNNERS = [('', 'Continue'), ('new', 'New agent'), ('agent', 'This agent')]
+    runner = models.CharField(max_length=8, blank=True, default='', choices=RUNNERS)
+    want_pane = models.CharField(max_length=40, blank=True, default='')
+    want_source = models.PositiveIntegerField(default=0)
+    # The git branch of the worktree the step's agent works in, when it got one of its own.
+    worktree = models.CharField(max_length=120, blank=True, default='')
+    # A step that waits for the owner's go when its turn comes (to check the steps above first), and that go.
+    ask = models.BooleanField(default=False)
+    go = models.BooleanField(default=False)
     # The task is still to be sent: the new agent stopped on a question first (trusting the folder, say).
     prompt_pending = models.BooleanField(default=False)
     # The project's git HEAD when the agent got the task, to show what changed since.
     git_start = models.CharField(max_length=64, blank=True, default='')
+    # The folder the agent works in, where Herdr runs, and the record of its session there (core/transcripts.py).
+    agent_cwd = models.CharField(max_length=500, blank=True, default='')
+    transcript = models.CharField(max_length=500, blank=True, default='')
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

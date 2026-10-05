@@ -7,15 +7,18 @@ import { agentHref, agentKey, sourceLabel } from '../lib/agents'
 import { api, type MachineId } from '../lib/api'
 import { ago, hostOf } from '../lib/format'
 import { commits, pace, PACE_LABEL } from '../lib/growth'
-import { useHub } from '../lib/hub'
+import { useHub, type ModuleId } from '../lib/hub'
 import { useMachines } from '../lib/machines'
-import { go } from '../lib/route'
+import { go, moduleHref } from '../lib/route'
 import type { Agent, Project, ScanRoot, Task, TaskState } from '../lib/types'
 import { activity, openTasks, projectAgents, runsAnywhere, whereRunning, workLine, type Activity } from '../lib/work'
+import { StartAgent } from './agentStart'
+import { PinButton } from './projectPin'
 import { useView, ViewSwitch } from './growth'
 import { Secret } from '../lib/streaming'
+import { usePoll } from '../lib/usePoll'
 import { FilesView } from './files'
-import { SheetHead } from './sheetHead'
+import { SheetHead, ViewTabs } from './sheetHead'
 
 function lamp(p: Project) {
   const live = p.status.online.latest
@@ -29,7 +32,7 @@ function stateLabel(p: Project): string {
   return whereRunning(p) || 'Idle'
 }
 
-const TASK_STATE: Record<TaskState, string> = { todo: 'To do', starting: 'Starting', working: 'Working', blocked: 'Needs you', review: 'To review', done: 'Done', failed: 'Failed' }
+const TASK_STATE: Record<TaskState, string> = { todo: 'To do', queued: 'Queued', starting: 'Starting', working: 'Working', blocked: 'Needs you', review: 'To review', done: 'Done', failed: 'Failed' }
 
 function taskLamp(s: TaskState): string {
   if (s === 'blocked' || s === 'failed') return 'row__lamp row__lamp--fault'
@@ -60,6 +63,53 @@ function Links({ p }: { p: Project }) {
   )
 }
 
+type Group = { key: string; title: string; path: string; missing: boolean; projects: Project[] }
+
+const within = (path: string, root: string) => path === root || path.startsWith(`${root.replace(/\/+$/, '')}/`)
+
+/** Pinned projects first, wherever they are; then projects by the scan folder they were found in (the deepest one,
+    when folders nest), in Folders' order; then those outside every scan folder, and those added by hand. Empty
+    groups are left out. */
+function byFolder(list: Project[], roots: ScanRoot[]): Group[] {
+  const groups: Group[] = roots.map((r) => ({ key: r.path, title: r.path, path: r.path, missing: !r.found, projects: [] }))
+  const elsewhere: Group = { key: ':elsewhere', title: 'Elsewhere', path: '', missing: false, projects: [] }
+  const manual: Group = { key: ':manual', title: 'Added by hand', path: '', missing: false, projects: [] }
+  const pinned: Group = { key: ':pinned', title: 'Pinned', path: '', missing: false, projects: [] }
+  for (const p of list) {
+    if (p.pinned) {
+      pinned.projects.push(p)
+      continue
+    }
+    const home = p.path ? groups.filter((g) => within(p.path, g.path)).sort((a, b) => b.path.length - a.path.length)[0] : undefined
+    ;(home ?? (p.source === 'manual' ? manual : elsewhere)).projects.push(p)
+  }
+  return [pinned, ...groups, elsewhere, manual].filter((g) => g.projects.length)
+}
+
+/** A group's overview in a few words: how many, what runs, what needs you, what moves, and what it is mostly made of. */
+function groupLine(g: Group, act: (p: Project) => Activity): { text: string; fault: boolean } {
+  const n = g.projects.length
+  const running = g.projects.filter(runsAnywhere).length
+  const work = g.projects.map(act)
+  const blocked = work.reduce((sum, w) => sum + w.blocked, 0)
+  const working = work.reduce((sum, w) => sum + w.working, 0)
+  const moving = g.projects.filter((p) => pace(p) === 'moving').length
+  const down = g.projects.filter((p) => p.online_url && p.status.online.latest && !p.status.online.latest.ok).length
+  const stacks = new Map<string, number>()
+  for (const p of g.projects) for (const st of p.detected.stacks ?? []) stacks.set(st, (stacks.get(st) ?? 0) + 1)
+  const top = [...stacks].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3).map(([st]) => st)
+  const parts = [
+    `${n} project${n === 1 ? '' : 's'}`,
+    down ? `${down} live site${down === 1 ? '' : 's'} down` : '',
+    blocked ? `${blocked} need${blocked === 1 ? 's' : ''} you` : '',
+    working ? `${working} agent${working === 1 ? '' : 's'} working` : '',
+    running ? `${running} running` : '',
+    moving ? `${moving} moving` : '',
+    top.length ? top.join(', ') : '',
+  ]
+  return { text: parts.filter(Boolean).join(' · '), fault: blocked > 0 || down > 0 }
+}
+
 export function ProjectsSheet({ sub }: { sub?: string }) {
   const { projects, tasks, agents, refreshProjects } = useHub()
   const [q, setQ] = useState('')
@@ -74,6 +124,8 @@ export function ProjectsSheet({ sub }: { sub?: string }) {
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(runsAnywhere(b)) - Number(runsAnywhere(a)) || a.name.localeCompare(b.name))
   }, [projects, q])
   const work = (p: Project) => workLine(activity(p, tasks, agents))
+  const roots = usePoll<{ roots: ScanRoot[] }>(sub ? null : 'roots', 60000)
+  const groups = useMemo(() => byFolder(list, roots.data?.roots ?? []), [list, roots.data])
 
   if (sub === 'folders') return <FoldersSheet />
   if (sub === 'archived') return <ArchivedSheet />
@@ -115,12 +167,13 @@ export function ProjectsSheet({ sub }: { sub?: string }) {
           <Icon name="plus" size={16} /> Add
         </a>
       </SheetHead>
+      <ViewTabs at="projects" />
       <label className="filter">
         <Icon name="search" size={18} />
         <span className="sr-only">Filter projects</span>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name, stack or tag" />
       </label>
-      {!projects ? (
+      {!projects || (!roots.data && !roots.error) ? (
         <div className="sheet__empty">Loading projects…</div>
       ) : list.length === 0 ? (
         <div className="sheet__empty">
@@ -132,37 +185,59 @@ export function ProjectsSheet({ sub }: { sub?: string }) {
             </>
           )}
         </div>
-      ) : view === 'grid' ? (
-        <ul className="cardgrid cardgrid--wide">
-          {list.map((p) => (
-            <li className="itemcard" key={p.id}>
-              <span className="itemcard__state">
-                <span className={lamp(p)} aria-hidden />
-                {stateLabel(p)}
-              </span>
-              <a className="itemcard__name" href={`#/m/projects/${p.id}`}>
-                {p.name}
-              </a>
-              <span className="itemcard__sub">{(p.detected.stacks ?? []).join(' · ') || (p.source === 'manual' ? 'Added by hand' : 'Folder')}</span>
-              {p.detected.last_commit_at && <span className="itemcard__sub">Last commit {ago(p.detected.last_commit_at)}</span>}
-              {work(p) && <span className="itemcard__sub mod-tasks">{work(p)}</span>}
-              <Links p={p} />
-            </li>
-          ))}
-        </ul>
       ) : (
-        <ul className="list">
-          {list.map((p) => (
-            <li className="row" key={p.id}>
-              <span className={lamp(p)} role="img" aria-label={p.running ? 'running' : 'idle'} />
-              <a className="row__main row__link" href={`#/m/projects/${p.id}`}>
-                {p.name}
-                <span className="row__sub">{[(p.detected.stacks ?? []).join(' · ') || (p.source === 'manual' ? 'Added by hand' : 'Folder'), whereRunning(p), work(p)].filter(Boolean).join(' · ')}</span>
-              </a>
-              <Links p={p} />
-            </li>
-          ))}
-        </ul>
+        groups.map((g, i) => {
+          const line = groupLine(g, (p) => activity(p, tasks, agents))
+          return (
+            <section className="pgroup" key={g.key} aria-labelledby={`pg-${g.key}`}>
+              <header className="pgroup__head">
+                <h3 className="pgroup__title" id={`pg-${g.key}`}>
+                  {g.path ? <Secret label={`Folder ${i + 1}`}>{g.title}</Secret> : g.title}
+                </h3>
+                <span className={`pgroup__line${line.fault ? ' signal-text' : ''}`}>
+                  {g.missing ? 'Folder not found · ' : ''}
+                  {line.text}
+                </span>
+              </header>
+              {view === 'grid' ? (
+                <ul className="cardgrid cardgrid--wide">
+                  {g.projects.map((p) => (
+                    <li className="itemcard itemcard--compact" key={p.id}>
+                      <span className="itemcard__state">
+                        <span className={lamp(p)} aria-hidden />
+                        {stateLabel(p)}
+                        <PinButton project={p} />
+                      </span>
+                      <a className="itemcard__name" href={`#/m/projects/${p.id}`}>
+                        {p.name}
+                      </a>
+                      {work(p) ? (
+                        <span className="itemcard__sub mod-tasks">{work(p)}</span>
+                      ) : (
+                        p.detected.last_commit_at && <span className="itemcard__sub">Last commit {ago(p.detected.last_commit_at)}</span>
+                      )}
+                      <Links p={p} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <ul className="list">
+                  {g.projects.map((p) => (
+                    <li className="row" key={p.id}>
+                      <span className={lamp(p)} role="img" aria-label={stateLabel(p)} />
+                      <a className="row__main row__link" href={`#/m/projects/${p.id}`}>
+                        {p.name}
+                        <span className="row__sub">{[(p.detected.stacks ?? []).join(' · ') || (p.source === 'manual' ? 'Added by hand' : 'Folder'), whereRunning(p), work(p)].filter(Boolean).join(' · ')}</span>
+                      </a>
+                      <Links p={p} />
+                      <PinButton project={p} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )
+        })
       )}
     </div>
   )
@@ -206,13 +281,12 @@ function ProjectDetail({ p, next }: { p: Project; next?: boolean }) {
         <Icon name="back" size={18} /> {isLink ? 'All URLs' : 'All projects'}
       </a>
       <header className="sheet__head">
-        <div style={{ minWidth: 0 }}>
+        <div>
           <span className={`sheet__index${status.fault ? ' sheet__index--fault' : ''}`}>{status.text}</span>
-          <h2 className="sheet__title" style={{ textTransform: 'none' }}>
-            {p.name}
-          </h2>
+          <h2 className="sheet__title">{p.name}</h2>
         </div>
         <div className="sheet__actions">
+          {!isLink && <PinButton project={p} labelled />}
           {p.path && !p.detected.missing && (
             <a className="btn btn--quiet" href={`#/m/projects/${p.id}/files`}>
               <Icon name="file" size={16} /> Files
@@ -259,7 +333,7 @@ type WorkItem =
   | { kind: 'task'; key: string; rank: number; task: Task }
   | { kind: 'agent'; key: string; rank: number; agent: Agent }
 
-const TASK_RANK: Record<TaskState, number> = { blocked: 0, failed: 0, working: 1, starting: 1, review: 2, todo: 3, done: 4 }
+const TASK_RANK: Record<TaskState, number> = { blocked: 0, failed: 0, working: 1, starting: 1, review: 2, todo: 3, queued: 3, done: 4 }
 const AGENT_RANK: Record<Agent['status'], number> = { blocked: 0, working: 1, done: 2, idle: 3, unknown: 3 }
 
 /** Everything being done on the project, most urgent first: tasks and the agents in its folder in one list, the
@@ -273,6 +347,7 @@ function Work({ p, focusNew }: { p: Project; focusNew?: boolean }) {
   const followed = new Set(open.filter((t) => t.live && t.pane_id).map((t) => `${t.agent_source}/${t.pane_id}`))
   // An agent already shown through its task isn't listed twice.
   const loose = projectAgents(p, agents).filter((a) => !followed.has(agentKey(a)))
+  const agentState = (a: Agent) => (a.status === 'blocked' ? 'Needs you' : a.status === 'working' ? 'Working' : 'Resting')
   const items: WorkItem[] = [
     ...open.map((t): WorkItem => ({ kind: 'task', key: `t${t.id}`, rank: TASK_RANK[t.state], task: t })),
     ...loose.map((a): WorkItem => ({ kind: 'agent', key: `a${agentKey(a)}`, rank: AGENT_RANK[a.status] + 0.5, agent: a })),
@@ -297,7 +372,7 @@ function Work({ p, focusNew }: { p: Project; focusNew?: boolean }) {
   return (
     <section className="sheet__section mod-tasks" aria-labelledby="work-title">
       <h3 id="work-title">Work{count && ` · ${count}`}</h3>
-      {p.focus === 'push' && !open.length && <p className="notice">Marked push, with nothing to do next. Write the next step below.</p>}
+      {p.focus === 'push' && tasks && !open.length && !loose.some((a) => a.status === 'working' || a.status === 'blocked') && <p className="notice">Marked push, with nothing to do next. Write the next step below.</p>}
       <ul className="list">
         {items.map((it) =>
           it.kind === 'task' ? (
@@ -314,11 +389,11 @@ function Work({ p, focusNew }: { p: Project; focusNew?: boolean }) {
             </li>
           ) : (
             <li className="row" key={it.key}>
-              <span className={`row__lamp${it.agent.status === 'blocked' ? ' row__lamp--fault' : it.agent.status === 'working' ? ' row__lamp--on' : ''}`} role="img" aria-label={it.agent.status} />
+              <span className={`row__lamp${it.agent.status === 'blocked' ? ' row__lamp--fault' : it.agent.status === 'working' ? ' row__lamp--on' : ''}`} role="img" aria-label={agentState(it.agent)} />
               <a className="row__main row__link" href={agentHref(it.agent)}>
                 {it.agent.title && it.agent.title !== it.agent.kind ? it.agent.title : it.agent.name || it.agent.kind}
                 <span className={`row__sub${it.agent.status === 'blocked' ? ' signal-text' : ''}`}>
-                  {it.agent.status === 'blocked' ? 'Needs you' : it.agent.status === 'working' ? 'Working' : 'Resting'} · {it.agent.kind}
+                  {agentState(it.agent)} · {it.agent.kind}
                   {sourceLabel(agents, it.agent) ? ` on ${sourceLabel(agents, it.agent)}` : ''} · no task yet
                 </span>
               </a>
@@ -347,6 +422,7 @@ function Work({ p, focusNew }: { p: Project; focusNew?: boolean }) {
           </form>
         </li>
       </ul>
+      <StartAgent project={p} />
       {error && <p className="notice signal-text">{error}</p>}
       {done > 0 && (
         <a className="work__done" href="#/m/tasks">
@@ -440,20 +516,20 @@ function RecordStrip({ weeks, label }: { weeks: number[]; label: string }) {
   const H = 48
   const slot = W / n
   return (
-    <div className="strip">
+    <div className="record">
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`${label}: ${total} ${total === 1 ? 'commit' : 'commits'} in the last 12 weeks`}>
-        <line className="strip__rule" x1={0} x2={W} y1={H - 0.5} y2={H - 0.5} />
+        <line className="record__rule" x1={0} x2={W} y1={H - 0.5} y2={H - 0.5} />
         {values.map((v, i) => {
           const h = v ? 4 + Math.sqrt(v / top) * (H - 6) : 1.5
           const ago = n - 1 - i
           return (
-            <rect key={i} className={v ? 'strip__bar' : 'strip__none'} x={i * slot + slot * 0.2} y={H - h} width={slot * 0.6} height={h}>
+            <rect key={i} className={v ? 'record__bar' : 'record__none'} x={i * slot + slot * 0.2} y={H - h} width={slot * 0.6} height={h}>
               <title>{`${v} ${v === 1 ? 'commit' : 'commits'}, ${ago ? `${ago} week${ago === 1 ? '' : 's'} ago` : 'this week'}`}</title>
             </rect>
           )
         })}
       </svg>
-      <span className="strip__axis" aria-hidden="true">
+      <span className="record__axis" aria-hidden="true">
         <span>−12 wk</span>
         <span>now</span>
       </span>
@@ -467,15 +543,22 @@ function Places({ p }: { p: Project }) {
   const local = p.runtime.ports.length > 0 || p.runtime.containers.length > 0
   const elsewhere = p.places ?? []
   // A machine's containers live in its Docker module: show that machine, then open it.
-  const openOn = (machine: MachineId, module: string) => {
+  const openOn = (machine: MachineId, module: ModuleId) => {
     select(machine)
-    go(`#/m/${module}`)
+    go(moduleHref(module))
   }
   const what = (ports: number[], containers: { status: string }[]) => {
     const up = containers.filter((c) => c.status === 'running').length
     return [ports.length ? ports.map((x) => `:${x}`).join(' ') : '', containers.length ? `${up}/${containers.length} containers` : ''].filter(Boolean).join(' · ')
   }
-  const copy = () => navigator.clipboard?.writeText(p.path).catch(() => {})
+  const [copied, setCopied] = useState(false)
+  const canCopy = !!p.path && !!navigator.clipboard
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(false), 1600)
+    return () => clearTimeout(t)
+  }, [copied])
+  const copy = () => navigator.clipboard.writeText(p.path).then(() => setCopied(true), () => {})
   return (
     <section className="sheet__section mod-machines" aria-labelledby="places-title">
       <h3 id="places-title">Where it runs</h3>
@@ -487,12 +570,12 @@ function Places({ p }: { p: Project }) {
               This machine
               <span className="row__sub">{local ? what(p.runtime.ports.map((x) => x.port), p.runtime.containers) : p.detected.missing ? 'Folder missing' : 'Not running'}</span>
               {p.path && (
-                <span className="row__sub mono">
-                  <Secret label="Path">{p.path}</Secret>
+                <span className="row__sub mono" aria-live="polite">
+                  {copied ? 'Path copied' : <Secret label="Path">{p.path}</Secret>}
                 </span>
               )}
             </span>
-            {p.path && (
+            {canCopy && (
               <button className="go" type="button" onClick={copy} aria-label="Copy folder path" title="Copy folder path">
                 <Icon name="copy" size={18} />
               </button>
@@ -555,7 +638,7 @@ function Response({ p }: { p: Project }) {
         </div>
       ))}
       {!shown.length && <p className="project__hint">Checked every minute; the first results show up here shortly.</p>}
-      <button className="btn btn--quiet" type="button" onClick={check} disabled={checking} style={{ justifySelf: 'start' }}>
+      <button className="btn btn--quiet" type="button" onClick={check} disabled={checking}>
         <Icon name="refresh" size={16} /> {checking ? 'Checking' : 'Check now'}
       </button>
     </section>
@@ -573,7 +656,7 @@ function ProjectSkills({ p }: { p: Project }) {
       <h3 id="skills-title">Made with</h3>
       <div className="chips">
         {names.map((n) => (
-          <a className="chip" key={n} href={`#/m/skills/${encodeURIComponent(n)}`}>
+          <a className="chip" key={n} href={`#/m/projects/skills/${encodeURIComponent(n)}`}>
             {n}
             {intent(n) === 'learn' ? ' · learning' : intent(n) === 'grow' ? ' · growing' : ''}
           </a>
@@ -660,7 +743,7 @@ export function ProjectForm({ project, kind = project?.kind ?? 'project', onDone
         <input value={form.tags} onChange={set('tags')} />
       </label>
       <label className="field field--check">
-        <input type="checkbox" checked={form.pinned} onChange={set('pinned')} /> Keep at the top of the list
+        <input type="checkbox" checked={form.pinned} onChange={set('pinned')} /> Pinned: at the top of Projects and in the sidebar
       </label>
       {error && <p className="notice signal-text">{error}</p>}
       <div className="sheet__actions" style={{ justifyContent: 'start' }}>

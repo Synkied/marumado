@@ -1,8 +1,9 @@
 """Live Herdr terminal over a WebSocket: /api/agents/<pane_id>/terminal?source=<id>&takeover=1[&cols=&rows=]
 
 The browser gets Herdr's own messages untouched (`terminal.frame` with base64 ANSI, `terminal.closed`),
-plus `{"type": "error", "message": ...}` when the stream can't start. It may send `terminal.input` and
-`terminal.scroll`; those are checked and passed to Herdr only in control mode.
+plus `{"type": "error", "message": ...}` when the stream can't start. It may send `terminal.input`,
+`terminal.scroll` and `terminal.mouse` (both at a 0-based `column` and `row`); those are checked and
+passed to Herdr only in control mode.
 
 The stream normally runs at the pane's size in Herdr's layout, never the browser's: attaching at another
 size would resize the real terminal under the Herdr TUI. The browser scales its text to fit instead.
@@ -20,11 +21,13 @@ from django.conf import settings
 
 from . import auth, herdr, machines
 
-PATH = re.compile(r'^/api/agents/(?P<pane>w\d+:p\d+)/terminal$')
+PATH = re.compile(r'^/api/agents/(?P<pane>w[0-9A-Za-z]+:p[0-9A-Za-z]+)/terminal$')
 # The same terminal on another machine, relayed through its tunnel to its own Marumado.
-REMOTE_PATH = re.compile(r'^/api/machines/(?P<machine>\d+)/(?P<rest>agents/w\d+:p\d+/terminal)$')
+REMOTE_PATH = re.compile(r'^/api/machines/(?P<machine>\d+)/(?P<rest>agents/w[0-9A-Za-z]+:p[0-9A-Za-z]+/terminal)$')
 MAX_INPUT = 64 * 1024
 FOLLOW_SECONDS = 3
+MOUSE_ACTIONS = ('down', 'up', 'drag')
+MOUSE_BUTTONS = ('left', 'middle', 'right')
 
 
 def _clamp(value, low: int, high: int, default: int) -> int:
@@ -68,8 +71,19 @@ def _command(message: dict, fit: bool) -> dict | None:
     if kind == 'terminal.input' and isinstance(message.get('text'), str) and 0 < len(message['text']) <= MAX_INPUT:
         return {'type': kind, 'text': message['text']}
     if kind == 'terminal.scroll' and message.get('direction') in ('up', 'down'):
-        return {'type': kind, 'direction': message['direction'], 'lines': _clamp(message.get('lines'), 1, 200, 3)}
+        command = {'type': kind, 'direction': message['direction'], 'lines': _clamp(message.get('lines'), 1, 200, 3)}
+        # Where the pointer is, so an app that tracks the mouse scrolls the panel under it rather than the top-left one.
+        if 'column' in message and 'row' in message:
+            command.update(_cell(message))
+        return command
+    # A click for an app that tracks the mouse; Herdr drops it for one that doesn't.
+    if kind == 'terminal.mouse' and message.get('action') in MOUSE_ACTIONS and message.get('button') in MOUSE_BUTTONS:
+        return {'type': kind, 'action': message['action'], 'button': message['button'], **_cell(message)}
     return None
+
+
+def _cell(message: dict) -> dict:
+    return {'column': _clamp(message.get('column'), 0, 400, 0), 'row': _clamp(message.get('row'), 0, 200, 0)}
 
 
 async def _refuse(send, message: str):
@@ -167,12 +181,14 @@ async def handle(scope, receive, send):
                 except (BrokenPipeError, ConnectionResetError):
                     return
 
+    herdr.watch(source.id, pane)
     out_task, in_task = asyncio.create_task(pump_out()), asyncio.create_task(pump_in())
     follow_task = asyncio.create_task(follow_layout())
     try:
         done, _ = await asyncio.wait({out_task, in_task}, return_when=asyncio.FIRST_COMPLETED)
         browser_left = in_task in done
     finally:
+        herdr.unwatch(source.id, pane)
         in_task.cancel()
         out_task.cancel()
         follow_task.cancel()

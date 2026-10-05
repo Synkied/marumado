@@ -15,7 +15,7 @@ import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from marumado.settings import env
@@ -24,7 +24,9 @@ from . import sshhome
 
 log = logging.getLogger(__name__)
 
-PANE_ID = re.compile(r'^w\d+:p\d+$')
+PANE_ID = re.compile(r'^w[0-9A-Za-z]+:p[0-9A-Za-z]+$')
+# A branch Marumado names for a plan's step: no spaces, no leading dash, no '..'.
+BRANCH = re.compile(r'^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,100}$')
 TIMEOUT = 4
 
 # Where Herdr runs, from .env:
@@ -59,6 +61,8 @@ class Source:
     name: str
     kind: str
     target: str = ''
+    # Where it sees this machine's folders: (here, there) pairs, as set on the source.
+    folders: tuple[tuple[str, str], ...] = field(default=(), compare=False)
 
     def where(self) -> str:
         """A short description of where Marumado looks for Herdr."""
@@ -77,9 +81,71 @@ class Source:
         return 'on this machine'
 
 
+ENV_FOLDERS = 'env_source_folders'
+
+
+def _pairs(folders) -> tuple[tuple[str, str], ...]:
+    return tuple((f['here'], f['there']) for f in folders or [] if isinstance(f, dict) and f.get('here') and f.get('there'))
+
+
+def env_folders() -> list[dict]:
+    """The .env source's folders, set in Agents → Sources (they live in the database, not .env)."""
+    from .models import Setting
+    try:
+        found = Setting.objects.filter(key=ENV_FOLDERS).first()
+    except Exception:  # the database isn't ready (first start, migrations)
+        return []
+    return list(found.value) if found and isinstance(found.value, list) else []
+
+
+def set_env_folders(folders: list[dict]) -> None:
+    from .models import Setting
+    Setting.objects.update_or_create(key=ENV_FOLDERS, defaults={'value': folders})
+
+
+def clean_folders(value) -> list[dict]:
+    """[{here, there}, …] with both absolute folders, without trailing slashes. Raises ValueError otherwise."""
+    if not isinstance(value, list):
+        raise ValueError('Send a list of {here, there} folders.')
+    cleaned = []
+    for row in value:
+        if not isinstance(row, dict) or not isinstance(row.get('here'), str) or not isinstance(row.get('there'), str):
+            raise ValueError('Each folder needs here and there.')
+        here, there = row['here'].strip(), row['there'].strip()
+        if not here and not there:
+            continue
+        if not here.startswith('/') or not there.startswith('/'):
+            raise ValueError('Folders start with /, like /home/you/projects.')
+        cleaned.append({'here': here.rstrip('/') or '/', 'there': there.rstrip('/') or '/'})
+    return cleaned
+
+
+def _swap(path: str, pairs) -> str:
+    """`path` with the longest matching folder `a` of the (a, b) pairs replaced by `b`; as it is if none match."""
+    best = None
+    for a, b in pairs:
+        if path == a or path.startswith(a.rstrip('/') + '/'):
+            if best is None or len(a) > len(best[0]):
+                best = (a, b)
+    if best is None:
+        return path
+    rest = path[len(best[0].rstrip('/')):]
+    return (best[1].rstrip('/') + rest) or '/'
+
+
+def folder_in(path: str, source: 'int | Source' = ENV) -> str:
+    """`path` (a folder on this machine) as Herdr in `source` sees it, by the source's folders."""
+    return _swap(path, get_source(source).folders) if path else path
+
+
+def folder_here(path: str, source: 'int | Source' = ENV) -> str:
+    """A folder in `source` (an agent's) as this machine sees it: folder_in() the other way."""
+    return _swap(path, [(b, a) for a, b in get_source(source).folders]) if path else path
+
+
 def _env_source() -> Source:
     name = env('HERDR_SMOLVM') or env('HERDR_SSH') or ('VM' if env('HERDR_EXEC') else 'This machine')
-    return Source(ENV, name, 'env')
+    return Source(ENV, name, 'env', folders=_pairs(env_folders()))
 
 
 def _local_binary() -> str | None:
@@ -109,7 +175,7 @@ def sources(include_machines: bool = True) -> list[Source]:
     The .env one is left out when nothing points at it (no MARUMADO_HERDR_*, no local herdr) and other sources exist.
     `include_machines` False: only this machine's own (what another Marumado asks for, so two never ask each other in a loop)."""
     from .models import AgentSource
-    added = [Source(s.id, s.name, s.kind, s.target) for s in AgentSource.objects.all()]
+    added = [Source(s.id, s.name, s.kind, s.target, _pairs(s.folders)) for s in AgentSource.objects.all()]
     if include_machines:
         added += _machine_sources()
     configured = any(env(k) for k in ('HERDR_SMOLVM', 'HERDR_EXEC', 'HERDR_SSH', 'HERDR_SOCKET'))
@@ -138,7 +204,7 @@ def get_source(source_id: 'int | str | Source | None' = ENV) -> Source:
     found = AgentSource.objects.filter(pk=wanted).first()
     if found is None:
         raise ValueError('That agent source no longer exists.')
-    return Source(found.id, found.name, found.kind, found.target)
+    return Source(found.id, found.name, found.kind, found.target, _pairs(found.folders))
 
 
 def _remote(src: Source, method: str, path: str, payload: dict | None = None, query: str = '', timeout: float = TIMEOUT + 6):
@@ -205,23 +271,34 @@ def _ssh(target: str, remote: str) -> list[str]:
     return ['ssh', '-o', 'BatchMode=yes', '-o', f'ConnectTimeout={TIMEOUT - 1}', target, remote]
 
 
-def _command(src: Source, args: tuple[str, ...], interactive: bool = False) -> tuple[list[str], dict | None]:
-    """The command line that runs `herdr <args>` wherever `src` is. `interactive` keeps stdin connected."""
+def _elsewhere(src: Source) -> tuple[str, str, str]:
+    """(smolvm machine, exec command, SSH target): where `src` runs, when it isn't this machine."""
     smolvm = src.target if src.kind == 'smolvm' else env('HERDR_SMOLVM') if src.kind == 'env' else ''
     ssh = src.target if src.kind == 'ssh' else env('HERDR_SSH') if src.kind == 'env' else ''
     exec_ = env('HERDR_EXEC') if src.kind == 'env' else ''
-    if smolvm or exec_ or ssh:
+    return smolvm, exec_, ssh
+
+
+def _wrap(src: Source, remote: str, interactive: bool = False) -> tuple[list[str], dict | None]:
+    """The command line that runs the shell script `remote` where `src` is (not this machine)."""
+    smolvm, exec_, ssh = _elsewhere(src)
+    # VM exec tools may start commands with a bare environment.
+    remote = 'export HOME="${HOME:-/root}" PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}"; ' + remote
+    if smolvm:
+        prefix, environ = _smolvm(smolvm, interactive)
+        return [*prefix, 'sh', '-c', remote], environ
+    if exec_:
+        return [*shlex.split(exec_), 'sh', '-c', remote], None
+    return _ssh(ssh, remote), None
+
+
+def _command(src: Source, args: tuple[str, ...], interactive: bool = False) -> tuple[list[str], dict | None]:
+    """The command line that runs `herdr <args>` wherever `src` is. `interactive` keeps stdin connected."""
+    if any(_elsewhere(src)):
         # MARUMADO_HERDR_BIN names the binary on the .env source only; sources added in the app find it themselves.
         given = env('HERDR_BIN') if src.kind == 'env' else ''
         binary = shlex.quote(given) if given else '"$(command -v herdr || echo "$HOME/.local/bin/herdr")"'
-        # VM exec tools may start commands with a bare environment.
-        remote = 'export HOME="${HOME:-/root}" PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}"; ' + ' '.join([binary, *map(shlex.quote, args)])
-        if smolvm:
-            prefix, environ = _smolvm(smolvm, interactive)
-            return [*prefix, 'sh', '-c', remote], environ
-        if exec_:
-            return [*shlex.split(exec_), 'sh', '-c', remote], None
-        return _ssh(ssh, remote), None
+        return _wrap(src, ' '.join([binary, *map(shlex.quote, args)]), interactive)
     binary = _local_binary()
     if not binary:
         raise RuntimeError('Herdr is not installed on this machine. If it runs elsewhere, add it under Agents → Sources, or set MARUMADO_HERDR_SMOLVM, MARUMADO_HERDR_EXEC or MARUMADO_HERDR_SSH.')
@@ -262,8 +339,75 @@ def _run(src: Source, *args: str, text: bool = False, timeout: float = TIMEOUT +
     return out.stdout if text else json.loads(out.stdout)['result']
 
 
+def shell(src: 'int | Source', script: str, timeout: float = TIMEOUT + 8) -> bytes:
+    """Run a shell script where the agents of `src` run (this machine, a VM or an SSH host), and return what it printed.
+    Not for a machine in Machines: that one is asked through its Marumado. Raises RuntimeError."""
+    src = get_source(src)
+    if src.kind == 'machine':
+        raise RuntimeError(f"{src.name}'s files are read through its Marumado.")
+    cmd, environ = _wrap(src, script) if any(_elsewhere(src)) else (['sh', '-c', script], None)
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                env=environ, start_new_session=True)
+    except FileNotFoundError:
+        raise RuntimeError(f'{cmd[0]} is not installed.')
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        raise RuntimeError(f'No answer in time ({src.where()}).')
+    if proc.returncode == 255 and cmd[0] == 'ssh':
+        raise RuntimeError(f"SSH to {cmd[-2]} failed: {stderr.decode(errors='replace').strip()}")
+    return stdout
+
+
 _failed_lock = threading.Lock()
 _failed: dict[Source, tuple[float, str]] = {}
+
+# Herdr reports a finished turn as `done` until a focus command marks it seen; reads and attaches don't count, and
+# focusing would move the Herdr TUI under the user. So Marumado keeps its own: a pane open in a Marumado terminal is
+# being looked at, and the turns it finished by then (Herdr's completion_seq) read as `idle` from then on.
+_seen_lock = threading.Lock()
+_watching: dict[tuple[int, str], int] = {}
+_closed: set[tuple[int, str]] = set()  # closed since the last listing: counted once more
+_seen: dict[tuple[int, str, str], int] = {}
+
+
+def watch(source_id: int, pane_id: str) -> None:
+    """A Marumado terminal opened on the pane."""
+    with _seen_lock:
+        _watching[(source_id, pane_id)] = _watching.get((source_id, pane_id), 0) + 1
+
+
+def unwatch(source_id: int, pane_id: str) -> None:
+    """It closed. The next listing still counts it, so a turn that finished just before is seen too."""
+    with _seen_lock:
+        n = _watching.pop((source_id, pane_id), 1) - 1
+        if n > 0:
+            _watching[(source_id, pane_id)] = n
+        _closed.add((source_id, pane_id))
+
+
+def _status(src: Source, pane: dict) -> str:
+    status = pane.get('agent_status') or 'unknown'
+    done = pane.get('completion_seq')
+    if done is None:
+        return status
+    key = (src.id, pane['pane_id'], pane.get('terminal_id') or '')
+    with _seen_lock:
+        if key[:2] in _watching or key[:2] in _closed:
+            _seen[key] = max(done, _seen.get(key, 0))
+        seen = _seen.get(key, -1)
+    return 'idle' if status == 'done' and done <= seen else status
+
+
+def _settle_watching(src: Source) -> None:
+    """After a listing of the source: panes whose terminal closed have had their last look."""
+    with _seen_lock:
+        _closed.difference_update({k for k in _closed if k[0] == src.id})
 
 
 def _list(src: Source) -> dict:
@@ -291,12 +435,13 @@ def _list(src: Source) -> dict:
             'source': src.id,
             'name': a.get('name') or '',
             'kind': a.get('agent') or 'terminal',
-            'status': a.get('agent_status') or 'unknown',
+            'status': _status(src, a),
             'title': a.get('terminal_title_stripped') or '',
             'cwd': a.get('foreground_cwd') or a.get('cwd') or '',
             'workspace': workspaces.get(a.get('workspace_id'), ''),
             'focused': bool(a.get('focused')),
         })
+    _settle_watching(src)
     return {'available': True, 'error': '', 'agents': rows}
 
 
@@ -343,6 +488,7 @@ def agents(include_machines: bool = True) -> dict:
         'terminal': terminal_mode(),
         'kinds': AGENT_KINDS,
         'sources': [{'id': s.id, 'name': s.name, 'kind': s.kind, 'where': s.where(), 'available': one['available'],
+                     'folders': [{'here': a, 'there': b} for a, b in s.folders],
                      'error': one['error'], 'agents': len(one['agents'])} for s, one in zip(every, listed)],
         'agents': rows,
     }
@@ -431,6 +577,25 @@ def open_workspace(cwd: str = '', label: str = '', source: 'int | Source' = ENV)
     return {'pane_id': pane['pane_id'], 'cwd': pane.get('cwd') or ''}
 
 
+def open_worktree(cwd: str, branch: str, label: str = '', source: 'int | Source' = ENV) -> dict:
+    """A new git worktree of the repository at `cwd` on a new `branch`, opened as its own Herdr workspace:
+    {pane_id, cwd} of its shell, cwd being the worktree's folder. For a step that runs beside others."""
+    if not BRANCH.match(branch):
+        raise ValueError('Not a branch name Marumado makes.')
+    src = get_source(source)
+    if src.kind == 'machine':
+        made = _remote(src, 'POST', 'agents/workspace', {'cwd': cwd, 'label': label[:60], 'branch': branch})
+        if not made.get('worktree'):
+            raise RuntimeError(f'The Marumado on {src.name} is too old for worktrees: update it.')
+        return {'pane_id': made['pane_id'], 'cwd': made.get('cwd') or ''}
+    made = _run(src, 'worktree', 'create', '--cwd', cwd, '--branch', branch, *(['--label', label[:60]] if label else []), '--no-focus')
+    workspace = made['workspace']['workspace_id']
+    pane = next((p for p in _run(src, 'pane', 'list')['panes'] if p.get('workspace_id') == workspace), None)
+    if pane is None:
+        raise RuntimeError(f'Herdr made the worktree for {branch} but opened no shell in it.')
+    return {'pane_id': pane['pane_id'], 'cwd': made['worktree'].get('path') or pane.get('cwd') or ''}
+
+
 def launch_agent(name: str, kind: str, pane_id: str, source: 'int | Source' = ENV) -> bool:
     """Start a `kind` agent named `name` in the shell in `pane_id`. True when it is ready for input already;
     False when it is still starting (or stopped on a startup question): Herdr carries on without us."""
@@ -452,6 +617,46 @@ def launch_agent(name: str, kind: str, pane_id: str, source: 'int | Source' = EN
             return False
         raise
     return True
+
+
+def free_name(base: str, source: 'int | Source' = ENV) -> str:
+    """An agent name made from `base` (a project's name, say) that no agent in `source` has yet: `marumado`, `marumado-2`…"""
+    src = get_source(source)
+    stem = re.sub(r'[^a-z0-9_-]+', '-', base.lower()).strip('-_')[:26] or 'agent'
+    if not stem[0].isalpha():
+        stem = f'a-{stem}'[:26]
+    taken = {a['name'] for a in _list(src)['agents'] if a.get('name')}
+    name, n = stem, 2
+    while name in taken:
+        name, n = f'{stem}-{n}', n + 1
+    return name
+
+
+def start_agent(kind: str, cwd: str = '', label: str = '', source: 'int | Source' = ENV) -> dict:
+    """Open a workspace in `cwd` and start a `kind` agent there, named after `label`. Answers once the workspace is open
+    ({pane_id, cwd}); the agent keeps starting in Herdr on a thread, so the browser can watch it start."""
+    src = get_source(source)
+    if kind not in AGENT_KINDS:
+        raise ValueError('Herdr cannot start that kind of agent.')
+    name = free_name(label or kind, src)
+    opened = open_workspace(cwd, label, src)
+    # Herdr opens a folder it can't find in its home folder, without a word; an agent there is no use to anyone.
+    if cwd and opened['cwd'] and opened['cwd'].rstrip('/') != cwd.rstrip('/'):
+        try:
+            close(opened['pane_id'], src)
+        except (RuntimeError, ValueError):
+            pass
+        raise ValueError(f"{cwd} isn't there for Herdr {src.where()}, so the agent would start in {opened['cwd']}. "
+                         'If it is there under another path, add that folder in Agents → Sources.')
+
+    def launch():
+        try:
+            launch_agent(name, kind, opened['pane_id'], src)
+        except (RuntimeError, ValueError) as exc:
+            log.warning('starting %s in %s %s failed: %s', kind, opened['pane_id'], src.where(), exc)
+
+    threading.Thread(target=launch, name=f'marumado-start-{opened["pane_id"]}', daemon=True).start()
+    return {**opened, 'name': name}
 
 
 class Blocked(RuntimeError):

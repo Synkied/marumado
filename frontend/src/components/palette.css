@@ -28,9 +28,16 @@
 }
 
 .palette__box {
-  display: grid;
-  grid-template-rows: auto 1fr;
+  display: flex;
+  flex-direction: column;
   max-height: inherit;
+}
+
+.palette__error {
+  margin: 0;
+  padding: var(--sp-5) var(--sp-12);
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: var(--text-md);
 }
 
 .palette__field {
@@ -65,6 +72,8 @@
 }
 
 .palette__list {
+  flex: 1;
+  min-height: 0;
   list-style: none;
   margin: 0;
   padding: var(--sp-4);

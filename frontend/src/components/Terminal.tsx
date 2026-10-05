@@ -31,6 +31,23 @@ function decode(b64: string): Uint8Array {
   return out
 }
 
+/** Put text on the clipboard; over plain HTTP, where the Clipboard API is missing, through a hidden textarea. */
+function copy(text: string) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).catch(() => {})
+    return
+  }
+  const back = document.activeElement as HTMLElement | null
+  const area = document.createElement('textarea')
+  area.value = text
+  area.style.cssText = 'position:fixed;opacity:0'
+  document.body.appendChild(area)
+  area.select()
+  document.execCommand('copy')
+  area.remove()
+  back?.focus()
+}
+
 /** A Herdr pane's live terminal, streamed over a WebSocket. `control` lets the keyboard type into it.
  * On a computer it shows the pane at Herdr's size (resizing it would squeeze the Herdr TUI), with the text scaled to fit.
  * With `fit` (always on a phone that controls the pane), the pane takes the browser's size while it watches and the
@@ -166,12 +183,54 @@ export function Terminal({
     }
     const typed = control ? term.onData((text) => send({ type: 'terminal.input', text })) : null
     const binary = control ? term.onBinary((text) => send({ type: 'terminal.input', text })) : null
-    // Full-screen apps that track the mouse get the wheel as input; otherwise it scrolls Herdr's history.
+    // The pane's cell under the pointer, 0-based; the screen's box already includes any scaling.
+    const cell = (ev: MouseEvent) => {
+      const box = term.element?.querySelector('.xterm-screen')?.getBoundingClientRect()
+      if (!box?.width || !box.height) return { column: 0, row: 0 }
+      const at = (offset: number, size: number, count: number) => Math.max(0, Math.min(count - 1, Math.floor((offset / size) * count)))
+      return { column: at(ev.clientX - box.left, box.width, term.cols), row: at(ev.clientY - box.top, box.height, term.rows) }
+    }
+    // Herdr's frames don't carry the app's mouse modes, so the wheel always goes to Herdr: it scrolls the history,
+    // or hands a full-screen app that tracks the mouse a wheel event at the pointer, so the panel under it scrolls.
     term.attachCustomWheelEventHandler((ev) => {
-      if (!control || term.modes.mouseTrackingMode !== 'none') return true
-      send({ type: 'terminal.scroll', direction: ev.deltaY < 0 ? 'up' : 'down', lines: 3 })
+      if (!control) return true
+      send({ type: 'terminal.scroll', direction: ev.deltaY < 0 ? 'up' : 'down', lines: 3, ...cell(ev) })
       ev.preventDefault()
       return false
+    })
+    // A click goes to the app too (Herdr drops it for one that doesn't track the mouse), so Claude Code's diff
+    // view opens a file. A drag stays here and selects text, for Ctrl+Shift+C.
+    let pressed = ''
+    const press = (ev: MouseEvent) => {
+      if (ev.button !== 0) return
+      const at = cell(ev)
+      pressed = `${at.column},${at.row}`
+    }
+    const release = (ev: MouseEvent) => {
+      if (ev.button !== 0 || !pressed) return
+      const at = cell(ev)
+      const click = pressed === `${at.column},${at.row}` && !term.hasSelection()
+      pressed = ''
+      if (!click) return
+      send({ type: 'terminal.mouse', action: 'down', button: 'left', ...at })
+      send({ type: 'terminal.mouse', action: 'up', button: 'left', ...at })
+    }
+    if (control) {
+      el.addEventListener('mousedown', press)
+      window.addEventListener('mouseup', release)
+    }
+    // Ctrl+Shift+C/V copy and paste, as in a desktop terminal, instead of the browser's inspector.
+    term.attachCustomKeyEventHandler((ev) => {
+      if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return true
+      const key = ev.key.toLowerCase()
+      if (key === 'c') {
+        ev.preventDefault()
+        if (ev.type === 'keydown' && term.hasSelection()) copy(term.getSelection())
+        return false
+      }
+      // Left to the browser, which pastes into the terminal.
+      if (key === 'v') return false
+      return true
     })
 
     // A phone asks the pane to follow its size (rotation, the keyboard opening), once it settles.
@@ -201,6 +260,8 @@ export function Terminal({
       window.clearTimeout(settle)
       observer.disconnect()
       settled.disconnect()
+      el.removeEventListener('mousedown', press)
+      window.removeEventListener('mouseup', release)
       typed?.dispose()
       binary?.dispose()
       if (ws) {

@@ -4,7 +4,7 @@ import { duration } from '../lib/format'
 import { issueHref, isMachineModule, machineIssues, useHub, type Alert } from '../lib/hub'
 import { useFolds, useReadouts, type Readouts } from '../lib/fleet'
 import { useMachines } from '../lib/machines'
-import { go } from '../lib/route'
+import { go, moduleHref } from '../lib/route'
 import { useRedact, useStreaming } from '../lib/streaming'
 import type { Machine } from '../lib/types'
 import { activity, atWork } from '../lib/work'
@@ -181,7 +181,7 @@ function MachineBlock({ machine: m, viewing, problems, readouts, ctx, allIds, op
           ) : (
             <div className="readouts">
               {shown.map(({ r, reading }) => (
-                <Cell key={r.id} readout={r} reading={reading} pending={m.state !== 'up'} onOpen={() => go(`#/m/${r.module}`)} />
+                <Cell key={r.id} readout={r} reading={reading} pending={m.state !== 'up'} onOpen={() => go(moduleHref(r.module))} />
               ))}
             </div>
           )}
@@ -294,7 +294,7 @@ function WorkBlock({ problems }: { problems: Alert[] }) {
       </header>
       <div className="readouts">
         {cells.map((c) => (
-          <Cell key={c.id} readout={{ id: 'projects', label: c.label, module: c.module, blurb: '', read: () => null }} reading={c.reading} pending onOpen={() => go(`#/m/${c.module}`)} />
+          <Cell key={c.id} readout={{ id: 'projects', label: c.label, module: c.module, blurb: '', read: () => null }} reading={c.reading} pending onOpen={() => go(moduleHref(c.module))} />
         ))}
       </div>
       {unshown.length > 0 && (

@@ -8,7 +8,7 @@ import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
 import type { Project, Skill, SkillIntent, Task } from '../lib/types'
 import { activity, atWork, workLine } from '../lib/work'
-import { SheetHead } from './sheetHead'
+import { SheetHead, ViewTabs } from './sheetHead'
 
 /** Commits per week as a strip of bars, oldest on the left. */
 export function WeekBars({ weeks, label, stretch }: { weeks: number[]; label: string; stretch?: boolean }) {
@@ -275,12 +275,13 @@ export function MomentumSheet() {
 
   return (
     <div className="sheet">
-      <SheetHead id="momentum">
+      <SheetHead id="projects">
         <ViewSwitch value={view} views={[['heatmap', 'Heatmap'], ['list', 'List']]} onChange={setView} />
         <button className="btn btn--quiet" type="button" onClick={scan} disabled={scanning}>
           <Icon name="refresh" size={16} /> {scanning ? 'Scanning' : 'Rescan'}
         </button>
       </SheetHead>
+      <ViewTabs at="momentum" />
       <p className="sheet__lede">
         How each project is moving, from its git history and the agents working on it. Push what matters now, park what can wait, archive what is done. Projects marked push are flagged when they go {PUSH_GRACE_DAYS} days without a commit and no agent is at work on them.
       </p>
@@ -330,7 +331,7 @@ async function saveSkill(row: SkillRow, change: { intent?: SkillIntent; note?: s
   return api<Skill>('skills', { method: 'POST', json: { name: row.name, intent, note } })
 }
 
-const skillHref = (name: string) => `#/m/skills/${encodeURIComponent(name)}`
+const skillHref = (name: string) => `#/m/projects/skills/${encodeURIComponent(name)}`
 
 function skillLine(r: SkillRow): string {
   if (!r.projects.length) return 'No project uses it yet'
@@ -427,9 +428,10 @@ export function SkillsSheet({ sub }: { sub?: string }) {
 
   return (
     <div className="sheet">
-      <SheetHead id="skills">
+      <SheetHead id="projects">
         <ViewSwitch value={view} views={[['grid', 'Grid'], ['list', 'List']]} onChange={setView} />
       </SheetHead>
+      <ViewTabs at="skills" />
       <p className="sheet__lede">
         Built from the stacks and libraries in your projects. Commits keep a skill active: it cools after 30 days without one and turns rusty after 120.
       </p>
@@ -493,13 +495,13 @@ function SkillDetail({ row }: { row: SkillRow }) {
   }
   const remove = async () => {
     await save({ intent: '', note: '' })
-    go('#/m/skills')
+    go('#/m/projects/skills')
   }
   const dirty = note !== (row.record?.note ?? '')
 
   return (
     <div className="sheet">
-      <a className="side__back" href="#/m/skills">
+      <a className="side__back" href="#/m/projects/skills">
         <Icon name="back" size={18} /> All skills
       </a>
       <header className="sheet__head mod-skills">

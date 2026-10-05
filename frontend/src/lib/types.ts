@@ -180,7 +180,12 @@ export type Agent = {
   focused: boolean
   /** the project it works in, by folder (or by name, on another machine) */
   project?: ProjectRef
+  /** the plans' steps waiting for it, next first (absent from older Marumados); `asking`: its turn has come and it
+      waits for the owner's go */
+  queued?: QueuedStep[]
 }
+
+export type QueuedStep = { id: number; title: string; plan: number; asking?: boolean }
 
 /** control: the browser terminal types into agents; observe: it only watches; off: polled output only. */
 export type TerminalMode = 'control' | 'observe' | 'off'
@@ -193,6 +198,8 @@ export type AgentSource = {
   kind: 'env' | 'ssh' | 'smolvm' | 'machine'
   /** where it looks for Herdr, in words */
   where: string
+  /** where it sees this machine's folders (absent from older Marumados) */
+  folders?: SourceFolder[]
   available: boolean
   error: string
   /** how many panes it has open */
@@ -200,14 +207,21 @@ export type AgentSource = {
 }
 
 /** An agent source as saved in the app (GET /agent-sources). */
-export type SavedAgentSource = { id: number; name: string; kind: 'ssh' | 'smolvm'; target: string }
+/** A folder on this machine (`here`) and where an agent source sees it (`there`): /home/me/projects is /projects in the VM. */
+export type SourceFolder = { here: string; there: string }
+
+export type SavedAgentSource = { id: number; name: string; kind: 'ssh' | 'smolvm'; target: string; folders: SourceFolder[] }
 
 /** `kinds`: the agents Herdr can start (for Tasks), most common first. `available`: at least one source answered.
  * `sources` is absent from Marumados older than agent sources. */
 export type Agents = { available: boolean; error: string; where: string; terminal: TerminalMode; kinds?: string[]; sources?: AgentSource[]; agents: Agent[] }
 
-/** todo → starting (being handed over) → working ⇄ blocked (needs you) → review (agent finished its turn) → done; or failed. */
-export type TaskState = 'todo' | 'starting' | 'working' | 'blocked' | 'review' | 'done' | 'failed'
+/** todo → starting (being handed over) → working ⇄ blocked (needs you) → review (agent finished its turn) → done; or failed.
+    queued: a step of a running plan, waiting for the steps above it or for its agent. */
+export type TaskState = 'todo' | 'queued' | 'starting' | 'working' | 'blocked' | 'review' | 'done' | 'failed'
+
+/** Who takes a plan's step: '' the agent of the step above it (or a new one), 'new' a new agent, 'agent' the one in want_pane. */
+export type Runner = '' | 'new' | 'agent'
 
 export type Task = {
   id: number
@@ -234,6 +248,38 @@ export type Task = {
   finished_at: string | null
   created_at: string
   updated_at: string
+  /** the plan it is a step of: its row (rows run in order) and place in the row (side by side, at once) */
+  plan: number | null
+  plan_row: number
+  plan_col: number
+  runner: Runner
+  want_pane: string
+  want_source: number
+  /** the branch of the git worktree its agent works in, when it got one */
+  worktree: string
+  /** a step that waits for the owner's go when its turn comes, and whether it was given */
+  ask: boolean
+  go: boolean
+}
+
+/** Steps for agents to take over on their own (core/plans.py). New agents are `kind`, started in `source`. */
+export type Plan = {
+  id: number
+  title: string
+  project: number | null
+  project_name: string
+  kind: string
+  source: number
+  running: boolean
+  /** an agent's own queue: the steps queued from its page (empty for other plans) */
+  pane_id: string
+  pane_source: number
+  created_at: string
+  updated_at: string
+  /** row by row, left to right */
+  steps: Task[]
+  /** the steps whose turn has come, waiting for the owner's go */
+  asking: number[]
 }
 
 export type TaskEventKind = 'created' | 'assigned' | 'prompt' | 'state' | 'activity' | 'changes' | 'closed' | 'error' | 'done' | 'reopened' | 'moved'
@@ -313,3 +359,24 @@ export type Overview = {
   /** open tasks (absent from older Marumados) */
   tasks?: { open: number; working: number; blocked: number; failed: number }
 }
+
+/** One thing an agent did, from its session record (core/transcripts.py). Times are unix milliseconds;
+    `end` is null while a tool it called hasn't answered. `ok` false: the tool or command failed. */
+export type TraceKind = 'think' | 'say' | 'read' | 'search' | 'edit' | 'run' | 'agent' | 'tool' | 'you' | 'ask'
+export type TraceStep = {
+  i: number
+  kind: TraceKind
+  t: number
+  end: number | null
+  title: string
+  /** the command, when the title is the agent's description of it */
+  sub?: string
+  detail: string
+  ok: boolean | null
+  files?: { path: string; add?: number; del?: number }[]
+}
+
+/** GET tasks/<id>/trace?from=n: the steps from `from` on (those before are final); `first`, where the task begins. */
+export type Trace =
+  | { found: false; reason: string; steps: []; total: number }
+  | { found: true; path: string; first: number; from: number; total: number; steps: TraceStep[] }

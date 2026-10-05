@@ -1,0 +1,1000 @@
+/* ---------- plans: steps for agents to take over on their own ---------- */
+
+/* On the Tasks page, above the board. */
+.plans {
+  display: grid;
+  gap: var(--sp-5);
+}
+
+.plans__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-6);
+}
+
+.plans__title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps-wide);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.plans__empty {
+  margin: 0;
+  max-width: 70ch;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.plans__list {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: var(--sp-5);
+  margin: 0;
+  padding: 0;
+}
+
+.plans__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'name strip'
+    'meta strip';
+  align-items: center;
+  column-gap: var(--sp-8);
+  row-gap: var(--sp-1);
+  padding: var(--sp-6) var(--sp-7);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-lg);
+  background: var(--ground-raised);
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color var(--dur-quick) ease-out;
+}
+
+.plans__item:hover {
+  border-color: var(--ink);
+}
+
+.plans__item.is-fault {
+  border-color: var(--signal);
+}
+
+.plans__name {
+  grid-area: name;
+  overflow: hidden;
+  font-weight: var(--weight-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plans__meta {
+  grid-area: meta;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+/* A plan's shape in miniature: a column per row, a cell per step. */
+.pstrip {
+  grid-area: strip;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.pstrip__row {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.pstrip__cell {
+  display: block;
+  width: 10px;
+  height: 6px;
+  border-radius: var(--radius-xs);
+  background: var(--track);
+}
+
+.pstrip__cell--done {
+  background: color-mix(in oklab, var(--c-tasks) 45%, var(--ground-raised));
+}
+
+.pstrip__cell--on {
+  background: var(--c-tasks);
+}
+
+.pstrip__cell--fault {
+  background: var(--signal);
+}
+
+.pstrip__cell--queued {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--ink-3);
+}
+
+/* A queued task's lamp: a dashed ring, like a channel not written yet. */
+.row__lamp--queued {
+  border-style: dashed;
+  border-color: var(--ink-2);
+}
+
+/* ---------- a new plan ---------- */
+
+.pform {
+  display: grid;
+  gap: var(--sp-8);
+  max-width: 560px;
+}
+
+/* ---------- a plan ---------- */
+
+.plan__setup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2) var(--sp-5);
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.plan__sep {
+  color: var(--ink-3);
+}
+
+/* A select that reads as a word in a sentence, on a soft underline. */
+.plan__inline {
+  min-height: 0;
+  padding: 0 var(--sp-1);
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.plan__inline:hover,
+.plan__inline:focus-visible {
+  border-bottom-color: var(--ink);
+  outline: none;
+}
+
+/* ---------- the record: one lane per agent ---------- */
+
+.lanes {
+  --who: 132px;
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.lanes__chart {
+  position: relative;
+  display: grid;
+  gap: var(--sp-3);
+  padding: var(--sp-5) 0;
+  border-top: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.lanes__lane {
+  display: grid;
+  grid-template-columns: var(--who) minmax(0, 1fr);
+  align-items: center;
+}
+
+.lanes__who {
+  overflow: hidden;
+  padding-right: var(--sp-5);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lanes__track {
+  position: relative;
+  height: 28px;
+  background: linear-gradient(var(--grid-major), var(--grid-major)) 0 50% / 100% 1px no-repeat;
+}
+
+.lanes__step {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  display: flex;
+  align-items: center;
+  min-width: 6px;
+  padding: 0 var(--sp-3);
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.lanes__step span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* What ran: the Tasks pen, solid while at work, a lighter ink once finished. */
+.lanes__step--on {
+  background: var(--mod);
+  color: var(--on-mod);
+}
+
+.lanes__step--done {
+  background: color-mix(in oklab, var(--mod) 30%, var(--ground));
+  color: var(--ink);
+}
+
+.lanes__step--fault {
+  background: var(--signal);
+  color: var(--on-signal);
+}
+
+/* What waits: dashed, past "now". */
+.lanes__step--queued,
+.lanes__step--todo {
+  border: 1px dashed var(--ink-3);
+  background: var(--ground);
+  color: var(--ink-2);
+}
+
+.lanes__step:hover {
+  outline: 1.5px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.lanes__now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--ink-3);
+  pointer-events: none;
+}
+
+.lanes__axis {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  min-height: 1lh;
+  margin: 0;
+  padding-left: var(--who);
+  font-family: var(--f-mono);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+
+.lanes__axis span[style] {
+  position: absolute;
+  translate: -50% 0;
+}
+
+/* ---------- laying the steps out ---------- */
+
+/* The steps hang off a rail on the left: a numbered node per row, a line with an arrowhead between rows, down to a
+   "+" node for the next step. */
+.builder {
+  --rail: 52px;
+  --gap-h: var(--sp-9);
+  display: grid;
+}
+
+.builder.is-dragging {
+  --gap-h: var(--sp-18);
+}
+
+.builder__stage {
+  display: grid;
+}
+
+.prow,
+.builder__add {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  align-items: stretch;
+  border-radius: var(--radius-lg);
+  transition: background-color var(--dur-quick) ease-out;
+}
+
+.prow.is-over {
+  background: color-mix(in oklab, var(--mod) 8%, var(--ground));
+  box-shadow: 0 0 0 1px var(--mod);
+}
+
+.prow__rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-top: var(--sp-5);
+}
+
+/* The line runs on from a row's node to the bottom of the row, into the gap below. */
+.prow .prow__rail::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: calc(var(--sp-5) + 26px);
+  bottom: 0;
+  width: 1px;
+  background: var(--rule);
+}
+
+.prow__node {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1.5px solid var(--ink-3);
+  border-radius: 50%;
+  background: var(--ground);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.prow__node--on {
+  border-color: var(--mod);
+  color: var(--ink);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--mod) 18%, var(--ground));
+}
+
+.prow__node--done {
+  border-color: var(--mod);
+  background: var(--mod);
+  color: var(--on-mod);
+}
+
+.prow__node--fault {
+  border-color: var(--signal);
+  background: var(--signal);
+  color: var(--on-signal);
+}
+
+.prow__node--next {
+  border-style: dashed;
+}
+
+.prow__note {
+  position: relative;
+  z-index: 1;
+  padding: var(--sp-1) 0;
+  background: var(--ground);
+  font-family: var(--f-mono);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.prow__steps {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: var(--sp-5);
+  margin: 0;
+  padding: 0;
+}
+
+/* Between rows: the rail with its arrowhead; while a step is dragged, it opens into a slot where it runs on its own. */
+.pgap {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  height: var(--gap-h);
+}
+
+.pgap__rail {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  color: var(--ink-3);
+}
+
+.pgap__rail::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 4px;
+  width: 1px;
+  background: var(--rule);
+}
+
+.pgap--top .pgap__rail::before {
+  display: none;
+}
+
+.pgap__rail svg {
+  position: relative;
+  margin-bottom: -4px;
+  background: var(--ground);
+}
+
+.pgap__slot {
+  grid-column: 2;
+  display: grid;
+  place-items: center;
+  margin: var(--sp-3) 0;
+  border: 1.5px dashed var(--rule);
+  border-radius: var(--radius-lg);
+  background: var(--ground);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.pgap.is-over .pgap__slot {
+  border-color: var(--mod);
+  background: color-mix(in oklab, var(--mod) 8%, var(--ground));
+  color: var(--ink);
+}
+
+/* A step. */
+.pstep {
+  position: relative;
+  display: grid;
+  gap: var(--sp-3);
+  align-content: start;
+  min-width: 0;
+  padding: var(--sp-5) var(--sp-5) var(--sp-5) var(--sp-6);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-lg);
+  background: var(--ground-raised);
+  transition: border-color var(--dur-quick) ease-out, box-shadow var(--dur-quick) ease-out;
+}
+
+/* Continues the agent of the step above it: a dotted line up through the gap to that step. */
+.pstep--continues::before {
+  content: '';
+  position: absolute;
+  left: var(--sp-10);
+  bottom: 100%;
+  height: calc(var(--gap-h) + 1px);
+  border-left: 2px dotted var(--mod);
+}
+
+.builder.is-dragging .pstep--continues::before {
+  display: none;
+}
+
+.pstep.is-movable {
+  touch-action: none;
+  user-select: none;
+}
+
+.pstep.is-movable:hover {
+  border-color: var(--rule);
+}
+
+.pstep.is-held {
+  z-index: 10;
+  pointer-events: none;
+  border-color: var(--mod);
+  box-shadow: var(--shadow-float);
+  rotate: 1deg;
+}
+
+.builder.is-dragging,
+.builder.is-dragging * {
+  cursor: grabbing;
+}
+
+.pstep--fault {
+  border-color: var(--signal);
+}
+
+/* Where the dragged step will land in a row. */
+.pstep--ghost {
+  place-items: center;
+  min-height: 88px;
+  border: 1.5px dashed var(--mod);
+  background: color-mix(in oklab, var(--mod) 6%, var(--ground));
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+
+.pstep__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.pstep__grip {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 24px;
+  margin-left: calc(-1 * var(--sp-3));
+  border-radius: var(--radius-sm);
+  color: var(--ink-3);
+  cursor: grab;
+}
+
+.pstep__grip svg {
+  stroke-width: 3;
+}
+
+.pstep.is-movable:hover .pstep__grip {
+  color: var(--ink);
+}
+
+.pstep__title {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-4);
+  min-width: 0;
+  padding-top: 2px;
+  font-weight: var(--weight-strong);
+  color: var(--ink);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.pstep__title:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.pstep__lamp {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-3);
+  transform: translateY(1px);
+}
+
+.pstep__lamp--on {
+  background: var(--moss);
+  border-color: var(--moss);
+}
+
+.pstep__lamp--done {
+  background: var(--done);
+  border-color: var(--done);
+}
+
+.pstep__lamp--fault {
+  background: var(--signal);
+  border-color: var(--signal);
+}
+
+.pstep__lamp--queued {
+  border-style: dashed;
+  border-color: var(--ink-2);
+}
+
+.pstep__sub {
+  font-size: var(--text-md);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.pstep__who {
+  justify-self: start;
+  max-width: 100%;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+/* Up, down, join the row above, remove: quiet arrows that come up when the card is pointed at. */
+.pstep__moves {
+  flex: none;
+  display: flex;
+  gap: var(--sp-1);
+  margin: calc(-1 * var(--sp-1)) calc(-1 * var(--sp-2)) 0 0;
+}
+
+.pstep__tool {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.pstep:hover .pstep__tool:not(:disabled),
+.pstep:focus-within .pstep__tool:not(:disabled) {
+  color: var(--ink-2);
+}
+
+.pstep__tool:hover:not(:disabled) {
+  background: var(--track);
+  color: var(--ink) !important;
+}
+
+.pstep__tool:focus-visible {
+  outline: 1.5px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.pstep__tool:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Adding a step beside a row's: a dashed card the size of a step, opening into one you write in. */
+.prow__add {
+  display: flex;
+  min-height: 88px;
+}
+
+.prow__beside {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-5);
+  border: 1.5px dashed var(--rule);
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-md);
+  cursor: pointer;
+  transition: border-color var(--dur-quick) ease-out, color var(--dur-quick) ease-out;
+}
+
+.prow__beside:hover,
+.prow__beside:focus-visible {
+  border-color: var(--ink);
+  color: var(--ink);
+  outline: none;
+}
+
+.prow__form {
+  flex: 1;
+  display: grid;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-lg);
+  background: var(--ground-raised);
+}
+
+.prow__form textarea {
+  width: 100%;
+  min-height: 4.5lh;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-md);
+  background: var(--ground);
+  font: inherit;
+  font-size: var(--text-lg);
+  color: var(--ink);
+  resize: vertical;
+}
+
+.prow__form textarea:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+.prow__formbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+
+.builder__add {
+  grid-template-columns: var(--rail) minmax(0, 1fr) auto;
+  align-items: end;
+  column-gap: var(--sp-5);
+}
+
+.builder__add .prow__rail {
+  align-self: stretch;
+  justify-content: flex-end;
+  padding: 0 0 var(--sp-5);
+}
+
+.builder__pull {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--sp-5);
+  margin: var(--sp-8) 0 0 var(--rail);
+}
+
+.builder__pull .field {
+  flex: 1 1 280px;
+}
+
+.builder__help {
+  margin: var(--sp-8) 0 0 var(--rail);
+  max-width: 70ch;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+@media (max-width: 860px) {
+  .lanes {
+    --who: 88px;
+  }
+  .builder {
+    --rail: 40px;
+  }
+  .builder__add {
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+  }
+  .builder__add .btn {
+    grid-column: 2;
+    justify-self: start;
+    margin-top: var(--sp-4);
+  }
+  .pstep__tool {
+    width: var(--touch);
+    height: var(--touch);
+    color: var(--ink-2);
+  }
+  .prow__beside {
+    min-height: var(--touch);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pstep.is-held {
+    rotate: none;
+  }
+}
+
+/* ---------------------------------------------------------------- asking for the owner's go */
+
+.builder__ask {
+  grid-column: 2 / -1;
+  margin-top: var(--sp-3);
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.pstep__ask {
+  gap: var(--sp-3);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.pstep__ask input {
+  width: 16px;
+  min-height: 16px;
+}
+
+.pstep__go {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.pstep__gobtn {
+  min-height: 32px;
+  padding: 0 var(--sp-5);
+  font-size: var(--text-md);
+}
+
+.plan__asking {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4) var(--sp-6);
+}
+
+/* ---------------------------------------------------------------- the plans modal, over the Agents page */
+
+.pmodal {
+  width: min(1040px, calc(100vw - 32px));
+  height: min(860px, calc(100dvh - 48px));
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-xl);
+  background: var(--ground);
+  color: var(--ink);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+
+.pmodal[open] {
+  display: flex;
+  flex-direction: column;
+  animation: pmodal-in var(--dur-base) var(--ease) 1;
+}
+
+.pmodal::backdrop {
+  background: color-mix(in srgb, var(--ground) 55%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+@keyframes pmodal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pmodal[open] {
+    animation: none;
+  }
+}
+
+.pmodal__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  padding: var(--sp-5) var(--sp-6);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.pmodal__tabs {
+  min-width: 0;
+}
+
+.pmodal__tabs .seg__btn {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pmodal__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--sp-8);
+}
+
+/* ---------------------------------------------------------------- an agent's queue */
+
+.pqueue {
+  display: grid;
+  gap: var(--sp-8);
+  max-width: 760px;
+}
+
+.pqueue__form {
+  display: grid;
+  gap: var(--sp-4);
+}
+
+.pqueue__form textarea {
+  resize: vertical;
+  min-height: 96px;
+}
+
+.pqueue__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4) var(--sp-6);
+}
+
+.pqueue__when {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.pqueue__title {
+  margin: 0 0 var(--sp-4);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  color: var(--ink-2);
+}
+
+.pqueue__list {
+  display: grid;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pqueue__item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-lg);
+  background: var(--ground-raised);
+}
+
+.pqueue__item.is-fault {
+  border-color: var(--signal);
+}
+
+.pqueue__n {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1.5px dashed var(--c-tasks);
+  border-radius: 50%;
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.pqueue__item.is-fault .pqueue__n {
+  border-style: solid;
+  border-color: var(--signal);
+  color: var(--signal-text);
+}
+
+.pqueue__main {
+  display: grid;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.pqueue__name {
+  color: var(--ink);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.pqueue__name:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+}
+
+.pqueue__sub {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.pqueue__empty,
+.pqueue__more {
+  margin: 0;
+  max-width: 64ch;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.pqueue__more {
+  margin-top: var(--sp-5);
+}
+
+@media (max-width: 640px) {
+  .pmodal {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+    border: 0;
+  }
+
+  .pmodal__body {
+    padding: var(--sp-6) var(--sp-5);
+  }
+}

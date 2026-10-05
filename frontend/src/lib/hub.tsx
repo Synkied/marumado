@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { agentHref, agentKey, sourceLabel } from './agents'
+import { agentKey, sourceLabel } from './agents'
 import { api, ApiError } from './api'
 import { daysSince, PUSH_GRACE_DAYS } from './growth'
 import type { MachineId } from './api'
 import { useMachines } from './machines'
+import { moduleHref } from './route'
 import type { Agents, Docker, HistoryPoint, Machine, Port, Project, Skill, System, Task } from './types'
 import { usePoll } from './usePoll'
 import { activity, atWork } from './work'
@@ -40,7 +41,7 @@ type Hub = {
   refreshProjects: () => void
   refreshDocker: () => void
   refreshSkills: () => void
-  refreshAgents: () => void
+  refreshAgents: () => Promise<void>
   refreshTasks: () => void
 }
 
@@ -77,7 +78,7 @@ export function machineIssues(m: Machine): Issue[] {
 
 /** Where an issue from `machineIssues` is resolved, once its machine is on screen. */
 export function issueHref(module: ModuleId, _id: string): string {
-  return `#/m/${module}`
+  return moduleHref(module)
 }
 
 /** The machines not on screen: unreachable, or with something that needs you (see the home view). */
@@ -121,14 +122,14 @@ function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: 
     // CPU only counts when it stays high for the last 30 seconds.
     const recent = history.filter((h) => h.t > system.time - 30)
     if (recent.length >= 10 && recent.every((h) => h.cpu >= CPU_BUDGET)) {
-      out.push({ id: 'cpu', module: 'machine', title: `CPU above ${CPU_BUDGET}% for 30s`, detail: `${Math.round(system.cpu.percent)}% now`, href: '#/m/processes' })
+      out.push({ id: 'cpu', module: 'machine', title: `CPU above ${CPU_BUDGET}% for 30s`, detail: `${Math.round(system.cpu.percent)}% now`, href: moduleHref('processes') })
     }
   }
   for (const a of agents?.agents ?? []) {
     if (a.status === 'blocked') {
       const where = a.cwd.split('/').filter(Boolean).pop() || a.cwd
       const on = sourceLabel(agents, a)
-      out.push({ id: `agent:${agentKey(a)}`, module: 'agents', title: `${a.name || a.kind} in ${where}${on ? ` on ${on}` : ''} is waiting for you`, detail: a.title || 'Approval or question', href: agentHref(a) })
+      out.push({ id: `agent:${agentKey(a)}`, module: 'agents', title: `${a.name || a.kind} in ${where}${on ? ` on ${on}` : ''} is waiting for you`, detail: a.title || 'Approval or question', href: '#/m/agents/inbox' })
     }
   }
   // With one source, an unreachable Herdr is the Agents module being off, not an alarm. With several, one that drops is news.
@@ -150,7 +151,7 @@ function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: 
     if (p.kind === 'project' && p.focus === 'push' && days != null && days > PUSH_GRACE_DAYS && !atWork(work)) {
       out.push({
         id: `push:${p.id}`,
-        module: 'momentum',
+        module: 'projects',
         title: `${p.name} is marked push but hasn't moved`,
         detail: `No commit for ${days} days${work.open ? '' : ', and no next task'}`,
         href: work.open ? `#/m/projects/${p.id}` : `#/m/projects/${p.id}/next`,
@@ -159,7 +160,7 @@ function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: 
   }
   for (const c of docker?.containers ?? []) {
     if (c.health === 'unhealthy') {
-      out.push({ id: `ctr:${c.id}`, module: 'docker', title: `${c.name} is unhealthy`, detail: c.image, href: '#/m/docker' })
+      out.push({ id: `ctr:${c.id}`, module: 'docker', title: `${c.name} is unhealthy`, detail: c.image, href: moduleHref('docker') })
     }
   }
   return out
@@ -171,7 +172,8 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const projects = usePoll<Project[]>('projects', 10000)
   const ports = usePoll<Port[]>('ports', 5000)
   const docker = usePoll<Docker>('docker', 5000)
-  const agents = usePoll<Agents>('agents', 4000)
+  // Agents keep being asked while the tab is hidden, so it can tell you when one needs you (lib/notify.ts).
+  const agents = usePoll<Agents>('agents', 4000, true)
   const skills = usePoll<Skill[]>('skills', 30000)
   const tasks = usePoll<Task[]>('tasks', 5000)
   const [history, setHistory] = useState<HistoryPoint[]>([])

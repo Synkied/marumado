@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError } from './api'
 
-type PollState<T> = { data: T | undefined; error: ApiError | Error | null; loading: boolean; refresh: () => void }
+type PollState<T> = { data: T | undefined; error: ApiError | Error | null; loading: boolean; refresh: () => Promise<void> }
 
-/** Fetch `path` now and every `ms` while the tab is visible. `path` null pauses polling. */
-export function usePoll<T>(path: string | null, ms: number): PollState<T> {
+/** Fetch `path` now and every `ms` while the tab is visible (`background`: hidden too, as often as the browser allows).
+    `path` null pauses polling. */
+export function usePoll<T>(path: string | null, ms: number, background = false): PollState<T> {
   const [data, setData] = useState<T>()
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [loading, setLoading] = useState(path !== null)
@@ -31,7 +32,7 @@ export function usePoll<T>(path: string | null, ms: number): PollState<T> {
     setLoading(true)
     load()
     const id = window.setInterval(() => {
-      if (document.visibilityState === 'visible') load()
+      if (background || document.visibilityState === 'visible') load()
     }, ms)
     const onVisible = () => document.visibilityState === 'visible' && load()
     document.addEventListener('visibilitychange', onVisible)
@@ -39,7 +40,7 @@ export function usePoll<T>(path: string | null, ms: number): PollState<T> {
       window.clearInterval(id)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [path, ms, load])
+  }, [path, ms, load, background])
 
   return { data, error, loading, refresh: load }
 }

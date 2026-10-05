@@ -10,9 +10,9 @@ from rest_framework.response import Response
 
 import json
 
-from . import auth, discovery, files, herdr, machines, monitor, opener, overview, places, tasks
-from .models import AgentSource, Machine, Project, ScanRoot, Skill, Task, UptimeCheck
-from .serializers import AgentSourceSerializer, MachineSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
+from . import auth, discovery, files, herdr, machines, monitor, opener, overview, places, plans, tasks, transcripts
+from .models import AgentSource, Machine, Plan, Project, ScanRoot, Skill, Task, UptimeCheck
+from .serializers import AgentSourceSerializer, MachineSerializer, PlanSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
 
 RECENT_CHECKS = 30
 
@@ -190,6 +190,20 @@ class TaskViewSet(viewsets.ModelViewSet):
             return Response({'detail': str(exc)}, status=502)
         return self.retrieve(request, pk)
 
+    @action(detail=True, methods=['get'])
+    def trace(self, request, pk=None):
+        """What the agent thought and did for this task, from step `from` on (core/transcripts.py)."""
+        try:
+            start = max(0, int(request.query_params.get('from', 0)))
+        except ValueError:
+            start = 0
+        try:
+            return Response(tasks.trace(self.get_object(), start))
+        except ValueError as exc:
+            return Response({'found': False, 'reason': str(exc), 'steps': [], 'total': 0})
+        except RuntimeError as exc:
+            return Response({'detail': str(exc)}, status=502)
+
     @action(detail=True, methods=['post'])
     def done(self, request, pk=None):
         tasks.mark_done(self.get_object())
@@ -204,6 +218,75 @@ class TaskViewSet(viewsets.ModelViewSet):
     def reopen(self, request, pk=None):
         tasks.reopen(self.get_object())
         return self.retrieve(request, pk)
+
+    @action(detail=True, methods=['post'])
+    def go(self, request, pk=None):
+        """The owner's go for a plan's step that asks for it before starting."""
+        task = self.get_object()
+        if not task.plan_id or task.state != Task.QUEUED:
+            return Response({'detail': 'Only a queued step of a plan waits for a go.'}, status=400)
+        plans.go(task)
+        plans.advance()
+        return self.retrieve(request, pk)
+
+
+class PlanViewSet(viewsets.ModelViewSet):
+    """Steps for agents to take over on their own, in order or side by side (core/plans.py)."""
+
+    serializer_class = PlanSerializer
+    queryset = Plan.objects.select_related('project').prefetch_related('steps__project')
+
+    def perform_destroy(self, instance):
+        plans.dissolve(instance)
+        instance.delete()
+
+    @action(detail=True, methods=['post'])
+    def arrange(self, request, pk=None):
+        """{rows: [[task id, …], …]}: the steps, row by row; a row's steps run side by side. Tasks named join the
+        plan; its steps left out go back to the ideas."""
+        layout = request.data.get('rows')
+        if not isinstance(layout, list) or not all(isinstance(r, list) and all(isinstance(i, int) for i in r) for r in layout):
+            return Response({'detail': 'Send rows: lists of task ids.'}, status=400)
+        try:
+            plans.arrange(self.get_object(), layout)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        return Response(PlanSerializer(self.get_object()).data)
+
+    @action(detail=True, methods=['post'])
+    def add(self, request, pk=None):
+        """{title, notes?, row?, ask?}: a new step, beside the steps of `row` (an index), or in a new row at the end;
+        `ask`: it waits for the owner's go when its turn comes."""
+        plan = self.get_object()
+        made = TaskSerializer(data={'title': request.data.get('title', ''), 'notes': request.data.get('notes', ''), 'project': plan.project_id,
+                                    'ask': bool(request.data.get('ask'))})
+        made.is_valid(raise_exception=True)
+        layout = [[t.id for t in row] for row in plans.rows(plan)]
+        task = made.save()
+        tasks.event(task, 'created', f'Added to “{plan.title}”')
+        row = request.data.get('row')
+        if isinstance(row, int) and 0 <= row < len(layout):
+            layout[row].append(task.id)
+        else:
+            layout.append([task.id])
+        plans.arrange(plan, layout)
+        return Response(PlanSerializer(self.get_object()).data, status=201)
+
+    @action(detail=True, methods=['post'])
+    def start(self, request, pk=None):
+        if herdr.terminal_mode() != 'control':
+            return Response({'detail': 'Giving tasks to agents is turned off (MARUMADO_HERDR_TERMINAL).'}, status=403)
+        plan = self.get_object()
+        if not plan.steps.exists():
+            return Response({'detail': 'Add a step first.'}, status=400)
+        plans.start(plan)
+        plans.advance()
+        return Response(PlanSerializer(self.get_object()).data)
+
+    @action(detail=True, methods=['post'])
+    def pause(self, request, pk=None):
+        plans.pause(self.get_object())
+        return Response(PlanSerializer(self.get_object()).data)
 
 
 class MachineViewSet(viewsets.ModelViewSet):
@@ -464,11 +547,52 @@ def file_read(request):
 def agents(request):
     """Every agent, with the project it works in. `?machines=0`: only this machine's own (what other Marumados ask)."""
     data = herdr.agents(include_machines=request.query_params.get('machines') != '0')
-    projects = list(Project.objects.filter(kind=Project.KIND_PROJECT, hidden=False))
+    projects = _projects_of(data['agents'])
     for a in data['agents']:
-        p = discovery.project_anywhere(a['cwd'], projects)
+        p = projects.get(id(a))
         a['project'] = {'id': p.id, 'name': p.name} if p else None
+    # The plans' steps waiting for each agent, next first; `asking`: its turn has come, it waits for the owner's go.
+    queued = plans.queued_for_agents()
+    for a in data['agents']:
+        a['queued'] = [{'id': t.id, 'title': t.title, 'plan': t.plan_id, 'asking': t.asking}
+                       for t in queued.get((a.get('source', herdr.ENV), a['pane_id']), [])]
     return Response(data)
+
+
+def _projects_of(listed: list[dict]) -> dict[int, Project]:
+    """The project each agent works in, by id() of its entry."""
+    projects = list(Project.objects.filter(kind=Project.KIND_PROJECT, hidden=False))
+    folders = {s.id: s for s in herdr.sources(include_machines=False) if s.folders}
+    out = {}
+    for a in listed:
+        # In a VM, a project's folder may have another path: its path here is the one to compare.
+        src = folders.get(a.get('source', herdr.ENV))
+        if p := discovery.project_anywhere(herdr.folder_here(a['cwd'], src) if src else a['cwd'], projects):
+            out[id(a)] = p
+    return out
+
+
+@api_view(['POST'])
+def agent_queue(request, pane_id: str):
+    """{title, notes?, ask?, source}: queue a step on an open agent, to start once it is free and what was queued
+    before it is finished; `ask`: wait for the owner's go first (core/plans.py queue_for)."""
+    refused = _control_only('Giving tasks to agents')
+    if refused:
+        return refused
+    try:
+        source = _agent_source(request)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    agent = next((a for a in herdr.agents()['agents'] if a.get('source', herdr.ENV) == source.id and a['pane_id'] == pane_id), None)
+    if agent is None or agent.get('kind') == 'terminal':
+        return Response({'detail': 'No such agent open.'}, status=404)
+    made = TaskSerializer(data={'title': request.data.get('title', ''), 'notes': request.data.get('notes', '')})
+    made.is_valid(raise_exception=True)
+    step = plans.queue_for(source.id, pane_id, agent, _projects_of([agent]).get(id(agent)), made.validated_data['title'],
+                           made.validated_data.get('notes', ''), ask=bool(request.data.get('ask')))
+    plans.advance()
+    step.refresh_from_db()
+    return Response(TaskSerializer(step).data, status=201)
 
 
 class AgentSourceViewSet(viewsets.ModelViewSet):
@@ -492,6 +616,17 @@ def _agent_source(request) -> herdr.Source:
     if given is None and isinstance(request.data, dict):
         given = request.data.get('source')
     return herdr.get_source(given)
+
+
+@api_view(['GET', 'PATCH'])
+def agent_env_source(request):
+    """The .env agent source's settings that live in the database: {folders: [{here, there}, …]}."""
+    if request.method == 'PATCH':
+        try:
+            herdr.set_env_folders(herdr.clean_folders(request.data.get('folders')))
+        except ValueError as exc:
+            return Response({'folders': [str(exc)]}, status=400)
+    return Response({'folders': herdr.env_folders()})
 
 
 @api_view(['POST'])
@@ -519,15 +654,48 @@ def _control_only(what: str) -> Response | None:
 
 @api_view(['POST'])
 def agent_workspace(request):
-    """{cwd, label}: a new Herdr workspace with a shell, for a task (asked by the Marumado that shows this machine)."""
+    """{cwd, label[, branch]}: a new Herdr workspace with a shell, for a task (asked by the Marumado that shows this
+    machine). With `branch`, a new git worktree of the repository at `cwd` on that branch, for a plan's step."""
     refused = _control_only('Starting agents')
     if refused:
         return refused
-    cwd, label = request.data.get('cwd') or '', request.data.get('label') or ''
-    if not isinstance(cwd, str) or not isinstance(label, str):
-        return Response({'detail': 'cwd and label are text.'}, status=400)
+    cwd, label, branch = request.data.get('cwd') or '', request.data.get('label') or '', request.data.get('branch') or ''
+    if not isinstance(cwd, str) or not isinstance(label, str) or not isinstance(branch, str):
+        return Response({'detail': 'cwd, label and branch are text.'}, status=400)
     try:
+        if branch:
+            if not cwd or not herdr.BRANCH.match(branch):
+                return Response({'detail': 'A worktree needs the repository folder and a plain branch name.'}, status=400)
+            return Response({**herdr.open_worktree(cwd, branch, label, _agent_source(request)), 'worktree': True}, status=status.HTTP_201_CREATED)
         return Response(herdr.open_workspace(cwd, label, _agent_source(request)), status=status.HTTP_201_CREATED)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    except (RuntimeError, KeyError) as exc:
+        return Response({'detail': str(exc)}, status=502)
+
+
+@api_view(['POST'])
+def agent_start(request):
+    """{project, kind, source}: a new `kind` agent in the project's folder in that source (no project: Herdr's default
+    folder). Answers {pane_id, source, cwd, name} once its workspace is open; the agent keeps starting there."""
+    refused = _control_only('Starting agents')
+    if refused:
+        return refused
+    project_id, kind = request.data.get('project'), request.data.get('kind') or ''
+    if project_id is not None and not isinstance(project_id, int) or not isinstance(kind, str):
+        return Response({'detail': 'Send the project id and the kind of agent.'}, status=400)
+    project = None
+    if project_id is not None:
+        project = Project.objects.filter(pk=project_id, kind=Project.KIND_PROJECT).first()
+        if project is None:
+            return Response({'detail': 'No such project.'}, status=400)
+    try:
+        source = _agent_source(request)
+        cwd = tasks.folder_for(project, source.id)
+        if project and not cwd:
+            return Response({'detail': f'{project.name} has no folder {source.where()}.'}, status=400)
+        started = herdr.start_agent(kind, cwd, project.name if project else '', source)
+        return Response({**started, 'source': source.id}, status=status.HTTP_201_CREATED)
     except ValueError as exc:
         return Response({'detail': str(exc)}, status=400)
     except (RuntimeError, KeyError) as exc:
@@ -598,6 +766,26 @@ def agent_input(request, pane_id: str):
     except RuntimeError as exc:
         return Response({'detail': str(exc)}, status=502)
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['GET'])
+def agent_trace(request):
+    """A session record of an agent on this machine's own Herdr, for a task on another Marumado (core/tasks.py trace):
+    {kind, cwd, title, since (unix seconds, optional), path (found last time), from}."""
+    q = request.query_params
+    try:
+        since = float(q['since']) if q.get('since') else None
+        start = max(0, int(q.get('from', 0)))
+    except ValueError:
+        return Response({'detail': 'since and from are numbers.'}, status=400)
+    path = q.get('path', '')
+    if path and not path.endswith('.jsonl'):
+        return Response({'detail': 'Not a session record.'}, status=400)
+    try:
+        return Response(transcripts.trace(herdr.ENV, q.get('kind', ''), q.get('cwd', ''), since, q.get('title', ''), path, start,
+                                          any_session=since is None))
+    except RuntimeError as exc:
+        return Response({'detail': str(exc)}, status=502)
 
 
 @api_view(['GET'])

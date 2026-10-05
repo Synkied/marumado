@@ -1,14 +1,17 @@
 import { useState } from 'react'
 import type { MachineId } from './api'
 import type { ModuleId } from './hub'
+import { PANEL_MODULES } from '../modules/registry'
 
 const KEY = 'marumado.pins'
-export const DEFAULT_PINS: ModuleId[] = ['projects', 'machine', 'agents', 'tasks', 'urls', 'ports', 'docker']
+export const DEFAULT_PINS: ModuleId[] = ['projects', 'tasks', 'agents', 'urls', 'machine', 'machines']
 
 function parse(key: string): ModuleId[] | null {
   try {
     const raw = JSON.parse(localStorage.getItem(key) ?? 'null')
-    if (Array.isArray(raw) && raw.length) return raw
+    // A layout saved before a module became another's tab (Momentum, Docker…) drops it.
+    const pins = Array.isArray(raw) ? raw.filter((id) => PANEL_MODULES.some((m) => m.id === id)) : []
+    if (pins.length) return pins
   } catch {
     /* fall through */
   }

@@ -1,19 +1,22 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { Icon } from '../components/Icon'
-import { agentHref, agentKey, parseAgentRef, sourceLabel, sourcesOf } from '../lib/agents'
+import { agentHref, agentKey, parseAgentRef, sourceLabel } from '../lib/agents'
 import { api } from '../lib/api'
 import { ago } from '../lib/format'
 import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
 import { Secret } from '../lib/streaming'
-import type { AgentSource, Project, Task, TaskDetail, TaskEvent, TaskState } from '../lib/types'
-import { machineOfSource } from '../lib/work'
+import type { Project, Task, TaskDetail, TaskEvent, TaskState } from '../lib/types'
+import { folderIn, machineOfSource, startPlaces } from '../lib/work'
 import { usePoll } from '../lib/usePoll'
 import { SheetHead } from './sheetHead'
+import { NewPlan, PlanPage, PlansList } from './plans'
+import { TraceView, type Wait } from './trace'
 
 const STATE_LABEL: Record<TaskState, string> = {
   todo: 'TO DO',
+  queued: 'QUEUED',
   starting: 'STARTING',
   working: 'WORKING',
   blocked: 'NEEDS YOU',
@@ -26,6 +29,7 @@ const fault = (s: TaskState) => s === 'blocked' || s === 'failed'
 
 function lamp(s: TaskState): string {
   if (fault(s)) return 'row__lamp row__lamp--fault'
+  if (s === 'queued') return 'row__lamp row__lamp--queued'
   return s === 'working' || s === 'starting' ? 'row__lamp row__lamp--on' : 'row__lamp'
 }
 
@@ -49,6 +53,8 @@ function taskLine(t: Task): string {
   switch (t.state) {
     case 'todo':
       return `${where} · added ${ago(t.created_at)}`
+    case 'queued':
+      return `${where} · queued in a plan, starts when its turn comes`
     case 'starting':
       return `${where} · handing it to ${agentLabel(t)}`
     case 'working':
@@ -91,15 +97,110 @@ function TaskCard({ t, drag, onGrab, dragged }: { t: Task; drag: Drag | null; on
   )
 }
 
-type Column = { id: string; title: string; lede: string; states: TaskState[]; takes: boolean }
+/** `adds`: what the add form at the bottom of the column says; none, the column can't be added to. */
+type Column = { id: string; title: string; lede: string; states: TaskState[]; takes: boolean; adds?: string }
 
 const COLUMNS: Column[] = [
-  { id: 'todo', title: 'To do', lede: 'Waiting for an agent. Drop a task on Working to hand it over.', states: ['todo'], takes: true },
-  { id: 'working', title: 'Working', lede: 'An agent is on it.', states: ['starting', 'working'], takes: true },
-  { id: 'needs', title: 'Needs you', lede: 'Stopped on a question, or failed.', states: ['blocked', 'failed'], takes: false },
-  { id: 'review', title: 'To review', lede: 'The agent finished its turn: check its work.', states: ['review'], takes: true },
-  { id: 'done', title: 'Done', lede: '', states: ['done'], takes: true },
+  { id: 'todo', title: 'To do', lede: 'Waiting for an agent. Drop a task on Working to hand it over, or put it in a plan.', states: ['todo', 'queued'], takes: true, adds: 'Add a task' },
+  { id: 'working', title: 'Working', lede: 'An agent is on it.', states: ['starting', 'working'], takes: true, adds: 'Add and hand over' },
+  { id: 'needs', title: 'Needs you', lede: 'Stopped on a question, or failed. Only an agent puts a task here.', states: ['blocked', 'failed'], takes: false },
+  { id: 'review', title: 'To review', lede: 'The agent finished its turn: check its work.', states: ['review'], takes: true, adds: 'Add to review' },
+  { id: 'done', title: 'Done', lede: 'Nothing done yet.', states: ['done'], takes: true, adds: 'Add as done' },
 ]
+
+const PROJECT_KEY = 'marumado.tasks.project'
+
+function rememberedProject(): number | null {
+  try {
+    const v = Number(localStorage.getItem(PROJECT_KEY))
+    return v > 0 ? v : null
+  } catch {
+    return null
+  }
+}
+
+/** The add form at the bottom of a column, as on a GitHub project board: a task made there lands in that column
+    (Working: made, then handed to the agent you choose). It stays open for the next one. */
+function AddToColumn({ col, onError }: { col: Column; onError: (text: string) => void }) {
+  const { refreshTasks } = useHub()
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState('')
+  const [project, setProject] = useState<number | null>(rememberedProject)
+  const [busy, setBusy] = useState(false)
+  if (!col.adds) return null
+
+  const chooseProject = (v: number | null) => {
+    setProject(v)
+    try {
+      localStorage.setItem(PROJECT_KEY, v ? String(v) : '')
+    } catch {
+      // private mode: for this visit only
+    }
+  }
+  const add = async (e?: FormEvent) => {
+    e?.preventDefault()
+    if (!title.trim() || busy) return
+    setBusy(true)
+    onError('')
+    try {
+      const made = await api<Task>('tasks', { method: 'POST', json: { title: title.trim(), project } })
+      if (col.id === 'working') return go(`#/m/tasks/${made.id}/assign`) // it needs an agent: choose one
+      if (col.id === 'review' || col.id === 'done') await api(`tasks/${made.id}/${col.id}`, { method: 'POST' })
+      refreshTasks()
+      setTitle('')
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Couldn't add it.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!open)
+    return (
+      <button className="kcol__add" type="button" onClick={() => setOpen(true)}>
+        <Icon name="plus" size={16} /> {col.adds}
+      </button>
+    )
+  return (
+    <form className="kadd" onSubmit={add}>
+      <textarea
+        className="kadd__title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value.replace(/\n/g, ' '))}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            add()
+          } else if (e.key === 'Escape') {
+            setOpen(false)
+            setTitle('')
+          }
+        }}
+        placeholder={col.id === 'working' ? 'What the agent should do…' : 'Fix the login redirect, add dark mode…'}
+        aria-label={`New task: ${col.title}`}
+        maxLength={200}
+        rows={2}
+        autoFocus
+      />
+      <ProjectSelect value={project} onChange={chooseProject} />
+      <span className="kadd__bar">
+        <button className="btn" type="submit" disabled={!title.trim() || busy}>
+          {col.id === 'working' ? 'Add, then choose the agent' : 'Add'}
+        </button>
+        <button
+          className="btn btn--quiet"
+          type="button"
+          onClick={() => {
+            setOpen(false)
+            setTitle('')
+          }}
+        >
+          Cancel
+        </button>
+      </span>
+    </form>
+  )
+}
 
 /** Hold still this long on a touch screen to pick a card up; moving sooner scrolls instead. */
 const LONG_PRESS = 350
@@ -176,30 +277,37 @@ function useBoardDrag(onDrop: (id: number, column: string) => void) {
   return { drag, grab, dragged }
 }
 
-function BoardColumn({ col, tasks, drag, grab, dragged, more }: {
+function BoardColumn({ col, tasks, count, drag, grab, dragged, more, onError }: {
   col: Column
   tasks: Task[]
+  count?: number
   drag: Drag | null
   grab: (e: ReactPointerEvent, t: Task) => void
   dragged: () => boolean
   more?: ReactNode
+  onError: (text: string) => void
 }) {
   const over = drag?.active && drag.over === col.id
   return (
-    <section className={`kcol${over ? (col.takes ? ' kcol--over' : ' kcol--refuse') : ''}`} aria-label={col.title} data-column={col.id}>
+    <section className={`kcol kcol--${col.id}${over ? (col.takes ? ' kcol--over' : ' kcol--refuse') : ''}`} aria-label={col.title} data-column={col.id}>
       <h3 className="kcol__head">
-        {col.title} <span className="kcol__count">{tasks.length}</span>
+        <span className={`kcol__lamp kcol__lamp--${col.id}`} aria-hidden="true" />
+        <span className="kcol__name">{col.title}</span>
+        <span className="kcol__count">{count ?? tasks.length}</span>
       </h3>
-      {tasks.length ? (
-        <ul className="kcol__cards">
-          {tasks.map((t) => (
-            <TaskCard t={t} key={t.id} drag={drag} onGrab={grab} dragged={dragged} />
-          ))}
-        </ul>
-      ) : (
-        col.lede && <p className="kcol__empty">{col.lede}</p>
-      )}
-      {more}
+      <div className="kcol__body">
+        {tasks.length ? (
+          <ul className="kcol__cards">
+            {tasks.map((t) => (
+              <TaskCard t={t} key={t.id} drag={drag} onGrab={grab} dragged={dragged} />
+            ))}
+          </ul>
+        ) : (
+          col.lede && <p className="kcol__empty">{col.lede}</p>
+        )}
+        {more}
+      </div>
+      <AddToColumn col={col} onError={onError} />
     </section>
   )
 }
@@ -225,8 +333,6 @@ const DONE_SHOWN = 20
 
 export function TasksSheet({ sub }: { sub?: string }) {
   const { tasks, refreshTasks } = useHub()
-  const [title, setTitle] = useState('')
-  const [project, setProject] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [allDone, setAllDone] = useState(false)
 
@@ -235,22 +341,11 @@ export function TasksSheet({ sub }: { sub?: string }) {
 
   if (sub) {
     const [id, view] = sub.split('/')
+    if (id === 'plan') return view === 'new' ? <NewPlan /> : <PlanPage id={view} key={view} />
     return <TaskPage id={id} assign={view === 'assign'} />
   }
   if (!tasks) return <div className="sheet__empty">Loading tasks…</div>
 
-  // Added to To do, to hand over whenever you like: the form stays here for the next one.
-  const add = async (e: FormEvent) => {
-    e.preventDefault()
-    setError('')
-    try {
-      await api<Task>('tasks', { method: 'POST', json: { title, project } })
-      refreshTasks()
-      setTitle('')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't add it.")
-    }
-  }
   /** What dropping a card on a column does. Only an agent puts a task under Needs you. */
   move.current = async (id, column) => {
     const t = tasks.find((x) => x.id === id)
@@ -273,22 +368,10 @@ export function TasksSheet({ sub }: { sub?: string }) {
   const done = of(['done']).sort((a, b) => (b.finished_at ?? '').localeCompare(a.finished_at ?? ''))
 
   return (
-    <div className="sheet">
+    <div className="sheet sheet--fill sheet--board">
       <SheetHead id="tasks" />
       <p className="sheet__lede">Write down what needs doing, hand it to a coding agent in Herdr now or later, and see what it did: when it worked, when it waited on you, and what it changed.</p>
-      <form className="addline addline--task" onSubmit={add}>
-        <label className="field">
-          New task
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Fix the login redirect, add dark mode…" required maxLength={200} />
-        </label>
-        <label className="field">
-          Project
-          <ProjectSelect value={project} onChange={setProject} />
-        </label>
-        <button className="btn" type="submit" disabled={!title.trim()}>
-          <Icon name="plus" size={16} /> Add
-        </button>
-      </form>
+      <PlansList />
       {error && <p className="notice signal-text">{error}</p>}
       <div className={`board mod-tasks${board.drag?.active ? ' board--dragging' : ''}`}>
         {COLUMNS.map((col) =>
@@ -297,6 +380,8 @@ export function TasksSheet({ sub }: { sub?: string }) {
               key={col.id}
               col={col}
               tasks={allDone ? done : done.slice(0, DONE_SHOWN)}
+              count={done.length}
+              onError={setError}
               {...board}
               more={
                 !allDone && done.length > DONE_SHOWN ? (
@@ -307,7 +392,7 @@ export function TasksSheet({ sub }: { sub?: string }) {
               }
             />
           ) : (
-            <BoardColumn key={col.id} col={col} tasks={of(col.states)} {...board} />
+            <BoardColumn key={col.id} col={col} tasks={of(col.states)} onError={setError} {...board} />
           ),
         )}
       </div>
@@ -337,7 +422,7 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
   const { refreshTasks } = useHub()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<'task' | 'activity'>(task.started_at && !assign ? 'activity' : 'task')
+  const [tab, setTab] = useState<'task' | 'trace' | 'activity'>(task.started_at && !assign ? 'trace' : 'task')
   const [draft, setDraft] = useState<Draft>({ title: task.title, notes: task.notes, project: task.project })
   const dirty = draft.title !== task.title || draft.notes !== task.notes || draft.project !== task.project
 
@@ -365,7 +450,7 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
       setError(err instanceof Error ? err.message : "Couldn't delete it.")
     }
   }
-  const unassigned = task.state === 'todo' || task.state === 'failed'
+  const unassigned = task.state === 'todo' || task.state === 'queued' || task.state === 'failed'
   const activity = task.events.filter((e) => e.kind !== 'created').length
   // Top right of the task on a wide screen; a bar along the bottom on a phone.
   const bar = (where: string) => (
@@ -385,11 +470,26 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
       <header className="sheet__head mod-tasks task__head">
         <div className="task__heading">
           <span className={`sheet__index${fault(task.state) ? ' sheet__index--fault' : ''}`}>{STATE_LABEL[task.state]}</span>
-          <h2 className="sheet__title task__title">{task.title}</h2>
+          <div className="task__titleline">
+            <h2 className="sheet__title task__title" title={task.title}>
+              {task.title}
+            </h2>
+            {/* With Save and Delete at the end of the title's line, so the agent's terminal is one click away from every tab. */}
+            {task.live && task.pane_id && (
+              <a className="btn btn--quiet task__watch" href={agentHref({ pane_id: task.pane_id, source: task.agent_source })}>
+                <Icon name="terminal" size={16} /> Watch live
+              </a>
+            )}
+            {bar('task__bar')}
+          </div>
         </div>
-        {bar("task__bar")}
       </header>
 
+      {task.plan != null && (
+        <p className="sheet__lede">
+          A step of a plan{task.state === 'queued' ? ': it starts by itself when its turn comes' : ''}. <a href={`#/m/tasks/plan/${task.plan}`}>Open the plan</a>
+        </p>
+      )}
       {task.state === 'blocked' && (
         <p className="notice notice--fault">
           <strong>{agentLabel(task)} is waiting on you.</strong>{' '}
@@ -403,20 +503,29 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
         <button type="button" className="seg__btn" aria-pressed={tab === 'task'} onClick={() => setTab('task')}>
           Task
         </button>
+        <button type="button" className="seg__btn" aria-pressed={tab === 'trace'} onClick={() => setTab('trace')}>
+          What it did
+        </button>
         <button type="button" className="seg__btn" aria-pressed={tab === 'activity'} onClick={() => setTab('activity')}>
-          Activity · {activity}
+          History · {activity}
         </button>
       </div>
 
       {tab === 'task' ? (
         <>
           {unassigned ? (
-            <AssignForm task={task} onAssigned={() => (refresh(), setTab('activity'))} />
+            <AssignForm task={task} onAssigned={() => (refresh(), setTab('trace'))} />
           ) : (
             <AgentFacts task={task} busy={busy} act={act} />
           )}
           <TaskFields task={task} draft={draft} onChange={setDraft} />
         </>
+      ) : tab === 'trace' ? (
+        task.started_at ? (
+          <TraceView task={task} waits={waits(task)} key={task.started_at} />
+        ) : (
+          <p className="sheet__empty">Nothing yet: no agent has had it. Hand it over from the Task tab.</p>
+        )
       ) : (
         <>
           {!task.started_at && <p className="sheet__empty">Nothing yet: no agent has had it. Hand it over from the Task tab.</p>}
@@ -465,11 +574,6 @@ function AgentFacts({ task, busy, act }: { task: TaskDetail; busy: boolean; act:
         )}
       </dl>
       <div className="sheet__actions" style={{ justifyContent: 'start' }}>
-        {task.live && task.pane_id && (
-          <a className="btn" href={href}>
-            <Icon name="terminal" size={16} /> Watch live
-          </a>
-        )}
         {task.state !== 'done' && (
           <button className="btn" type="button" disabled={busy} onClick={() => act('done')}>
             Mark done
@@ -524,19 +628,7 @@ function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => 
   const open = (agents?.agents ?? []).filter((a) => a.kind !== 'terminal')
   const ready = open.filter((a) => a.status === 'idle' || a.status === 'done')
   const project = (projects ?? []).find((p) => p.id === task.project)
-  // Where the project's folder is in a source: on another machine, as its Marumado reports it; elsewhere this
-  // machine's folder (a VM may share it, or Herdr starts in its default folder).
-  const folderIn = (s: AgentSource): string => {
-    if (!project) return ''
-    const machine = machineOfSource(s)
-    if (machine == null) return project.path
-    return project.places?.find((x) => x.machine === machine && x.dir)?.dir ?? ''
-  }
-  // Where a new agent can start: the sources that answer, those that have the project's folder first.
-  const rank = (s: AgentSource) => (!project ? 0 : machineOfSource(s) == null ? (s.kind === 'env' && project.path ? 0 : 1) : folderIn(s) ? 0 : 2)
-  const places = sourcesOf(agents)
-    .filter((s) => s.available)
-    .sort((a, b) => rank(a) - rank(b))
+  const places = startPlaces(project, agents)
   const [how, setHow] = useState<'new' | 'open'>('new')
   const [kind, setKind] = useState(agents?.kinds?.[0] ?? 'claude')
   const [place, setPlace] = useState<number | null>(null)
@@ -548,7 +640,7 @@ function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => 
   const chosenPlace = place ?? places[0]?.id ?? 0
   const chosen = places.find((s) => s.id === chosenPlace)
   const placeName = places.length > 1 ? chosen?.name : ''
-  const startsIn = chosen ? folderIn(chosen) : project?.path ?? ''
+  const startsIn = chosen ? folderIn(project, chosen) : project?.path ?? ''
 
   if (!agents) return null
   if (!agents.available || agents.terminal !== 'control')
@@ -613,7 +705,7 @@ function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => 
                 {places.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
-                    {project && machineOfSource(s) != null && !folderIn(s) ? ' · no folder for this project there' : ''}
+                    {project && machineOfSource(s) != null && !folderIn(project, s) ? ' · no folder for this project there' : ''}
                   </option>
                 ))}
               </select>
@@ -689,6 +781,12 @@ function segments(task: TaskDetail): Segment[] {
   }
   return out.filter((s) => s.to > s.from)
 }
+
+/** The agent's waits on you since it got the task, for the recording. */
+const waits = (task: TaskDetail): Wait[] =>
+  segments(task)
+    .filter((s) => s.phase === 'blocked')
+    .map((s, i, all) => ({ from: s.from, to: s.to, now: i === all.length - 1 && task.state === 'blocked' }))
 
 const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 

@@ -1,20 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Dial } from './components/Dial'
 import { Icon } from './components/Icon'
 import { Palette } from './components/Palette'
 import { TokenGate } from './components/TokenGate'
-import { agentHref, agentKey, sourceLabel } from './lib/agents'
 import { logOut } from './lib/api'
 import { bytes } from './lib/format'
 import { CPU_BUDGET, isMachineModule, MEM_BUDGET, useHub, type ModuleId } from './lib/hub'
 import { useMachines } from './lib/machines'
+import { useAgentCallbacks } from './lib/notify'
 import { useStreaming } from './lib/streaming'
 import { useIsNarrow } from './lib/useIsNarrow'
 import { usePins } from './lib/pins'
 import { go, useRoute } from './lib/route'
-import { MODULES, meta, useSummaries, type Summary } from './modules/registry'
+import { meta, PANEL_MODULES, useSummaries, type Summary } from './modules/registry'
+import { PinnedProjects } from './modules/projectPin'
 import { SheetFor } from './modules/sheets'
 import { Fleet } from './modules/fleet'
+import { AgentDock } from './modules/agentDock'
 import './app.css'
 
 function Wordmark() {
@@ -172,6 +174,7 @@ function DialPanel({ pins, active, perRow, onEdit, open, onToggle }: PanelProps)
           ))}
         </div>
       ))}
+      <PinnedProjects />
       <button className="panel__edit" type="button" onClick={onEdit} title="Arrange the modules">
         <Icon name="sliders" size={16} /> <span className="panel__edit-text">Arrange</span>
       </button>
@@ -180,7 +183,7 @@ function DialPanel({ pins, active, perRow, onEdit, open, onToggle }: PanelProps)
 }
 
 function ArrangeSheet({ pins, setPins, onDone }: { pins: ModuleId[]; setPins: (p: ModuleId[]) => void; onDone: () => void }) {
-  const unpinned = MODULES.filter((m) => !pins.includes(m.id))
+  const unpinned = PANEL_MODULES.filter((m) => !pins.includes(m.id))
   const move = (i: number, d: number) => {
     const next = [...pins]
     const j = i + d
@@ -234,53 +237,6 @@ function ArrangeSheet({ pins, setPins, onDone }: { pins: ModuleId[]; setPins: (p
   )
 }
 
-type ActiveItem = { key: string; icon: string; label: string; href: string; state: 'on' | 'fault'; title: string }
-
-/** What is live right now, in the top bar: for now, agents that are working or waiting on you. Always shown, so the bar doesn't shift. */
-function ActiveNow() {
-  const { agents } = useHub()
-  const items = useMemo<ActiveItem[]>(
-    () =>
-      (agents?.available ? agents.agents : [])
-        .filter((a) => a.status === 'working' || a.status === 'blocked')
-        .sort((a, b) => Number(b.status === 'blocked') - Number(a.status === 'blocked'))
-        .map((a) => {
-          const on = sourceLabel(agents, a)
-          return {
-            key: `agent:${agentKey(a)}`,
-            icon: 'agent',
-            label: a.title && a.title !== a.kind ? a.title : a.name || a.kind,
-            href: agentHref(a),
-            state: a.status === 'blocked' ? 'fault' : 'on',
-            title: `${a.kind}${on ? ` on ${on}` : ''} · ${a.status === 'blocked' ? 'needs you' : 'working'}`,
-          }
-        }),
-    [agents],
-  )
-  return (
-    <section className="active" aria-labelledby="active-title">
-      <h2 className="active__title" id="active-title">
-        Active
-      </h2>
-      {items.length ? (
-        <ul className="active__tiles">
-          {items.map((it) => (
-            <li className={`tile${it.state === 'fault' ? ' is-fault' : ''}`} key={it.key}>
-              <a className="tile__main" href={it.href} title={`${it.label} (${it.title})`}>
-                <Icon name={it.icon} size={18} />
-                <span className="tile__name">{it.label}</span>
-                <span className={`tile__live${it.state === 'fault' ? ' tile__live--fault' : ''}`}>{it.state === 'fault' ? 'needs you' : 'working'}</span>
-              </a>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <span className="active__empty">No agents working</span>
-      )}
-    </section>
-  )
-}
-
 const SIDEBAR_KEY = 'marumado.sidebar'
 
 /** Whether the module sidebar shows details or only the dials; remembered in this browser. */
@@ -305,6 +261,7 @@ function useSidebarOpen(): [boolean, () => void] {
 }
 
 export default function App() {
+  useAgentCallbacks()
   const route = useRoute()
   // Most modules are your work, the same on every machine: one arrangement for all.
   const [pins, setPins] = usePins('local')
@@ -340,7 +297,6 @@ export default function App() {
             <StreamingToggle />
             <LockButton />
           </div>
-          <ActiveNow />
           <button className="search" type="button" onClick={() => setPaletteOpen(true)} title="Search (/)">
             <Icon name="search" size={20} />
             <span className="sr-only">Search</span>
@@ -374,6 +330,7 @@ export default function App() {
           </main>
         )}
 
+        <AgentDock />
         {paletteOpen && <Palette onClose={() => setPaletteOpen(false)} />}
       </div>
     </TokenGate>

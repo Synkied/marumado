@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from .discovery import SCANNED_FIELDS
 from . import herdr, machines
-from .models import AgentSource, Machine, Project, Skill, Task, TaskEvent, UptimeCheck
+from .models import AgentSource, Machine, Plan, Project, Skill, Task, TaskEvent, UptimeCheck
 
 
 class UptimeCheckSerializer(serializers.ModelSerializer):
@@ -56,7 +56,13 @@ class SkillSerializer(serializers.ModelSerializer):
 class AgentSourceSerializer(serializers.ModelSerializer):
     class Meta:
         model = AgentSource
-        fields = ['id', 'name', 'kind', 'target']
+        fields = ['id', 'name', 'kind', 'target', 'folders']
+
+    def validate_folders(self, value):
+        try:
+            return herdr.clean_folders(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
 
     def validate_name(self, value):
         value = value.strip()
@@ -100,11 +106,60 @@ class TaskSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'notes', 'project', 'project_name', 'state', 'pane_id', 'agent_source', 'agent_name', 'agent_kind',
             'agent_state', 'agent_title', 'live', 'prompt_pending', 'started_at', 'finished_at', 'created_at', 'updated_at',
+            'plan', 'plan_row', 'plan_col', 'runner', 'want_pane', 'want_source', 'worktree', 'ask', 'go',
         ]
-        read_only_fields = [f for f in fields if f not in ('title', 'notes', 'project')]
+        read_only_fields = [f for f in fields if f not in ('title', 'notes', 'project', 'runner', 'want_pane', 'want_source', 'ask')]
+
+    def validate(self, attrs):
+        runner = attrs.get('runner', getattr(self.instance, 'runner', ''))
+        if runner == 'agent' and not attrs.get('want_pane', getattr(self.instance, 'want_pane', '')):
+            raise serializers.ValidationError({'want_pane': 'Choose the agent to give it to.'})
+        if attrs.get('want_pane') and not herdr.PANE_ID.match(attrs['want_pane']):
+            raise serializers.ValidationError({'want_pane': 'Not a Herdr pane id.'})
+        return attrs
 
     def validate_title(self, value):
         value = value.strip()
         if not value:
             raise serializers.ValidationError('Write what needs doing.')
+        return value
+
+
+class PlanSerializer(serializers.ModelSerializer):
+    project_name = serializers.CharField(source='project.name', read_only=True, default='')
+    steps = serializers.SerializerMethodField()
+    asking = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Plan
+        fields = ['id', 'title', 'project', 'project_name', 'kind', 'source', 'running', 'pane_id', 'pane_source', 'created_at', 'updated_at',
+                  'steps', 'asking']
+        read_only_fields = ['running', 'pane_id', 'pane_source', 'created_at', 'updated_at', 'steps', 'asking']
+
+    def get_steps(self, plan):
+        """Row by row, left to right."""
+        return TaskSerializer(sorted(plan.steps.all(), key=lambda t: (t.plan_row, t.plan_col, t.id)), many=True).data
+
+    def get_asking(self, plan):
+        """The steps whose turn has come, waiting for the owner's go."""
+        from .plans import asking, rows
+
+        return sorted(asking(plan, rows(plan)))
+
+    def validate_title(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('Name the plan.')
+        return value
+
+    def validate_kind(self, value):
+        if value not in herdr.AGENT_KINDS:
+            raise serializers.ValidationError('Herdr cannot start that kind of agent.')
+        return value
+
+    def validate_source(self, value):
+        try:
+            herdr.get_source(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
         return value

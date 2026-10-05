@@ -6,13 +6,14 @@ import { api } from '../lib/api'
 import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
 import { Redacted, useStreaming } from '../lib/streaming'
-import type { SavedAgentSource } from '../lib/types'
+import type { SavedAgentSource, SourceFolder } from '../lib/types'
 import { usePoll } from '../lib/usePoll'
 
-/** Agents → Sources: every place Herdr runs (`sub`: '' the list, 'new', or 'edit/<id>'). */
+/** Agents → Sources: every place Herdr runs (`sub`: '' the list, 'new', 'edit/<id>', or 'edit/env' for the .env one). */
 export function AgentSourcesSheet({ sub }: { sub: string }) {
   const saved = usePoll<SavedAgentSource[]>('agent-sources', 30000)
   if (sub === 'new') return <SourceForm onSaved={saved.refresh} />
+  if (sub === 'edit/env') return <EnvSourceForm />
   if (sub.startsWith('edit/')) {
     if (!saved.data) return <div className="sheet__empty">{saved.error ? `Couldn't load the sources: ${saved.error.message}` : 'Loading…'}</div>
     const source = saved.data.find((s) => String(s.id) === sub.slice(5))
@@ -80,13 +81,23 @@ function SourcesList() {
             <span className={`row__sub${s.available ? '' : ' signal-text'}`}>
               <Redacted text={s.available ? `Herdr ${s.where}` : s.error || 'Herdr is not answering'} />
             </span>
+            {(s.folders?.length ?? 0) > 0 && (
+              <span className="row__sub mono">
+                <Redacted text={s.folders!.map((f) => `${f.here} → ${f.there}`).join(' · ')} />
+              </span>
+            )}
           </span>
           <span className="row__meta">{s.available ? `${s.agents} open` : 'unreachable'}</span>
           <span className="row__actions">
             {s.kind === 'env' ? (
-              <span className="row__meta" title="Set with MARUMADO_HERDR_* in .env">
-                from .env
-              </span>
+              <>
+                <span className="row__meta" title="Set with MARUMADO_HERDR_* in .env">
+                  from .env
+                </span>
+                <a className="btn btn--quiet" href="#/m/agents/sources/edit/env" aria-label={`Edit ${s.name}'s folders`}>
+                  Folders
+                </a>
+              </>
             ) : s.kind === 'machine' ? (
               <a className="row__meta" href="#/m/machines" title="A machine in Machines whose Marumado sees a Herdr: added on its own">
                 from Machines
@@ -112,6 +123,7 @@ function SourceForm({ source, onSaved }: { source?: SavedAgentSource; onSaved: (
   const { refreshAgents } = useHub()
   const streaming = useStreaming().on
   const [form, setForm] = useState({ name: source?.name ?? '', kind: source?.kind ?? 'ssh', target: source?.target ?? '' })
+  const [folders, setFolders] = useState<SourceFolder[]>(source?.folders ?? [])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const kind = KINDS.find((k) => k.kind === form.kind) ?? KINDS[0]
@@ -127,7 +139,7 @@ function SourceForm({ source, onSaved }: { source?: SavedAgentSource; onSaved: (
     setSaving(true)
     setError('')
     try {
-      const json = { name: form.name.trim(), kind: form.kind, target: form.target.trim() }
+      const json = { name: form.name.trim(), kind: form.kind, target: form.target.trim(), folders: filled(folders) }
       await api(source ? `agent-sources/${source.id}` : 'agent-sources', { method: source ? 'PATCH' : 'POST', json })
       done()
     } catch (err) {
@@ -183,6 +195,7 @@ function SourceForm({ source, onSaved }: { source?: SavedAgentSource; onSaved: (
           autoCorrect="off"
         />
       </label>
+      <FoldersField folders={folders} onChange={setFolders} />
       {error && <p className="notice signal-text">{error}</p>}
       <div className="sheet__actions" style={{ justifyContent: 'start' }}>
         <button className="btn" type="submit" disabled={saving}>
@@ -201,6 +214,120 @@ function SourceForm({ source, onSaved }: { source?: SavedAgentSource; onSaved: (
         Marumado runs <span className="mono">herdr</span> there to list your agents and stream their terminals. Removing a source stops watching it; the agents keep
         running.
       </p>
+    </form>
+  )
+}
+
+const filled = (folders: SourceFolder[]) => folders.filter((f) => f.here.trim() || f.there.trim())
+
+/** Where the source sees this machine's folders, so agents start in a project's folder there. One row per shared folder. */
+function FoldersField({ folders, onChange }: { folders: SourceFolder[]; onChange: (folders: SourceFolder[]) => void }) {
+  const rows = folders.length ? folders : [{ here: '', there: '' }]
+  const set = (i: number, f: SourceFolder) => onChange(rows.map((r, j) => (j === i ? f : r)))
+  return (
+    <fieldset className="field folders">
+      <legend>Shared folders</legend>
+      <p className="agent-hint">
+        When a folder of this machine has another path there, as in a VM: <span className="mono">/home/you/projects</span> on this machine,{' '}
+        <span className="mono">/projects</span> there. Agents for a project then start in its folder there. Leave empty when paths are the same.
+      </p>
+      {rows.map((f, i) => (
+        <div className="folders__row" key={i}>
+          <label className="sr-only" htmlFor={`here-${i}`}>
+            Folder on this machine
+          </label>
+          <input
+            id={`here-${i}`}
+            className="mono"
+            value={f.here}
+            onChange={(e) => set(i, { ...f, here: e.target.value })}
+            placeholder="/home/you/projects"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+          />
+          <span aria-hidden="true">→</span>
+          <label className="sr-only" htmlFor={`there-${i}`}>
+            The same folder there
+          </label>
+          <input
+            id={`there-${i}`}
+            className="mono"
+            value={f.there}
+            onChange={(e) => set(i, { ...f, there: e.target.value })}
+            placeholder="/projects"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+          />
+          <button className="btn btn--quiet" type="button" onClick={() => onChange(rows.filter((_, j) => j !== i))} aria-label="Remove this folder">
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+      ))}
+      <button className="btn btn--quiet folders__add" type="button" onClick={() => onChange([...rows, { here: '', there: '' }])}>
+        <Icon name="plus" size={16} /> Add a folder
+      </button>
+    </fieldset>
+  )
+}
+
+/** The .env source: where Herdr runs is set in .env; its folders here. */
+function EnvSourceForm() {
+  const { agents, refreshAgents } = useHub()
+  const saved = usePoll<{ folders: SourceFolder[] }>('agents/env-source', 60000)
+  const [folders, setFolders] = useState<SourceFolder[] | null>(null)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const env = sourcesOf(agents).find((s) => s.kind === 'env')
+  const shown = folders ?? saved.data?.folders
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    try {
+      await api('agents/env-source', { method: 'PATCH', json: { folders: filled(shown ?? []) } })
+      await refreshAgents()
+      go('#/m/agents/sources')
+    } catch (err) {
+      setError(err instanceof Error ? `Couldn't save: ${err.message}` : "Couldn't save.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <form className="sheet" onSubmit={submit}>
+      <a className="side__back" href="#/m/agents/sources">
+        <Icon name="back" size={18} /> All sources
+      </a>
+      <header className="sheet__head mod-agents">
+        <h2 className="sheet__title">{env ? `Edit ${env.name}` : 'Edit the .env source'}</h2>
+      </header>
+      <p className="sheet__lede">
+        Where Herdr runs for this source is set in .env (<span className="mono">MARUMADO_HERDR_*</span>)
+        {env ? (
+          <>
+            : <Redacted text={env.where} />
+          </>
+        ) : null}
+        .
+      </p>
+      {shown ? (
+        <FoldersField folders={shown} onChange={setFolders} />
+      ) : (
+        <div className="sheet__empty">{saved.error ? `Couldn't load its folders: ${saved.error.message}` : 'Loading…'}</div>
+      )}
+      {error && <p className="notice signal-text">{error}</p>}
+      <div className="sheet__actions" style={{ justifyContent: 'start' }}>
+        <button className="btn" type="submit" disabled={saving || !shown}>
+          {saving ? 'Saving' : 'Save changes'}
+        </button>
+        <a className="btn btn--quiet" href="#/m/agents/sources">
+          Cancel
+        </a>
+      </div>
     </form>
   )
 }

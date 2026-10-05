@@ -16,6 +16,10 @@ await ctx.route('http://127.0.0.1:7879/**', async (route) => {
   } catch { await route.abort() }
 })
 const page = await ctx.newPage()
+page.on('console', (m) => console.log('console', m.type(), m.text().slice(0, 300)))
+page.on('pageerror', (e) => console.log('pageerror', e.message))
+page.on('requestfinished', (r) => r.url().includes('trace') && console.log('done', r.url()))
+page.on('requestfailed', (r) => console.log('failed', r.url()))
 await page.goto(`http://127.0.0.1:7879/${hash}`, { waitUntil: 'commit' })
 await page.waitForTimeout(+(process.env.WAIT ?? 6000))
 const cdp = await ctx.newCDPSession(page)

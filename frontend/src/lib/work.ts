@@ -4,11 +4,11 @@ import type { Agent, Agents, AgentSource, Place, Project, Task } from './types'
 export const MACHINE_SOURCE_BASE = 1_000_000
 export const machineOfSource = (s: Pick<AgentSource, 'id' | 'kind'>) => (s.kind === 'machine' ? s.id - MACHINE_SOURCE_BASE : null)
 
-const OPEN: Task['state'][] = ['todo', 'starting', 'working', 'blocked', 'review', 'failed']
+const OPEN: Task['state'][] = ['todo', 'queued', 'starting', 'working', 'blocked', 'review', 'failed']
 
 /** The project's tasks still to finish, the ones that need you first. */
 export function openTasks(p: Pick<Project, 'id'>, tasks: Task[] | undefined): Task[] {
-  const rank = (t: Task) => ['blocked', 'failed', 'review', 'working', 'starting', 'todo'].indexOf(t.state)
+  const rank = (t: Task) => ['blocked', 'failed', 'review', 'working', 'starting', 'queued', 'todo'].indexOf(t.state)
   return (tasks ?? []).filter((t) => t.project === p.id && OPEN.includes(t.state)).sort((a, b) => rank(a) - rank(b))
 }
 
@@ -55,4 +55,19 @@ export function whereRunning(p: Pick<Project, 'running' | 'places'>): string {
   if (!names.length) return p.running ? 'Running' : ''
   const elsewhere = `${names[0]}${names.length > 1 ? ` +${names.length - 1}` : ''}`
   return p.running ? `Running here and on ${elsewhere}` : `Running on ${elsewhere}`
+}
+
+/** The project's folder in an agent source: on another machine, as its Marumado reports it ('' if it has none there);
+    elsewhere this machine's folder (a VM may share it, or Herdr starts in its default folder). */
+export function folderIn(project: Pick<Project, 'path' | 'places'> | undefined, s: Pick<AgentSource, 'id' | 'kind'>): string {
+  if (!project) return ''
+  const machine = machineOfSource(s)
+  if (machine == null) return project.path
+  return project.places?.find((x) => x.machine === machine && x.dir)?.dir ?? ''
+}
+
+/** Where a new agent for the project can start: the sources that answer, those that have its folder first. */
+export function startPlaces(project: Pick<Project, 'path' | 'places'> | undefined, agents: Agents | undefined): AgentSource[] {
+  const rank = (s: AgentSource) => (!project ? 0 : machineOfSource(s) == null ? (s.kind === 'env' && project.path ? 0 : 1) : folderIn(project, s) ? 0 : 2)
+  return (agents?.sources ?? []).filter((s) => s.available).sort((a, b) => rank(a) - rank(b))
 }

@@ -151,7 +151,7 @@
   --sp-16: calc(16 * var(--space));
   --sp-18: calc(18 * var(--space));
   --sp-22: calc(22 * var(--space));
-  --gutter: clamp(16px, 2.6vw, 48px);
+  --gutter: clamp(16px, 1.2vw, 24px);
 
   /* Control heights. Every control is at least --touch tall on a phone. */
   --control-sm: 30px;
@@ -180,24 +180,25 @@
   color-scheme: light;
 }
 
-/* The recorder at night: dark paper, pale pens. */
+/* The recorder at night: charcoal paper rather than black, so a side screen in a dim room stays easy to read, and
+   pale pens. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --ground: #1a1a18;
-    --ground-raised: #232320;
-    --ink: #e8e5dc;
-    --ink-2: #a9a69c;
-    --ink-3: #6b6961;
-    --track: #2f2e2b;
-    --grid: #2b2a27;
-    --grid-major: #44423d;
-    --rule: #46443f;
-    --rule-soft: #302f2b;
+    --ground: #22221f;
+    --ground-raised: #2d2d29;
+    --ink: #eeebe3;
+    --ink-2: #bdbab0;
+    --ink-3: #85827a;
+    --track: #3b3a35;
+    --grid: #32312d;
+    --grid-major: #4b4944;
+    --rule: #5a5851;
+    --rule-soft: #3e3d38;
     --solid: #e2dfd5;
-    --on-solid: #1a1a18;
-    --on-solid-2: #57554f;
-    --pen-off: #5c5a54;
-    --disc: #201f1d; /* at night each disc is a sheet a shade lighter than the table, so it holds its shape */
+    --on-solid: #22221f;
+    --on-solid-2: #67655e;
+    --pen-off: #706e67;
+    --disc: #292925; /* at night each disc is a sheet a shade lighter than the table, so it holds its shape */
     --rim-ink: 85%;
     --moss: #93a666;
     --signal: #e0703f;

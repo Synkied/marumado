@@ -9,10 +9,11 @@ import logging
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 
 from django.db import close_old_connections, transaction
 
-from . import discovery, herdr, places
+from . import discovery, herdr, places, transcripts
 from .models import Task, TaskEvent
 
 log = logging.getLogger(__name__)
@@ -35,7 +36,12 @@ def event(task: Task, kind: str, text: str = '', **fields) -> TaskEvent:
 
 
 def prompt_text(task: Task) -> str:
-    return f'{task.title}\n\n{task.notes.strip()}'.strip()
+    text = f'{task.title}\n\n{task.notes.strip()}'.strip()
+    if task.worktree:
+        # Steps of a plan that run side by side each get a worktree: say so, so the work stays on its branch.
+        text += (f'\n\nYou are working in a git worktree of the project, on the branch {task.worktree}. Other agents work on '
+                 'other branches at the same time. Commit your work on this branch; leave merging to me.')
+    return text
 
 
 def _snapshot(task: Task, lines: int = SNAPSHOT_LINES) -> str:
@@ -48,10 +54,15 @@ def _snapshot(task: Task, lines: int = SNAPSHOT_LINES) -> str:
 # ---------------------------------------------------------------- git
 
 def _repo(task: Task) -> Path | None:
-    """The task's project folder, when Marumado can see it and it is a git repository. An agent on another machine
-    works in that machine's copy, so this one's says nothing about what it changed."""
+    """The task's project folder, when Marumado can see it and it is a git repository; for a step in a worktree, the
+    worktree's folder (its .git is a file). An agent on another machine works in that machine's copy, so this one's
+    says nothing about what it changed."""
     if not task.project or not task.project.path or task.agent_source >= herdr.MACHINE_BASE:
         return None
+    if task.worktree and task.agent_cwd:
+        src = next((s for s in herdr.sources(include_machines=False) if s.id == task.agent_source), None)
+        tree = Path(herdr.folder_here(task.agent_cwd, src) if src and src.folders else task.agent_cwd)
+        return tree if (tree / '.git').exists() else None
     path = Path(task.project.path)
     return path if (path / '.git').exists() else None
 
@@ -107,9 +118,11 @@ def _unique_name(task: Task, taken: set[str]) -> str:
     return name
 
 
-def assign(task: Task, pane_id: str = '', kind: str = '', source: int = herdr.ENV) -> None:
+def assign(task: Task, pane_id: str = '', kind: str = '', source: int = herdr.ENV, worktree: str = '') -> None:
     """Hand the task to the agent in `pane_id`, or to a new `kind` agent started in the project's folder,
-    in `source` (where Herdr runs). Checks what it can up front (raising ValueError), then does the slow part on a thread."""
+    in `source` (where Herdr runs). `worktree`: the branch the agent works on; a new agent gets a git worktree of the
+    project on that new branch (a plan's step beside others), an open one is already in it (the step above's).
+    Checks what it can up front (raising ValueError), then does the slow part on a thread."""
     listed = herdr.agents()
     src = next((s for s in listed['sources'] if s['id'] == source), None)
     if src is None:
@@ -128,16 +141,20 @@ def assign(task: Task, pane_id: str = '', kind: str = '', source: int = herdr.EN
     elif kind not in herdr.AGENT_KINDS:
         raise ValueError('Choose an agent to give it to.')
     if pane_id:
-        task.agent_name, task.agent_kind = agent['name'], agent['kind']
+        task.agent_name, task.agent_kind, task.agent_cwd = agent['name'], agent['kind'], agent['cwd']
     else:
         task.agent_name, task.agent_kind = _unique_name(task, {a['name'] for a in mine if a['name']}), kind
     task.pane_id, task.agent_source = pane_id, source
+    task.worktree = worktree
     task.state = Task.STARTING
     # Its state before the task, so only a change after the prompt counts.
     task.agent_state = agent['status'] if pane_id else ''
     task.agent_title = ''
     task.live = True
     task.prompt_pending = False
+    task.transcript = ''
+    if not pane_id:
+        task.agent_cwd = folder_for(task.project, source)
     task.git_start = git_head(task)
     task.started_at = _now()
     task.finished_at = None
@@ -163,6 +180,7 @@ def follow(task: Task, pane_id: str, source: int = herdr.ENV) -> None:
     task.agent_name, task.agent_kind, task.agent_state = agent['name'], agent['kind'], status
     task.agent_title = '' if agent['title'].lower().startswith(agent['kind']) else agent['title'][:200]
     task.live, task.prompt_pending = True, False
+    task.agent_cwd, task.transcript = agent['cwd'], ''
     task.git_start = git_head(task)
     task.started_at = _now()
     task.finished_at = _now() if task.state == Task.REVIEW else None
@@ -170,7 +188,7 @@ def follow(task: Task, pane_id: str, source: int = herdr.ENV) -> None:
     src = next((s for s in listed['sources'] if s['id'] == source), None)
     on = f" on {src['name']}" if src and len(listed['sources']) > 1 else ''
     event(task, 'assigned', f"Following {agent['name'] or agent['kind']} ({agent['kind']}){on}, already at work",
-          data={'pane_id': pane_id, 'source': source, 'kind': agent['kind'], 'name': agent['name'], 'git_start': task.git_start},
+          data={'follow': True, 'pane_id': pane_id, 'source': source, 'kind': agent['kind'], 'name': agent['name'], 'git_start': task.git_start},
           output=_snapshot(task))
 
 
@@ -184,7 +202,7 @@ def _start_handover(task: Task, start: bool) -> None:
 
 # Every field watch() and the handover change. Saving only these never brings back a task deleted meanwhile.
 _FIELDS = ['state', 'pane_id', 'agent_source', 'agent_name', 'agent_kind', 'agent_state', 'agent_title', 'live', 'prompt_pending',
-           'git_start', 'started_at', 'finished_at', 'updated_at']
+           'agent_cwd', 'transcript', 'git_start', 'started_at', 'finished_at', 'updated_at']
 
 
 def _save(task: Task) -> None:
@@ -201,23 +219,31 @@ def _wait_for_answer(task: Task, text: str) -> None:
 
 def folder_for(project, source: int) -> str:
     """Where a new agent for the project starts, in `source`: on another machine, the project's folder there (as its
-    Marumado reports it, '' if it has none); elsewhere, the project's folder here (a VM may share it)."""
+    Marumado reports it, '' if it has none); elsewhere, the project's folder here, where a VM sees it."""
     if project is None:
         return ''
     if source >= herdr.MACHINE_BASE:
         return places.folder_on(project, source - herdr.MACHINE_BASE)
-    return project.path
+    return herdr.folder_in(project.path, source)
 
 
 def _start(task: Task) -> bool:
     """Open a workspace in the project's folder and start the agent there. True when it is ready for the task now;
     False when it is still starting: watch() sends the task once it is (or asks you, if it stops on a question)."""
     cwd = folder_for(task.project, task.agent_source)
-    opened = herdr.open_workspace(cwd, task.project.name if task.project else task.title, task.agent_source)
+    label = task.project.name if task.project else task.title
+    if task.worktree:
+        if not cwd:
+            raise ValueError("A worktree needs the project's folder, and it has none where Herdr runs.")
+        opened = herdr.open_worktree(cwd, task.worktree, f'{label} · {task.worktree.rsplit("/", 1)[-1]}', task.agent_source)
+        event(task, 'state', f'Made a git worktree on the branch {task.worktree}', state='starting')
+    else:
+        opened = herdr.open_workspace(cwd, label, task.agent_source)
     task.pane_id, task.agent_state, task.prompt_pending = opened['pane_id'], '', True
+    task.agent_cwd = opened['cwd'] or cwd
     _save(task)
     where = opened['cwd'] or 'its default folder'
-    if cwd and opened['cwd'] and opened['cwd'].rstrip('/') != cwd.rstrip('/'):
+    if not task.worktree and cwd and opened['cwd'] and opened['cwd'].rstrip('/') != cwd.rstrip('/'):
         event(task, 'error', f"{cwd} isn't on the machine Herdr runs on, so the agent starts in {where}")
     event(task, 'state', f'Opened a workspace in {where}, starting {task.agent_kind}', state='starting')
     if not herdr.launch_agent(task.agent_name, task.agent_kind, task.pane_id, task.agent_source):
@@ -350,6 +376,31 @@ def _follow(task: Task, agent: dict | None) -> None:
     _save(task)
 
 
+# ---------------------------------------------------------------- what the agent did
+
+def trace(task: Task, start: int = 0) -> dict:
+    """The agent's thinking and actions for the task, from its session record (core/transcripts.py), from step `start`.
+    A task that follows an agent already at work shows its whole session; one handed over starts at its prompt."""
+    if not task.started_at:
+        return {'found': False, 'reason': 'No agent has had it yet.', 'steps': [], 'total': 0}
+    assigned = task.events.filter(kind='assigned').order_by('-at', '-id').first()
+    followed = bool(assigned and assigned.data.get('follow'))
+    cwd = task.agent_cwd or folder_for(task.project, task.agent_source)
+    since = None if followed else task.started_at.timestamp()
+    src = herdr.get_source(task.agent_source)
+    if src.kind == 'machine':
+        query = {'kind': task.agent_kind, 'cwd': cwd, 'title': task.title, 'path': task.transcript, 'from': start}
+        if since is not None:
+            query['since'] = since
+        data = herdr._remote(src, 'GET', 'agents/trace', query=urlencode(query), timeout=40)
+    else:
+        data = transcripts.trace(src, task.agent_kind, cwd, since, task.title, task.transcript, start, any_session=followed)
+    if data.get('path') and data['path'] != task.transcript:
+        task.transcript = data['path']
+        task.save(update_fields=['transcript'])
+    return data
+
+
 # ---------------------------------------------------------------- owner's actions
 
 def mark_done(task: Task) -> None:
@@ -372,7 +423,7 @@ def to_review(task: Task) -> None:
 
 def reopen(task: Task) -> None:
     """Back to the to-do list, keeping its history. The agent (if still open) is left as it is."""
-    task.state, task.live, task.prompt_pending = Task.TODO, False, False
+    task.state, task.live, task.prompt_pending = Task.QUEUED if task.plan_id and task.plan.running else Task.TODO, False, False
     task.agent_state = ''
     task.save()
     event(task, 'reopened', 'Back to to do')

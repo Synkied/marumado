@@ -19,7 +19,7 @@
 
 .fleet {
   max-width: 1600px;
-  padding: var(--sp-8) var(--gutter) var(--sp-16);
+  padding: var(--sp-5) var(--gutter) var(--sp-16);
 }
 
 .fleet__machines {
@@ -30,13 +30,13 @@
 
 /* Between your work and the machines: a small mono caption, like a chart's legend. */
 .fleet__label {
-  margin: var(--sp-12) 0 0;
+  margin: var(--sp-10) 0 0;
   font-family: var(--f-mono);
   font-size: var(--text-md);
   font-weight: var(--weight-body);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 .fleet__foot {
@@ -46,7 +46,7 @@
 /* ---------- one machine ---------- */
 
 .mblock {
-  padding: var(--sp-9) 0 var(--sp-10);
+  padding: var(--sp-6) 0 var(--sp-7);
   border-bottom: 1px solid var(--rule);
 }
 
@@ -55,7 +55,7 @@
   grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   align-items: center;
   column-gap: var(--sp-7);
-  min-height: 40px;
+  min-height: var(--control);
 }
 
 /* The round window: a hollow ring when all is well, filled with the alarm pen when something needs you. */
@@ -202,16 +202,16 @@
    they wrap onto as many lines as they need, and stretch to fill each line. */
 .readouts {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
-  row-gap: var(--sp-5);
-  margin-top: var(--sp-7);
+  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+  row-gap: var(--sp-3);
+  margin-top: var(--sp-4);
 }
 
 /* A reading: its name in the module's pen, its seal, the value large, and what it means under it. */
 .readout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto minmax(24px, auto);
+  grid-template-rows: auto auto minmax(20px, auto);
   grid-template-areas:
     'label seal'
     'value value'
@@ -219,9 +219,9 @@
   align-items: center;
   column-gap: var(--sp-4);
   min-width: 0;
-  padding: var(--sp-6) var(--sp-6) var(--sp-5);
+  padding: var(--sp-5) var(--sp-6) var(--sp-4);
   border: 0;
-  background: var(--ground);
+  background: var(--disc);
   /* A hairline on the left: the readings read as ruled columns, not boxes. */
   box-shadow: inset 1px 0 var(--rule-soft);
   text-align: left;
@@ -236,7 +236,7 @@
 .readout__label {
   grid-area: label;
   overflow: hidden;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-weight: var(--weight-heavy);
   letter-spacing: var(--track-caps);
   text-transform: uppercase;
@@ -247,7 +247,7 @@
 
 .readout__value {
   grid-area: value;
-  margin-top: var(--sp-2);
+  margin-top: var(--sp-1);
   font-family: var(--f-mono);
   font-size: var(--text-3xl);
   line-height: 1.05;
@@ -260,7 +260,7 @@
 .readout__trace {
   grid-area: detail;
   align-self: end;
-  margin-top: var(--sp-3);
+  margin-top: var(--sp-2);
 }
 
 .readout__detail {
@@ -275,19 +275,22 @@
 }
 
 .readout--off .readout__label,
-.readout--off .readout__value,
 .readout--off .readout__detail {
+  color: var(--ink-2);
+}
+
+.readout--off .readout__value {
   color: var(--ink-3);
 }
 
 /* A reading that needs you keeps its place; the alarm pen marks it, on a faint wash of its colour. */
 .readout--fault {
-  background: color-mix(in oklab, var(--signal) 9%, var(--ground));
+  background: color-mix(in oklab, var(--signal) 9%, var(--disc));
   box-shadow: inset 3px 0 var(--signal);
 }
 
 .readout--fault:hover {
-  background: color-mix(in oklab, var(--signal) 14%, var(--ground));
+  background: color-mix(in oklab, var(--signal) 14%, var(--disc));
 }
 
 .readout--fault .readout__label,
@@ -300,8 +303,8 @@
 
 .seal {
   grid-area: seal;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   overflow: visible;
 }
 
@@ -319,7 +322,7 @@
 }
 
 .seal__part--off {
-  stroke: color-mix(in oklab, var(--mod) 28%, var(--ground));
+  stroke: color-mix(in oklab, var(--mod) 34%, var(--disc));
 }
 
 .seal__part--fault,
@@ -366,7 +369,7 @@
 /* The pen's last half hour, with a dot where it writes now. */
 .readout__trace {
   position: relative;
-  height: 24px;
+  height: 20px;
   margin-right: 3px;
 }
 
