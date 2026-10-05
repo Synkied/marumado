@@ -10,3 +10,6 @@ backend/staticfiles/
 compose.override.yaml
 backend/data/
 .impeccable/
+
+# curl cookie jars from screenshot logins
+backend/cj

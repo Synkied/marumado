@@ -1760,6 +1760,13 @@ button.chip:hover {
   border-color: var(--ink);
 }
 
+.field__hint {
+  font-size: var(--text-md);
+  font-weight: normal;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .field--check {
   display: flex;
   align-items: center;
@@ -3390,8 +3397,13 @@ details[open] > summary.rstep__line .rstep__title {
     scrollbar-width: thin;
     padding-right: var(--sp-6);
   }
+  /* The board takes what is left under the tabs, so the foot of every column is in view. */
   .sheet--board .board {
-    flex: 1 0 min(560px, 72dvh);
+    flex: 1 1 0;
+    min-height: 360px;
+  }
+  .sheet--board > .task__tabs {
+    align-self: flex-start;
   }
 }
 
@@ -3451,6 +3463,12 @@ details[open] > summary.rstep__line .rstep__title {
   align-self: flex-start;
 }
 
+.kcol__more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+}
+
 .kcard {
   border: 1px solid var(--rule-soft);
   border-radius: var(--radius-lg);
@@ -3487,6 +3505,11 @@ details[open] > summary.rstep__line .rstep__title {
 .kcard__title {
   font-weight: var(--weight-strong);
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
 }
 
 .kcard__sub {

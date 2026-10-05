@@ -7,7 +7,7 @@ import { ago } from '../lib/format'
 import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
 import { Secret } from '../lib/streaming'
-import type { Project, Task, TaskDetail, TaskEvent, TaskState } from '../lib/types'
+import type { Plan, Project, Task, TaskDetail, TaskEvent, TaskState } from '../lib/types'
 import { folderIn, machineOfSource, startPlaces } from '../lib/work'
 import { usePoll } from '../lib/usePoll'
 import { SheetHead } from './sheetHead'
@@ -143,7 +143,7 @@ function AddToColumn({ col, onError }: { col: Column; onError: (text: string) =>
     setBusy(true)
     onError('')
     try {
-      const made = await api<Task>('tasks', { method: 'POST', json: { title: title.trim(), project } })
+      const made = await api<Task>('tasks', { method: 'POST', json: { prompt: title.trim(), project } })
       if (col.id === 'working') return go(`#/m/tasks/${made.id}/assign`) // it needs an agent: choose one
       if (col.id === 'review' || col.id === 'done') await api(`tasks/${made.id}/${col.id}`, { method: 'POST' })
       refreshTasks()
@@ -166,9 +166,10 @@ function AddToColumn({ col, onError }: { col: Column; onError: (text: string) =>
       <textarea
         className="kadd__title"
         value={title}
-        onChange={(e) => setTitle(e.target.value.replace(/\n/g, ' '))}
+        onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') {
+          // Enter adds it; Shift+Enter starts a new line of the prompt.
+          if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             add()
           } else if (e.key === 'Escape') {
@@ -176,10 +177,9 @@ function AddToColumn({ col, onError }: { col: Column; onError: (text: string) =>
             setTitle('')
           }
         }}
-        placeholder={col.id === 'working' ? 'What the agent should do…' : 'Fix the login redirect, add dark mode…'}
+        placeholder={col.id === 'working' ? 'What the agent should do…' : 'Fix the login redirect… The first line names it.'}
         aria-label={`New task: ${col.title}`}
-        maxLength={200}
-        rows={2}
+        rows={3}
         autoFocus
       />
       <ProjectSelect value={project} onChange={chooseProject} />
@@ -339,7 +339,8 @@ export function TasksSheet({ sub }: { sub?: string }) {
   const move = useRef<(id: number, column: string) => void>(() => undefined)
   const board = useBoardDrag((id, column) => move.current(id, column))
 
-  if (sub) {
+  if (sub === 'archived') return <ArchivedSheet />
+  if (sub && sub !== 'plans') {
     const [id, view] = sub.split('/')
     if (id === 'plan') return view === 'new' ? <NewPlan /> : <PlanPage id={view} key={view} />
     return <TaskPage id={id} assign={view === 'assign'} />
@@ -366,12 +367,45 @@ export function TasksSheet({ sub }: { sub?: string }) {
   }
   const of = (states: TaskState[]) => tasks.filter((t) => states.includes(t.state))
   const done = of(['done']).sort((a, b) => (b.finished_at ?? '').localeCompare(a.finished_at ?? ''))
+  const archiveDone = async () => {
+    setError('')
+    try {
+      await api('tasks/archive-done', { method: 'POST' })
+      refreshTasks()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't archive them.")
+    }
+  }
+  const plans = sub === 'plans'
+  // Plans and the board each get the whole page: the board fits the window, its columns scrolling their own cards.
+  const head = (
+    <>
+      <SheetHead id="tasks">
+        <a className="btn btn--quiet" href="#/m/tasks/archived">
+          <Icon name="archive" size={16} /> Archived
+        </a>
+      </SheetHead>
+      <div className="seg seg--mod mod-tasks task__tabs" role="group" aria-label="Show">
+        <button type="button" className="seg__btn" aria-pressed={!plans} onClick={() => go('#/m/tasks')}>
+          Tasks · {tasks.filter((t) => t.state !== 'done').length}
+        </button>
+        <button type="button" className="seg__btn" aria-pressed={plans} onClick={() => go('#/m/tasks/plans')}>
+          Plans
+        </button>
+      </div>
+    </>
+  )
+  if (plans)
+    return (
+      <div className="sheet">
+        {head}
+        <PlansList />
+      </div>
+    )
 
   return (
     <div className="sheet sheet--fill sheet--board">
-      <SheetHead id="tasks" />
-      <p className="sheet__lede">Write down what needs doing, hand it to a coding agent in Herdr now or later, and see what it did: when it worked, when it waited on you, and what it changed.</p>
-      <PlansList />
+      {head}
       {error && <p className="notice signal-text">{error}</p>}
       <div className={`board mod-tasks${board.drag?.active ? ' board--dragging' : ''}`}>
         {COLUMNS.map((col) =>
@@ -384,11 +418,18 @@ export function TasksSheet({ sub }: { sub?: string }) {
               onError={setError}
               {...board}
               more={
-                !allDone && done.length > DONE_SHOWN ? (
-                  <button className="btn btn--quiet" type="button" onClick={() => setAllDone(true)}>
-                    Show all {done.length}
-                  </button>
-                ) : undefined
+                done.length > 0 && (
+                  <div className="kcol__more">
+                    {!allDone && done.length > DONE_SHOWN && (
+                      <button className="btn btn--quiet" type="button" onClick={() => setAllDone(true)}>
+                        Show all {done.length}
+                      </button>
+                    )}
+                    <ConfirmButton onConfirm={archiveDone} confirmLabel={`Archive ${done.length}`} title="Off the board, kept with their history under Archived">
+                      <Icon name="archive" size={16} /> Archive all
+                    </ConfirmButton>
+                  </div>
+                )
               }
             />
           ) : (
@@ -396,6 +437,100 @@ export function TasksSheet({ sub }: { sub?: string }) {
           ),
         )}
       </div>
+    </div>
+  )
+}
+
+/** Finished plans and done tasks put away: off the board and every list. Restoring one puts it back. */
+function ArchivedSheet() {
+  const { refreshTasks } = useHub()
+  const plans = usePoll<Plan[]>('plans?archived=1', 30000)
+  const tasks = usePoll<Task[]>('tasks?archived=1', 30000)
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState('')
+  const restore = async (path: string, name: string) => {
+    setBusy(path)
+    setError('')
+    try {
+      await api(`${path}/restore`, { method: 'POST' })
+      plans.refresh()
+      tasks.refresh()
+      refreshTasks()
+    } catch (err) {
+      setError(err instanceof Error ? `Couldn't restore “${name}”: ${err.message}` : "Couldn't restore it.")
+    } finally {
+      setBusy('')
+    }
+  }
+  const newest = <T extends { archived_at: string | null }>(xs: T[]) => [...xs].sort((a, b) => (b.archived_at ?? '').localeCompare(a.archived_at ?? ''))
+  // A plan's steps are listed with their plan.
+  const loose = newest((tasks.data ?? []).filter((t) => !(plans.data ?? []).some((p) => p.id === t.plan)))
+  const failed = plans.error ?? tasks.error
+  const restoreButton = (path: string, name: string) => (
+    <span className="row__actions">
+      <button className="btn" type="button" onClick={() => restore(path, name)} disabled={busy === path}>
+        {busy === path ? 'Restoring' : 'Restore'}
+      </button>
+    </span>
+  )
+  return (
+    <div className="sheet">
+      <a className="side__back" href="#/m/tasks">
+        <Icon name="back" size={18} /> All tasks
+      </a>
+      <header className="sheet__head mod-tasks">
+        <h2 className="sheet__title">Archived</h2>
+      </header>
+      <p className="sheet__lede">Finished plans and done tasks you put away, with their history. Restore one and it goes back where it was.</p>
+      {(error || failed) && <p className="notice signal-text">{error || `Couldn't load them: ${failed?.message}`}</p>}
+      {!plans.data || !tasks.data ? (
+        !failed && <div className="sheet__empty">Loading…</div>
+      ) : (
+        <>
+          <section className="sheet__section">
+            <h3>Plans · {plans.data.length}</h3>
+            {plans.data.length ? (
+              <ul className="list mod-tasks">
+                {newest(plans.data).map((p) => (
+                  <li className="row" key={p.id}>
+                    <span className="row__lamp" aria-hidden />
+                    <a className="row__main row__link" href={`#/m/tasks/plan/${p.id}`}>
+                      {p.title}
+                      <span className="row__sub">
+                        {p.project_name || 'No project'} · {p.steps.length} {p.steps.length === 1 ? 'step' : 'steps'} · archived {ago(p.archived_at ?? p.updated_at)}
+                      </span>
+                    </a>
+                    {restoreButton(`plans/${p.id}`, p.title)}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="sheet__empty">No plan archived.</p>
+            )}
+          </section>
+          <section className="sheet__section">
+            <h3>Tasks · {loose.length}</h3>
+            {loose.length ? (
+              <ul className="list mod-tasks">
+                {loose.map((t) => (
+                  <li className="row" key={t.id}>
+                    <span className="row__lamp" aria-hidden />
+                    <a className="row__main row__link" href={`#/m/tasks/${t.id}`}>
+                      {t.title}
+                      <span className="row__sub">
+                        {t.project_name || 'No project'} · done {ago(t.finished_at ?? t.updated_at)} · archived {ago(t.archived_at ?? t.updated_at)}
+                      </span>
+                    </a>
+                    {restoreButton(`tasks/${t.id}`, t.title)}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="sheet__empty">No task archived.</p>
+            )}
+          </section>
+        </>
+      )}
     </div>
   )
 }
@@ -423,8 +558,8 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [tab, setTab] = useState<'task' | 'trace' | 'activity'>(task.started_at && !assign ? 'trace' : 'task')
-  const [draft, setDraft] = useState<Draft>({ title: task.title, notes: task.notes, project: task.project })
-  const dirty = draft.title !== task.title || draft.notes !== task.notes || draft.project !== task.project
+  const [draft, setDraft] = useState<Draft>({ title: task.title, prompt: task.prompt, project: task.project })
+  const dirty = draft.title !== task.title || draft.prompt !== task.prompt || draft.project !== task.project
 
   const run = async (work: () => Promise<unknown>, failed: string) => {
     setBusy(true)
@@ -440,7 +575,17 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
     }
   }
   const act = (path: string) => run(() => api(`tasks/${task.id}/${path}`, { method: 'POST' }), "Couldn't do that.")
-  const save = () => run(() => api(`tasks/${task.id}`, { method: 'PATCH', json: draft }), "Couldn't save.")
+  const save = () =>
+    run(async () => {
+      // A title left empty comes back made from the prompt.
+      const saved = await api<Task>(`tasks/${task.id}`, { method: 'PATCH', json: draft })
+      setDraft({ title: saved.title, prompt: saved.prompt, project: saved.project })
+    }, "Couldn't save.")
+  const archive = () =>
+    run(async () => {
+      await api(`tasks/${task.id}/archive`, { method: 'POST' })
+      go('#/m/tasks')
+    }, "Couldn't archive it.")
   const remove = async () => {
     try {
       await api(`tasks/${task.id}`, { method: 'DELETE' })
@@ -455,9 +600,14 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
   // Top right of the task on a wide screen; a bar along the bottom on a phone.
   const bar = (where: string) => (
     <div className={`sheet__actions ${where}`}>
-      <button className="btn" type="button" disabled={busy || !dirty || !draft.title.trim()} onClick={save}>
+      <button className="btn" type="button" disabled={busy || !dirty || !(draft.title.trim() || draft.prompt.trim())} onClick={save}>
         {busy && dirty ? 'Saving' : dirty ? 'Save changes' : 'Saved'}
       </button>
+      {task.state === 'done' && !task.archived_at && (
+        <button className="btn btn--quiet" type="button" disabled={busy} onClick={archive} title="Off the board, kept with its history under Archived">
+          <Icon name="archive" size={16} /> Archive
+        </button>
+      )}
       <ConfirmButton onConfirm={remove} confirmLabel={task.live ? 'Delete (the agent keeps running)' : 'Confirm delete'} disabled={busy}>
         <Icon name="trash" size={16} /> Delete
       </ConfirmButton>
@@ -488,6 +638,14 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
       {task.plan != null && (
         <p className="sheet__lede">
           A step of a plan{task.state === 'queued' ? ': it starts by itself when its turn comes' : ''}. <a href={`#/m/tasks/plan/${task.plan}`}>Open the plan</a>
+        </p>
+      )}
+      {task.archived_at && (
+        <p className="notice">
+          Archived {ago(task.archived_at)}: off the board and every list.{' '}
+          <button className="btn btn--quiet" type="button" disabled={busy} onClick={() => act('restore')}>
+            Restore
+          </button>
         </p>
       )}
       {task.state === 'blocked' && (
@@ -593,7 +751,7 @@ function AgentFacts({ task, busy, act }: { task: TaskDetail; busy: boolean; act:
   )
 }
 
-type Draft = { title: string; notes: string; project: number | null }
+type Draft = { title: string; prompt: string; project: number | null }
 
 /** The task's own fields. Saved with the button at the top of the page. */
 function TaskFields({ task, draft, onChange }: { task: TaskDetail; draft: Draft; onChange: (d: Draft) => void }) {
@@ -602,12 +760,18 @@ function TaskFields({ task, draft, onChange }: { task: TaskDetail; draft: Draft;
       <h3>Task</h3>
       {task.live && <p className="sheet__lede">The agent already has it: changes here are for your list, not sent to the agent.</p>}
       <label className="field">
-        What needs doing
-        <input value={draft.title} onChange={(e) => onChange({ ...draft, title: e.target.value })} required maxLength={200} />
+        Prompt
+        <textarea
+          rows={Math.min(20, Math.max(6, draft.prompt.split('\n').length + 1))}
+          value={draft.prompt}
+          onChange={(e) => onChange({ ...draft, prompt: e.target.value })}
+          placeholder={`What the agent is told. Empty, it gets the title: “${task.title}”.`}
+        />
       </label>
       <label className="field">
-        Details for the agent
-        <textarea rows={5} value={draft.notes} onChange={(e) => onChange({ ...draft, notes: e.target.value })} placeholder="Where to look, what done looks like, what not to touch…" />
+        Title
+        <input value={draft.title} onChange={(e) => onChange({ ...draft, title: e.target.value })} maxLength={200} placeholder="Made from the prompt" />
+        <span className="field__hint">For the board and lists. Left empty, it is made from the prompt again.</span>
       </label>
       <label className="field">
         Project
@@ -673,7 +837,7 @@ function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => 
       setBusy(false)
     }
   }
-  const prompt = `${task.title}\n\n${task.notes.trim()}`.trim()
+  const prompt = task.prompt.trim() || task.title
 
   return (
     <section className="sheet__section">
@@ -830,7 +994,7 @@ function Timeline({ task }: { task: TaskDetail }) {
   )
 }
 
-const EVENT_DOT: Partial<Record<TaskEvent['kind'], string>> = { closed: 'quiet', activity: 'quiet', created: 'quiet' }
+const EVENT_DOT: Partial<Record<TaskEvent['kind'], string>> = { closed: 'quiet', activity: 'quiet', created: 'quiet', archived: 'quiet', restored: 'quiet' }
 
 /** Signal only for what needs you now: the wait the agent is in, or the error that failed the task. */
 function eventDot(e: TaskEvent, now: boolean): string {

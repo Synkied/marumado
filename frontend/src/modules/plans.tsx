@@ -3,6 +3,7 @@ import { ConfirmButton } from '../components/ConfirmButton'
 import { Icon } from '../components/Icon'
 import { agentKey, parseAgentRef, sourceLabel } from '../lib/agents'
 import { api } from '../lib/api'
+import { ago } from '../lib/format'
 import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
 import type { Agents, Plan, Runner, Task, TaskState } from '../lib/types'
@@ -21,7 +22,7 @@ import './plans.css'
 export type PlanPlace = { plan: number } | 'new' | 'list'
 export const PlanNav = createContext<((to: PlanPlace) => void) | null>(null)
 
-const hrefOf = (to: PlanPlace) => (to === 'new' ? '#/m/tasks/plan/new' : to === 'list' ? '#/m/tasks' : `#/m/tasks/plan/${to.plan}`)
+const hrefOf = (to: PlanPlace) => (to === 'new' ? '#/m/tasks/plan/new' : to === 'list' ? '#/m/tasks/plans' : `#/m/tasks/plan/${to.plan}`)
 
 function useNav(): (to: PlanPlace) => void {
   const nav = useContext(PlanNav)
@@ -49,10 +50,9 @@ function PlanLink({ to, className, children }: { to: PlanPlace; className?: stri
 }
 
 function Back() {
-  const inModal = useContext(PlanNav) !== null
   return (
     <PlanLink to="list" className="side__back">
-      <Icon name="back" size={18} /> {inModal ? 'All plans' : 'All tasks'}
+      <Icon name="back" size={18} /> All plans
     </PlanLink>
   )
 }
@@ -330,6 +330,11 @@ function PlanView({ plan, refresh, back }: { plan: Plan; refresh: () => void; ba
   }
   const arrange = (next: Task[][]) => run(() => api(`plans/${plan.id}/arrange`, { method: 'POST', json: { rows: ids(next) } }), "Couldn't move it.")
   const patch = (json: object) => run(() => api(`plans/${plan.id}`, { method: 'PATCH', json }), "Couldn't change it.")
+  const archive = () =>
+    run(async () => {
+      await api(`plans/${plan.id}/archive`, { method: 'POST' })
+      nav('list')
+    }, "Couldn't archive it.")
   const remove = async () => {
     try {
       await api(`plans/${plan.id}`, { method: 'DELETE' })
@@ -372,6 +377,11 @@ function PlanView({ plan, refresh, back }: { plan: Plan; refresh: () => void; ba
                     <Icon name="agent" size={16} /> {state === 'paused' ? 'Resume' : 'Start'}
                   </button>
                 ))}
+              {state === 'finished' && !plan.archived_at && (
+                <button className="btn" type="button" disabled={busy} onClick={archive} title="Out of the plans list and off the board, its steps with it; kept under Archived">
+                  <Icon name="archive" size={16} /> Archive
+                </button>
+              )}
               <ConfirmButton onConfirm={remove} confirmLabel="Delete: steps go back to To do" disabled={busy}>
                 <Icon name="trash" size={16} /> Delete
               </ConfirmButton>
@@ -410,6 +420,14 @@ function PlanView({ plan, refresh, back }: { plan: Plan; refresh: () => void; ba
         )}
       </p>
 
+      {plan.archived_at && (
+        <p className="notice">
+          Archived {ago(plan.archived_at)}, its steps with it: out of the plans list and off the board.{' '}
+          <button className="btn btn--quiet" type="button" disabled={busy} onClick={() => run(() => api(`plans/${plan.id}/restore`, { method: 'POST' }), "Couldn't restore it.")}>
+            Restore
+          </button>
+        </p>
+      )}
       {needsYou.map((t) => (
         <p className="notice notice--fault" key={t.id}>
           <strong>{t.state === 'failed' ? `“${t.title}” failed.` : `“${t.title}” is waiting on you.`}</strong>{' '}
@@ -627,7 +645,7 @@ function Builder({ plan, rows, busy, arrange, run, ideas, agents }: {
   const add = (e: { preventDefault: () => void }, row?: number) => {
     e.preventDefault()
     const text = row == null ? title : besideTitle
-    run(() => api(`plans/${plan.id}/add`, { method: 'POST', json: { title: text, row, ask: row == null && ask } }), "Couldn't add it.").then(() => {
+    run(() => api(`plans/${plan.id}/add`, { method: 'POST', json: { prompt: text, row, ask: row == null && ask } }), "Couldn't add it.").then(() => {
       if (row == null) setTitle('')
       else {
         setBesideTitle('')
@@ -700,9 +718,10 @@ function Builder({ plan, rows, busy, arrange, run, ideas, agents }: {
                   <form onSubmit={(e) => add(e, r)} className="prow__form">
                     <textarea
                       value={besideTitle}
-                      onChange={(e) => setBesideTitle(e.target.value.replace(/\n/g, ' '))}
+                      onChange={(e) => setBesideTitle(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+                        // Enter adds it; Shift+Enter starts a new line of the prompt.
+                        if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault()
                           if (besideTitle.trim() && !busy) add(e, r)
                         } else if (e.key === 'Escape') {
@@ -710,8 +729,7 @@ function Builder({ plan, rows, busy, arrange, run, ideas, agents }: {
                           setBeside(null)
                         }
                       }}
-                      placeholder="A step that runs at the same time…"
-                      maxLength={200}
+                      placeholder="A step that runs at the same time, as you'd tell the agent…"
                       rows={3}
                       autoFocus
                       aria-label="New step beside these"
@@ -745,7 +763,18 @@ function Builder({ plan, rows, busy, arrange, run, ideas, agents }: {
         </span>
         <label className="field">
           {rows.length ? 'Next step' : 'First step'}
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Write the step as you'd tell the agent…" maxLength={200} />
+          <textarea
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                if (title.trim() && !busy) add(e)
+              }
+            }}
+            placeholder="Write the step as you'd tell the agent. Its first line names it; Shift+Enter for a new line."
+            rows={3}
+          />
         </label>
         <button className="btn" type="submit" disabled={!title.trim() || busy}>
           <Icon name="plus" size={16} /> Add
@@ -867,6 +896,12 @@ function StepCard({ t, above, alone, first, last, inRow, agents, busy, asking, h
         )}
       </span>
       <span className={`pstep__sub${m === 'fault' ? ' signal-text' : ''}`}>{sub}</span>
+      {t.prompt.trim() && t.prompt.trim() !== t.title && (
+        <details className="pstep__prompt">
+          <summary>Prompt</summary>
+          <p>{t.prompt.trim()}</p>
+        </details>
+      )}
       {asking && (
         <span className="pstep__go">
           <GoButton step={t.id} title={t.title} onDone={gone} className="btn pstep__gobtn" />

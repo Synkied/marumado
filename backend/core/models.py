@@ -159,6 +159,8 @@ class Plan(models.Model):
     # An agent's own queue: the plan its steps go into when they are queued from its page (plans.queue_for).
     pane_id = models.CharField(max_length=40, blank=True, default='')
     pane_source = models.PositiveIntegerField(default=0)
+    # Finished and put away, its steps with it: out of the plans list until restored.
+    archived_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -191,9 +193,10 @@ class Task(models.Model):
         (FAILED, 'Failed'),
     ]
 
+    # A short name for lists, made from the prompt unless written by hand.
     title = models.CharField(max_length=200)
-    # What the agent is told, after the title.
-    notes = models.TextField(blank=True, default='')
+    # What the agent is told, in full (empty: the title).
+    prompt = models.TextField(blank=True, default='')
     project = models.ForeignKey(Project, null=True, blank=True, on_delete=models.SET_NULL, related_name='tasks')
     state = models.CharField(max_length=10, choices=STATES, default=TODO)
     # The Herdr pane of the agent it was given to, and what that agent was. Pane ids are only unique
@@ -231,6 +234,8 @@ class Task(models.Model):
     transcript = models.CharField(max_length=500, blank=True, default='')
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    # Done and put away (or its plan was): off the board and every list until restored.
+    archived_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -256,6 +261,8 @@ class TaskEvent(models.Model):
         ('done', 'Marked done'),
         ('reopened', 'Reopened'),
         ('moved', 'Moved'),  # put under review by hand
+        ('archived', 'Archived'),
+        ('restored', 'Restored'),  # back from the archive
     ]
 
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='events')

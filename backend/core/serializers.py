@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from .discovery import SCANNED_FIELDS
-from . import herdr, machines
+from . import herdr, machines, tasks
 from .models import AgentSource, Machine, Plan, Project, Skill, Task, TaskEvent, UptimeCheck
 
 
@@ -100,15 +100,17 @@ class TaskEventSerializer(serializers.ModelSerializer):
 
 class TaskSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True, default='')
+    # Left blank, it is made from the prompt.
+    title = serializers.CharField(max_length=200, required=False, allow_blank=True)
 
     class Meta:
         model = Task
         fields = [
-            'id', 'title', 'notes', 'project', 'project_name', 'state', 'pane_id', 'agent_source', 'agent_name', 'agent_kind',
-            'agent_state', 'agent_title', 'live', 'prompt_pending', 'started_at', 'finished_at', 'created_at', 'updated_at',
+            'id', 'title', 'prompt', 'project', 'project_name', 'state', 'pane_id', 'agent_source', 'agent_name', 'agent_kind',
+            'agent_state', 'agent_title', 'live', 'prompt_pending', 'started_at', 'finished_at', 'archived_at', 'created_at', 'updated_at',
             'plan', 'plan_row', 'plan_col', 'runner', 'want_pane', 'want_source', 'worktree', 'ask', 'go',
         ]
-        read_only_fields = [f for f in fields if f not in ('title', 'notes', 'project', 'runner', 'want_pane', 'want_source', 'ask')]
+        read_only_fields = [f for f in fields if f not in ('title', 'prompt', 'project', 'runner', 'want_pane', 'want_source', 'ask')]
 
     def validate(self, attrs):
         runner = attrs.get('runner', getattr(self.instance, 'runner', ''))
@@ -116,13 +118,12 @@ class TaskSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'want_pane': 'Choose the agent to give it to.'})
         if attrs.get('want_pane') and not herdr.PANE_ID.match(attrs['want_pane']):
             raise serializers.ValidationError({'want_pane': 'Not a Herdr pane id.'})
+        if 'title' in attrs or not self.instance:
+            prompt = attrs.get('prompt', self.instance.prompt if self.instance else '')
+            attrs['title'] = attrs.get('title', '').strip() or tasks.title_from(prompt)
+            if not attrs['title']:
+                raise serializers.ValidationError({'prompt': 'Write what needs doing.'})
         return attrs
-
-    def validate_title(self, value):
-        value = value.strip()
-        if not value:
-            raise serializers.ValidationError('Write what needs doing.')
-        return value
 
 
 class PlanSerializer(serializers.ModelSerializer):
@@ -132,9 +133,9 @@ class PlanSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Plan
-        fields = ['id', 'title', 'project', 'project_name', 'kind', 'source', 'running', 'pane_id', 'pane_source', 'created_at', 'updated_at',
-                  'steps', 'asking']
-        read_only_fields = ['running', 'pane_id', 'pane_source', 'created_at', 'updated_at', 'steps', 'asking']
+        fields = ['id', 'title', 'project', 'project_name', 'kind', 'source', 'running', 'pane_id', 'pane_source', 'archived_at', 'created_at',
+                  'updated_at', 'steps', 'asking']
+        read_only_fields = ['running', 'pane_id', 'pane_source', 'archived_at', 'created_at', 'updated_at', 'steps', 'asking']
 
     def get_steps(self, plan):
         """Row by row, left to right."""

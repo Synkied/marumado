@@ -582,7 +582,7 @@ function Practise({ row }: { row: SkillRow }) {
     setError('')
     try {
       const title = picked ? `${verb} ${row.name} in ${picked.name}` : `${verb} ${row.name}`
-      const made = await api<{ id: number }>('tasks', { method: 'POST', json: { title, notes: row.record?.note ?? '', project: picked?.id ?? null } })
+      const made = await api<{ id: number }>('tasks', { method: 'POST', json: { title, prompt: `${title}\n\n${row.record?.note ?? ''}`.trim(), project: picked?.id ?? null } })
       refreshTasks()
       go(`#/m/tasks/${made.id}`)
     } catch (err) {
@@ -599,7 +599,7 @@ function Practise({ row }: { row: SkillRow }) {
           : row.projects.length
             ? 'Turn the plan into a task, then do it yourself or hand it to an agent and read what it did.'
             : 'No project uses it yet. Start with a small task in one of your projects.'}{' '}
-        Your notes go along as the task’s details.
+        Your notes go along in the task’s prompt.
       </p>
       <div className="addline">
         <label className="field">

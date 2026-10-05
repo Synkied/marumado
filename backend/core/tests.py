@@ -56,7 +56,7 @@ class TaskFlowTests(TestCase):
         self.api.credentials(HTTP_AUTHORIZATION='Bearer test-token')
 
     def create(self):
-        res = self.api.post('/api/tasks', {'title': 'Add a README', 'notes': 'Short one.', 'project': self.project.id}, format='json')
+        res = self.api.post('/api/tasks', {'prompt': 'Add a README\n\nShort one.', 'project': self.project.id}, format='json')
         self.assertEqual(res.status_code, 201, res.content)
         return res.json()['id']
 
@@ -210,6 +210,45 @@ class TaskFlowTests(TestCase):
         task = self.api.post(f'/api/tasks/{tid}/reopen').json()
         self.assertEqual(task['state'], 'todo')
         self.assertEqual([e['kind'] for e in task['events']], ['created', 'moved', 'done', 'reopened'])
+
+    def test_title_is_made_from_the_prompt(self):
+        tid = self.create()
+        self.assertEqual(Task.objects.get(pk=tid).title, 'Add a README')
+        self.assertEqual(self.api.patch(f'/api/tasks/{tid}', {'title': 'Docs'}, format='json').json()['title'], 'Docs')
+        res = self.api.patch(f'/api/tasks/{tid}', {'prompt': 'Write the docs. All of them.'}, format='json')
+        self.assertEqual(res.json()['title'], 'Docs')  # a title written by hand stays
+        self.assertEqual(self.api.patch(f'/api/tasks/{tid}', {'title': ' '}, format='json').json()['title'], 'Write the docs')
+        self.assertEqual(self.api.post('/api/tasks', {'prompt': '  ', 'title': ''}, format='json').status_code, 400)
+        res = self.api.post('/api/tasks', {'title': 'Only a title'}, format='json')
+        self.assertEqual((res.status_code, res.json()['title']), (201, 'Only a title'))
+        self.assertEqual(tasks.prompt_text(Task.objects.get(pk=res.json()['id'])), 'Only a title')
+
+    def test_title_from(self):
+        self.assertEqual(tasks.title_from('\n## Fix the login redirect\nIt loops.'), 'Fix the login redirect')
+        self.assertEqual(tasks.title_from('- Fix the CSS. Then the JS.'), 'Fix the CSS')
+        self.assertEqual(tasks.title_from('Look at v1.2 first'), 'Look at v1.2 first')
+        long = tasks.title_from('word ' * 40)
+        self.assertTrue(len(long) <= tasks.TITLE_LENGTH and long.endswith('word…'), long)
+        self.assertEqual(len(tasks.title_from('x' * 300)), tasks.TITLE_LENGTH)
+
+    def test_archiving_done_tasks(self):
+        tid, other, open_ = self.create(), self.create(), self.create()
+        self.assertEqual(self.api.post(f'/api/tasks/{open_}/archive').status_code, 400)  # not done yet
+        self.api.post(f'/api/tasks/{tid}/done')
+        task = self.api.post(f'/api/tasks/{tid}/archive').json()
+        self.assertTrue(task['archived_at'])
+        self.assertEqual(task['events'][-1]['kind'], 'archived')
+        ids = lambda q='': [t['id'] for t in self.api.get(f'/api/tasks{q}').json()]
+        self.assertNotIn(tid, ids())
+        self.assertEqual(ids('?archived=1'), [tid])
+        self.assertEqual(self.api.get(f'/api/tasks/{tid}').status_code, 200)  # its page still opens
+        self.api.post(f'/api/tasks/{other}/done')
+        self.assertEqual(self.api.post('/api/tasks/archive-done').json(), {'archived': 1})
+        self.assertEqual(sorted(ids('?archived=1')), sorted([tid, other]))
+        self.assertIsNone(self.api.post(f'/api/tasks/{tid}/restore').json()['archived_at'])
+        self.api.post(f'/api/tasks/{other}/reopen')  # reopening brings it back too
+        self.assertEqual(ids('?archived=1'), [])
+        self.assertEqual(Task.objects.get(pk=other).state, 'todo')
 
     def test_agents_in_other_sources_are_told_apart(self):
         # The same pane id in two sources: the task follows the one in the source it was given to.
@@ -396,6 +435,30 @@ class PlanTests(TestCase):
         with mock.patch.object(herdr, 'agents', return_value=agents(('w9:p1', 'mine', 'claude', 'done', ''))):
             self.api.post(f'/api/tasks/{second.json()["id"]}/go')
         self.assertEqual(self.prompted[-1], ('w9:p1', 'Then release'))
+
+    def test_steps_are_written_as_prompts(self):
+        plan = self.api.post('/api/plans', {'title': 'Ship it', 'project': self.project.id, 'kind': 'claude'}, format='json').json()
+        long = 'Rewrite the settings page so every field saves on its own. ' + 'Keep the layout. ' * 20
+        plan = self.api.post(f'/api/plans/{plan["id"]}/add', {'prompt': long}, format='json').json()
+        step = Task.objects.get(pk=plan['steps'][0]['id'])
+        self.assertEqual((step.title, tasks.prompt_text(step)), ('Rewrite the settings page so every field saves on its own', long.strip()))
+
+    def test_archiving_a_finished_plan_takes_its_steps(self):
+        pid, ids = self.plan(['One'], ['Two'])
+        self.assertEqual(self.api.post(f'/api/plans/{pid}/archive').status_code, 400)  # not finished
+        self.api.post(f'/api/tasks/{ids["One"]}/done')
+        self.api.post(f'/api/tasks/{ids["Two"]}/review')
+        plan = self.api.post(f'/api/plans/{pid}/archive').json()
+        self.assertTrue(plan['archived_at'])
+        self.assertEqual([p['id'] for p in self.api.get('/api/plans').json()], [])
+        self.assertEqual([p['id'] for p in self.api.get('/api/plans?archived=1').json()], [pid])
+        listed = [t['id'] for t in self.api.get('/api/tasks').json()]
+        self.assertNotIn(ids['One'], listed)
+        self.assertNotIn(ids['Two'], listed)
+        self.assertIsNone(self.api.post(f'/api/plans/{pid}/restore').json()['archived_at'])
+        listed = [t['id'] for t in self.api.get('/api/tasks').json()]
+        self.assertIn(ids['One'], listed)
+        self.assertEqual(self.step(ids, 'Two').state, 'review')
 
     def test_arranging_and_deleting_give_steps_back_to_the_ideas(self):
         pid, ids = self.plan(['One'], ['Two'])

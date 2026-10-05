@@ -6,6 +6,7 @@ with the end of its terminal, and when the agent finishes its turn the task wait
 and files it changed in the project.
 """
 import logging
+import re
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -35,8 +36,24 @@ def event(task: Task, kind: str, text: str = '', **fields) -> TaskEvent:
     return TaskEvent.objects.create(task=task, kind=kind, text=text[:500], **fields)
 
 
+TITLE_LENGTH = 80
+
+
+def title_from(prompt: str) -> str:
+    """A short title for a prompt: its first line, down to its first sentence, cut at a word when still too long."""
+    line = next((x for x in prompt.splitlines() if x.strip()), '')
+    line = ' '.join(re.sub(r'^\s*(?:[#>*-]+|\d+[.)])\s*', '', line).split())
+    sentence = re.match(r'(.+?)[.!?:;](?:\s|$)', line)
+    if sentence and len(sentence.group(1)) <= TITLE_LENGTH:
+        return sentence.group(1)
+    if len(line) <= TITLE_LENGTH:
+        return line
+    cut = line[:TITLE_LENGTH - 1]
+    return (cut.rsplit(' ', 1)[0] if ' ' in cut else cut).rstrip(',;:-–— ') + '…'
+
+
 def prompt_text(task: Task) -> str:
-    text = f'{task.title}\n\n{task.notes.strip()}'.strip()
+    text = task.prompt.strip() or task.title
     if task.worktree:
         # Steps of a plan that run side by side each get a worktree: say so, so the work stays on its branch.
         text += (f'\n\nYou are working in a git worktree of the project, on the branch {task.worktree}. Other agents work on '
@@ -389,12 +406,12 @@ def trace(task: Task, start: int = 0) -> dict:
     since = None if followed else task.started_at.timestamp()
     src = herdr.get_source(task.agent_source)
     if src.kind == 'machine':
-        query = {'kind': task.agent_kind, 'cwd': cwd, 'title': task.title, 'path': task.transcript, 'from': start}
+        query = {'kind': task.agent_kind, 'cwd': cwd, 'title': prompt_text(task), 'path': task.transcript, 'from': start}
         if since is not None:
             query['since'] = since
         data = herdr._remote(src, 'GET', 'agents/trace', query=urlencode(query), timeout=40)
     else:
-        data = transcripts.trace(src, task.agent_kind, cwd, since, task.title, task.transcript, start, any_session=followed)
+        data = transcripts.trace(src, task.agent_kind, cwd, since, prompt_text(task), task.transcript, start, any_session=followed)
     if data.get('path') and data['path'] != task.transcript:
         task.transcript = data['path']
         task.save(update_fields=['transcript'])
@@ -424,6 +441,26 @@ def to_review(task: Task) -> None:
 def reopen(task: Task) -> None:
     """Back to the to-do list, keeping its history. The agent (if still open) is left as it is."""
     task.state, task.live, task.prompt_pending = Task.QUEUED if task.plan_id and task.plan.running else Task.TODO, False, False
-    task.agent_state = ''
+    task.agent_state, task.archived_at = '', None
     task.save()
     event(task, 'reopened', 'Back to to do')
+
+
+def archive(task: Task) -> None:
+    """Put a done task away: off the board and every list, kept with its history until restored."""
+    if task.state != Task.DONE:
+        raise ValueError('Only a done task can be archived. Mark it done first.')
+    if task.archived_at:
+        return
+    task.archived_at = _now()
+    task.save(update_fields=['archived_at', 'updated_at'])
+    event(task, 'archived', 'Archived')
+
+
+def restore(task: Task) -> None:
+    """Back from the archive, where it was."""
+    if not task.archived_at:
+        return
+    task.archived_at = None
+    task.save(update_fields=['archived_at', 'updated_at'])
+    event(task, 'restored', 'Restored from the archive')

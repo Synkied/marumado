@@ -143,7 +143,13 @@ class TaskViewSet(viewsets.ModelViewSet):
     """The to-do list. A task can be handed to a coding agent in Herdr, which Marumado then follows (core/tasks.py)."""
 
     serializer_class = TaskSerializer
-    queryset = Task.objects.select_related('project')
+
+    def get_queryset(self):
+        """The list leaves archived tasks out; ?archived=1 lists only them."""
+        qs = Task.objects.select_related('project')
+        if self.action == 'list':
+            qs = qs.filter(archived_at__isnull=self.request.query_params.get('archived') != '1')
+        return qs
 
     def retrieve(self, request, pk=None):
         task = self.get_object()
@@ -220,6 +226,27 @@ class TaskViewSet(viewsets.ModelViewSet):
         return self.retrieve(request, pk)
 
     @action(detail=True, methods=['post'])
+    def archive(self, request, pk=None):
+        try:
+            tasks.archive(self.get_object())
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        return self.retrieve(request, pk)
+
+    @action(detail=True, methods=['post'])
+    def restore(self, request, pk=None):
+        tasks.restore(self.get_object())
+        return self.retrieve(request, pk)
+
+    @action(detail=False, methods=['post'], url_path='archive-done')
+    def archive_done(self, request):
+        """Archive every done task at once."""
+        done = list(Task.objects.filter(state=Task.DONE, archived_at__isnull=True))
+        for task in done:
+            tasks.archive(task)
+        return Response({'archived': len(done)})
+
+    @action(detail=True, methods=['post'])
     def go(self, request, pk=None):
         """The owner's go for a plan's step that asks for it before starting."""
         task = self.get_object()
@@ -234,7 +261,13 @@ class PlanViewSet(viewsets.ModelViewSet):
     """Steps for agents to take over on their own, in order or side by side (core/plans.py)."""
 
     serializer_class = PlanSerializer
-    queryset = Plan.objects.select_related('project').prefetch_related('steps__project')
+
+    def get_queryset(self):
+        """The list leaves archived plans out; ?archived=1 lists only them."""
+        qs = Plan.objects.select_related('project').prefetch_related('steps__project')
+        if self.action == 'list':
+            qs = qs.filter(archived_at__isnull=self.request.query_params.get('archived') != '1')
+        return qs
 
     def perform_destroy(self, instance):
         plans.dissolve(instance)
@@ -255,10 +288,10 @@ class PlanViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def add(self, request, pk=None):
-        """{title, notes?, row?, ask?}: a new step, beside the steps of `row` (an index), or in a new row at the end;
-        `ask`: it waits for the owner's go when its turn comes."""
+        """{prompt, title?, row?, ask?}: a new step, beside the steps of `row` (an index), or in a new row at the end;
+        `ask`: it waits for the owner's go when its turn comes. Without a title, one is made from the prompt."""
         plan = self.get_object()
-        made = TaskSerializer(data={'title': request.data.get('title', ''), 'notes': request.data.get('notes', ''), 'project': plan.project_id,
+        made = TaskSerializer(data={'title': request.data.get('title', ''), 'prompt': request.data.get('prompt', ''), 'project': plan.project_id,
                                     'ask': bool(request.data.get('ask'))})
         made.is_valid(raise_exception=True)
         layout = [[t.id for t in row] for row in plans.rows(plan)]
@@ -286,6 +319,19 @@ class PlanViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def pause(self, request, pk=None):
         plans.pause(self.get_object())
+        return Response(PlanSerializer(self.get_object()).data)
+
+    @action(detail=True, methods=['post'])
+    def archive(self, request, pk=None):
+        try:
+            plans.archive(self.get_object())
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        return Response(PlanSerializer(self.get_object()).data)
+
+    @action(detail=True, methods=['post'])
+    def restore(self, request, pk=None):
+        plans.restore(self.get_object())
         return Response(PlanSerializer(self.get_object()).data)
 
 
@@ -574,7 +620,7 @@ def _projects_of(listed: list[dict]) -> dict[int, Project]:
 
 @api_view(['POST'])
 def agent_queue(request, pane_id: str):
-    """{title, notes?, ask?, source}: queue a step on an open agent, to start once it is free and what was queued
+    """{prompt, title?, ask?, source}: queue a step on an open agent, to start once it is free and what was queued
     before it is finished; `ask`: wait for the owner's go first (core/plans.py queue_for)."""
     refused = _control_only('Giving tasks to agents')
     if refused:
@@ -586,10 +632,10 @@ def agent_queue(request, pane_id: str):
     agent = next((a for a in herdr.agents()['agents'] if a.get('source', herdr.ENV) == source.id and a['pane_id'] == pane_id), None)
     if agent is None or agent.get('kind') == 'terminal':
         return Response({'detail': 'No such agent open.'}, status=404)
-    made = TaskSerializer(data={'title': request.data.get('title', ''), 'notes': request.data.get('notes', '')})
+    made = TaskSerializer(data={'title': request.data.get('title', ''), 'prompt': request.data.get('prompt', '')})
     made.is_valid(raise_exception=True)
     step = plans.queue_for(source.id, pane_id, agent, _projects_of([agent]).get(id(agent)), made.validated_data['title'],
-                           made.validated_data.get('notes', ''), ask=bool(request.data.get('ask')))
+                           made.validated_data.get('prompt', ''), ask=bool(request.data.get('ask')))
     plans.advance()
     step.refresh_from_db()
     return Response(TaskSerializer(step).data, status=201)

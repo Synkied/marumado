@@ -998,3 +998,32 @@
     padding: var(--sp-6) var(--sp-5);
   }
 }
+
+/* A step's full prompt, folded away under its title. */
+.pstep__prompt summary {
+  cursor: pointer;
+  width: fit-content;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.pstep__prompt summary:hover {
+  color: var(--ink);
+}
+
+.pstep__prompt p {
+  margin: var(--sp-3) 0 0;
+  max-height: 16em;
+  overflow-y: auto;
+  font-size: var(--text-md);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+}
+
+.builder__add textarea {
+  resize: vertical;
+}

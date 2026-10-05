@@ -225,9 +225,10 @@ export type Runner = '' | 'new' | 'agent'
 
 export type Task = {
   id: number
+  /** a short name, made from the prompt unless written by hand */
   title: string
-  /** what the agent is told, after the title */
-  notes: string
+  /** what the agent is told, in full (empty: the title) */
+  prompt: string
   project: number | null
   project_name: string
   state: TaskState
@@ -246,6 +247,8 @@ export type Task = {
   prompt_pending: boolean
   started_at: string | null
   finished_at: string | null
+  /** done and put away (or its plan was): left out of the task list until restored */
+  archived_at: string | null
   created_at: string
   updated_at: string
   /** the plan it is a step of: its row (rows run in order) and place in the row (side by side, at once) */
@@ -274,6 +277,8 @@ export type Plan = {
   /** an agent's own queue: the steps queued from its page (empty for other plans) */
   pane_id: string
   pane_source: number
+  /** finished and put away, its steps with it: left out of the plans list until restored */
+  archived_at: string | null
   created_at: string
   updated_at: string
   /** row by row, left to right */
@@ -282,7 +287,7 @@ export type Plan = {
   asking: number[]
 }
 
-export type TaskEventKind = 'created' | 'assigned' | 'prompt' | 'state' | 'activity' | 'changes' | 'closed' | 'error' | 'done' | 'reopened' | 'moved'
+export type TaskEventKind = 'created' | 'assigned' | 'prompt' | 'state' | 'activity' | 'changes' | 'closed' | 'error' | 'done' | 'reopened' | 'moved' | 'archived' | 'restored'
 
 export type TaskChanges = {
   commits: { sha: string; subject: string }[]

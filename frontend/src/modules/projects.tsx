@@ -359,7 +359,7 @@ function Work({ p, focusNew }: { p: Project; focusNew?: boolean }) {
     setAdding(true)
     setError('')
     try {
-      await api<Task>('tasks', { method: 'POST', json: { title, project: p.id } })
+      await api<Task>('tasks', { method: 'POST', json: { prompt: title, project: p.id } })
       refreshTasks()
       setTitle('')
     } catch (err) {
@@ -411,7 +411,6 @@ function Work({ p, focusNew }: { p: Project; focusNew?: boolean }) {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={items.length ? 'Add the next task' : 'Nothing open. What is the next step?'}
-              maxLength={200}
               autoFocus={focusNew}
             />
             {title.trim() && (

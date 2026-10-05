@@ -109,15 +109,14 @@ function AgentQueue({ agent, open }: { agent: Agent; open: (plan: number) => voi
 
   const queue = async (e?: FormEvent) => {
     e?.preventDefault()
-    // The first line is the step's title; the rest, its notes for the agent.
-    const [first, ...rest] = text.trim().split('\n')
-    if (!first.trim()) return
+    // All of it is the prompt; its first line names the step.
+    if (!text.trim()) return
     setBusy(true)
     setError('')
     try {
       await api(`agents/${encodeURIComponent(a.pane_id)}/queue`, {
         method: 'POST',
-        json: { title: first.trim().slice(0, 200), notes: rest.join('\n').trim(), ask, source: sourceOf(a) },
+        json: { prompt: text.trim(), ask, source: sourceOf(a) },
       })
       setText('')
       refreshAgents()
@@ -148,7 +147,7 @@ function AgentQueue({ agent, open }: { agent: Agent; open: (plan: number) => voi
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) queue()
             }}
-            placeholder={'Write it as you’d tell the agent. The first line names the step; the lines under it go to the agent too.'}
+            placeholder={'Write it as you’d tell the agent. Its first line names the step; all of it goes to the agent.'}
             rows={4}
             maxLength={8000}
             autoFocus

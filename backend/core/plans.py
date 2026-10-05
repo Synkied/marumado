@@ -223,18 +223,18 @@ def go(step: Task) -> None:
     tasks.event(step, 'moved', 'Go given')
 
 
-def queue_for(source: int, pane_id: str, agent: dict, project, title: str, notes: str = '', ask: bool = False) -> Task:
+def queue_for(source: int, pane_id: str, agent: dict, project, title: str, prompt: str = '', ask: bool = False) -> Task:
     """Queue a step on an open agent: into its own queue (a plan made for it the first time), after what is already
     queued there. It starts when the agent is free and the steps before it are finished."""
     with transaction.atomic():
-        plan = Plan.objects.filter(pane_id=pane_id, pane_source=source).order_by('-id').first()
+        plan = Plan.objects.filter(pane_id=pane_id, pane_source=source, archived_at__isnull=True).order_by('-id').first()
         if plan is None:
             name = agent.get('name') or agent.get('kind') or pane_id
             plan = Plan.objects.create(
                 title=f'Next for {name}'[:200], project=project, source=source, running=True, pane_id=pane_id, pane_source=source,
                 kind=agent['kind'] if agent.get('kind') in herdr.AGENT_KINDS else 'claude',
             )
-        step = Task.objects.create(title=title, notes=notes, project=plan.project or project, runner='agent', want_pane=pane_id,
+        step = Task.objects.create(title=title, prompt=prompt, project=plan.project or project, runner='agent', want_pane=pane_id,
                                    want_source=source, ask=ask)
         tasks.event(step, 'created', f'Queued for {agent.get("name") or agent.get("kind") or pane_id}')
         arrange(plan, [[t.id for t in row] for row in rows(plan)] + [[step.id]])
@@ -255,3 +255,35 @@ def dissolve(plan: Plan) -> None:
         if t.state == Task.QUEUED:
             t.state = Task.TODO
         t.save(update_fields=['plan', 'state', 'updated_at'])
+
+
+FINISHED = (Task.REVIEW, Task.DONE)
+
+
+def archive(plan: Plan) -> None:
+    """Put a finished plan away, its steps with it: out of the plans list and off the board until restored."""
+    steps = list(plan.steps.all())
+    if not steps or any(t.state not in FINISHED for t in steps):
+        raise ValueError('Only a finished plan can be archived: every step to review or done.')
+    if plan.archived_at:
+        return
+    now = tasks._now()
+    with transaction.atomic():
+        plan.archived_at, plan.running = now, False
+        plan.save(update_fields=['archived_at', 'running', 'updated_at'])
+        for t in steps:
+            if not t.archived_at:
+                t.archived_at = now
+                t.save(update_fields=['archived_at', 'updated_at'])
+                tasks.event(t, 'archived', f'Archived with “{plan.title}”')
+
+
+def restore(plan: Plan) -> None:
+    """Back from the archive, with the steps that went with it."""
+    if not plan.archived_at:
+        return
+    with transaction.atomic():
+        for t in plan.steps.filter(archived_at=plan.archived_at):
+            tasks.restore(t)
+        plan.archived_at = None
+        plan.save(update_fields=['archived_at', 'updated_at'])
