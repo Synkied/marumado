@@ -901,3 +901,14 @@ def agent_output(request, pane_id: str):
         return Response({'detail': str(exc)}, status=400)
     except RuntimeError as exc:
         return Response({'detail': str(exc)}, status=502)
+
+
+@api_view(['GET'])
+def agent_changes(request, pane_id: str):
+    from . import changes
+    try:
+        return Response(changes.read(pane_id, _agent_source(request), request.query_params.get('path')))
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    except RuntimeError as exc:
+        return Response({'detail': str(exc)}, status=502)
