@@ -26,8 +26,8 @@
 .changes__detail { min-width: 0; overflow: auto; }
 .changes__detail-head { display: flex; flex-wrap: wrap; gap: var(--sp-3); padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--rule-soft); font-size: var(--text-md); overflow-wrap: anywhere; }
 .changes__detail-head span { color: var(--ink-2); }
-.changes__diff { margin: 0; padding: var(--sp-5); font-family: var(--f-mono); font-size: var(--text-sm); line-height: 1.6; tab-size: 4; overflow: auto; }
-.changes__diff span { display: block; min-width: max-content; }
+.changes__diff { margin: 0; padding: var(--sp-5); font-family: var(--f-mono); font-size: var(--text-sm); line-height: 1.6; tab-size: 4; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
+.changes__diff span { display: block; }
 .changes__added { color: var(--moss); background: color-mix(in oklab, var(--moss) 8%, transparent); }
 .changes__removed { color: var(--signal-text); background: color-mix(in oklab, var(--signal) 8%, transparent); }
 .changes__hunk { color: var(--c-agents); }
