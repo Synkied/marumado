@@ -28,9 +28,22 @@
   padding: 0;
 }
 
-/* Between your work and the machines: a small mono caption, like a chart's legend. */
+/* Between your work and the machines: a small mono caption, like a chart's legend, and how they are laid out. */
+.fleet__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4) var(--sp-7);
+  margin-top: var(--sp-10);
+}
+
+.fleet__bar .seg {
+  align-self: center;
+}
+
 .fleet__label {
-  margin: var(--sp-10) 0 0;
+  margin: 0;
   font-family: var(--f-mono);
   font-size: var(--text-md);
   font-weight: var(--weight-body);
@@ -413,6 +426,157 @@
 
 .readout--fault .readout__tip {
   background: var(--signal);
+}
+
+/* ---------- the machines side by side ---------- */
+
+/* A dense ledger: each machine a narrow column, each reading one line (what it means is in its tooltip). The head
+   and every line keep a fixed height, so the same reading sits on the same line on every machine and reads across
+   them from left to right. Too many to fit, and the columns scroll. */
+.fleet__machines--columns {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(184px, 1fr);
+  align-items: start;
+  column-gap: var(--sp-3);
+  margin-top: var(--sp-4);
+  padding-bottom: var(--sp-3);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+}
+
+.fleet__machines--columns .mblock {
+  min-width: 0;
+  padding: var(--sp-2) 0 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 0;
+  scroll-snap-align: start;
+}
+
+/* Choosing readings needs room for its buttons. */
+.fleet__machines--columns .mblock.is-arranging {
+  min-width: min(480px, 85vw);
+}
+
+.fleet__machines--columns .mblock__head {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: 34px 20px;
+  column-gap: var(--sp-2);
+  row-gap: 0;
+  min-height: 0;
+}
+
+.fleet__machines--columns .mblock__lamp {
+  width: 10px;
+  height: 10px;
+}
+
+.fleet__machines--columns .mblock__name {
+  overflow: hidden;
+  font-size: var(--text-xl);
+  text-overflow: ellipsis;
+}
+
+.fleet__machines--columns .mblock__actions {
+  grid-column: 3;
+  grid-row: 1;
+  gap: 0;
+}
+
+.fleet__machines--columns .iconbtn {
+  width: 28px;
+  height: 28px;
+}
+
+/* Under the name, its status in one small line. Where it is and how long it has been up are left out, except the
+   error of a machine that is down. */
+.fleet__machines--columns .mblock__status,
+.fleet__machines--columns .mblock__context {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fleet__machines--columns .mblock__status {
+  grid-row: 2;
+}
+
+.fleet__machines--columns .mblock__context {
+  display: none;
+  grid-row: 3;
+}
+
+.fleet__machines--columns .is-down .mblock__context {
+  display: block;
+  white-space: normal;
+}
+
+.fleet__machines--columns .readouts {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 0;
+  margin-top: var(--sp-2);
+}
+
+.fleet__machines--columns .readout {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: 32px;
+  grid-template-areas: 'seal label value';
+  column-gap: var(--sp-2);
+  padding: 0 var(--sp-2);
+  box-shadow: inset 0 -1px var(--rule-soft);
+}
+
+.fleet__machines--columns .readout--fault {
+  box-shadow:
+    inset 3px 0 var(--signal),
+    inset 0 -1px var(--rule-soft);
+}
+
+.fleet__machines--columns .readout__label {
+  font-size: var(--text-xs);
+}
+
+.fleet__machines--columns .readout__value {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-xl);
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+.fleet__machines--columns .readout__detail,
+.fleet__machines--columns .readout__trace {
+  display: none;
+}
+
+.fleet__machines--columns .seal {
+  width: 16px;
+  height: 16px;
+}
+
+.fleet__machines--columns .mblock__note,
+.fleet__machines--columns .mblock__issues {
+  margin-top: var(--sp-2);
+  font-size: var(--text-md);
+}
+
+.fleet__machines--columns .mblock__issue {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: var(--sp-1) 0;
+}
+
+.fleet__machines--columns .mblock__issue-title {
+  overflow: hidden;
+  font-size: var(--text-md);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fleet__machines--columns .mblock__issue-detail {
+  display: none;
 }
 
 /* ---------- choosing a machine's readings ---------- */

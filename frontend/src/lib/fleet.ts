@@ -65,3 +65,28 @@ export function useFolds(): [(machine: MachineId) => boolean | undefined, (machi
   }
   return [(m) => folds[String(m)], set]
 }
+
+export type FleetLayout = 'rows' | 'columns'
+
+const LAYOUT_KEY = 'marumado.fleetLayout'
+
+/** How home lays out the machines: one under the other, each a row of readings, or side by side, each a column,
+    so the same reading reads across every machine from left to right. Per viewer. */
+export function useFleetLayout(): [FleetLayout, (layout: FleetLayout) => void] {
+  const [layout, setLayout] = useState<FleetLayout>(() => {
+    try {
+      return localStorage.getItem(LAYOUT_KEY) === 'columns' ? 'columns' : 'rows'
+    } catch {
+      return 'rows'
+    }
+  })
+  const set = (next: FleetLayout) => {
+    setLayout(next)
+    try {
+      localStorage.setItem(LAYOUT_KEY, next)
+    } catch {
+      /* not remembered in private mode */
+    }
+  }
+  return [layout, set]
+}

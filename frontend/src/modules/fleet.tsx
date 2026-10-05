@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Icon } from '../components/Icon'
 import { duration } from '../lib/format'
 import { issueHref, isMachineModule, machineIssues, useHub } from '../lib/hub'
-import { useFolds, useReadouts, type Readouts } from '../lib/fleet'
+import { useFleetLayout, useFolds, useReadouts, type Readouts } from '../lib/fleet'
 import { useMachines } from '../lib/machines'
 import { go, moduleHref } from '../lib/route'
 import { useRedact, useStreaming } from '../lib/streaming'
@@ -15,7 +15,8 @@ import './fleet.css'
 type Problem = { id: string; module: string; title: string; detail: string; href: string }
 
 /** Home: the agents at work, then every machine as a block of readings, the ones that need you first. Each machine reading opens its module on that machine. The readings wrap onto as many lines as they need, and every block shares the same columns, so the same
-    reading sits in the same place on every machine. Which readings a machine shows is set per machine. */
+    reading sits in the same place on every machine. Which readings a machine shows is set per machine. Laid out in
+    columns instead, the machines stand side by side and the same reading reads across them from left to right. */
 export function Fleet() {
   const { machines, current, select } = useMachines()
   const { alerts, error, projects } = useHub()
@@ -23,6 +24,7 @@ export function Fleet() {
   const readouts = useReadouts()
   const [fold, setFold] = useFolds()
   const [arranging, setArranging] = useState<Machine['id'] | null>(null)
+  const [layout, setLayout] = useFleetLayout()
 
   if (!machines) {
     return (
@@ -56,12 +58,26 @@ export function Fleet() {
   const needs = (r: (typeof rows)[number]) => r.m.state === 'down' || r.problems.length > 0
   // What needs you rises to the top; otherwise this machine first, then the rest by name (as the API lists them).
   const sorted = [...rows.filter(needs), ...rows.filter((r) => !needs(r))]
+  // One machine has nothing to compare with: it always reads as a row.
+  const columns = layout === 'columns' && machines.length > 1
 
   return (
     <div className="fleet">
       <AgentsAtWork />
-      <h2 className="fleet__label">Machines</h2>
-      <ul className="fleet__machines">
+      <header className="fleet__bar">
+        <h2 className="fleet__label">Machines</h2>
+        {machines.length > 1 && (
+          <div className="seg" role="group" aria-label="Lay out the machines">
+            <button type="button" className="seg__btn" aria-pressed={!columns} onClick={() => setLayout('rows')} title="One machine under the other, its readings in a row">
+              Rows
+            </button>
+            <button type="button" className="seg__btn" aria-pressed={columns} onClick={() => setLayout('columns')} title="Machines side by side, to compare each reading from left to right">
+              Columns
+            </button>
+          </div>
+        )}
+      </header>
+      <ul className={`fleet__machines${columns ? ' fleet__machines--columns' : ''}`}>
         {sorted.map(({ m, problems }) => (
           <MachineBlock
             key={m.id}
@@ -132,7 +148,7 @@ function MachineBlock({ machine: m, viewing, problems, readouts, ctx, allIds, op
   const unshown = problems.filter((p) => !faulted.has(p.module as never))
 
   return (
-    <li className={`mblock${down ? ' is-down' : ''}${problems.length ? ' is-fault' : ''}${open ? ' is-open' : ''}`}>
+    <li className={`mblock${down ? ' is-down' : ''}${problems.length ? ' is-fault' : ''}${open ? ' is-open' : ''}${arranging ? ' is-arranging' : ''}`}>
       <header className="mblock__head">
         <span className={`mblock__lamp mblock__lamp--${lamp}`} role="img" aria-label={status} />
         <button className="mblock__name" type="button" onClick={() => go('#/m/machine')} disabled={down} title={`Open ${name}'s machine page`}>
