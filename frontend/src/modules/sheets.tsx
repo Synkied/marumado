@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
+import { AgentChangesModal } from './agentChanges'
 import { Terminal } from '../components/Terminal'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { DotChart } from '../components/DotChart'
@@ -867,6 +868,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
   const [full, setFull] = useState(false)
   // 'agent': the modal opens on what the current agent does next; 'plans': on the plans alone, whatever is running.
   const [plansOpen, setPlansOpen] = useState<false | 'agent' | 'plans'>(false)
+  const [changesAgent, setChangesAgent] = useState<Agent | null>(null)
   const plansButton = <PlansButton onOpen={() => setPlansOpen('plans')} />
   const [pickedWorkspace, setWorkspace] = useWorkspace()
 
@@ -946,6 +948,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
           </>
         )}
         {plansOpen && <PlansModal agent={null} onClose={() => setPlansOpen(false)} />}
+      {changesAgent && <AgentChangesModal agent={changesAgent} onClose={() => setChangesAgent(null)} key={agentKey(changesAgent)} />}
       </div>
     )
   }
@@ -1023,6 +1026,10 @@ function AgentsSheet({ sub }: { sub?: string }) {
               </h3>
               <span className={`agent-head__state${current.status === 'blocked' ? ' signal-text' : ''}`}>{AGENT_STATE[current.status]}</span>
               <div className="agent-tools" role="toolbar" aria-label="Terminal">
+                <button type="button" className="tool" aria-haspopup="dialog" onClick={() => setChangesAgent(current)} title="Files changed in this agent’s repository">
+                  <Icon name="file" size={18} />
+                  <span className="sr-only">Files changed</span>
+                </button>
                 {current.kind !== 'terminal' && (
                   <button
                     type="button"
