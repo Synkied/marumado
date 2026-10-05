@@ -162,8 +162,9 @@ export function PlansList() {
             const waiting = p.asking.length > 0 || p.steps.some((t) => t.state === 'blocked' || t.state === 'failed')
             return (
               <li key={p.id}>
-                <PlanLink className={`plans__item${waiting ? ' is-fault' : ''}`} to={{ plan: p.id }}>
+                <PlanLink className={`plans__item${state === 'scheduled' ? ' is-scheduled' : ''}${waiting ? ' is-fault' : ''}`} to={{ plan: p.id }}>
                   <span className="plans__name">{p.title}</span>
+                  {state === 'scheduled' && <Icon name="clock" size={18} className="plans__scheduled-icon" />}
                   <span className="plans__meta">
                     {p.project_name || 'No project'} · {STATE_WORDS[state].toLowerCase()} · {done} of {p.steps.length} done
                     {p.asking.length ? <span className="signal-text"> · {p.asking.length} waiting for your go</span> : null}

@@ -60,6 +60,32 @@
   border-color: var(--ink);
 }
 
+.plans__item.is-scheduled {
+  grid-template-areas:
+    'name scheduled'
+    'meta strip';
+  border-color: color-mix(in oklab, var(--c-momentum) 55%, var(--rule-soft));
+  background: color-mix(in oklab, var(--c-momentum) 10%, var(--ground-raised));
+}
+
+.plans__scheduled-icon {
+  grid-area: scheduled;
+  justify-self: end;
+  color: var(--c-momentum);
+}
+
+.plans__item.is-scheduled:hover {
+  border-color: var(--c-momentum);
+}
+
+.plans__item.is-scheduled .plans__name {
+  color: var(--c-momentum);
+}
+
+.plans__item.is-scheduled .plans__meta {
+  color: color-mix(in oklab, var(--c-momentum) 25%, var(--ink-2));
+}
+
 .plans__item.is-fault {
   border-color: var(--signal);
 }
