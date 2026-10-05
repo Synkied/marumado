@@ -1651,6 +1651,22 @@ a.row:hover .row__main {
   font-size: var(--text-md);
 }
 
+/* Pressed: the place picked is where this project's agents start by default. */
+.start-agent__default[aria-pressed='true'] {
+  color: var(--ink);
+}
+
+.start-agent__note-inline {
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.start-agent__note {
+  flex-basis: 100%;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
 .work__done {
   justify-self: start;
   font-size: var(--text-md);

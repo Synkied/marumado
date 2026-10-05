@@ -12,11 +12,14 @@ class UptimeCheckSerializer(serializers.ModelSerializer):
 
 
 class ProjectSerializer(serializers.ModelSerializer):
+    # The default agent source of the scan folder it is in (its own agent_source comes first).
+    folder_source = serializers.SerializerMethodField()
+
     class Meta:
         model = Project
         fields = [
             'id', 'name', 'path', 'description', 'local_url', 'online_url', 'repo_url', 'tags',
-            'pinned', 'hidden', 'source', 'kind', 'focus', 'detected', 'locked_fields', 'created_at', 'updated_at',
+            'pinned', 'hidden', 'source', 'kind', 'focus', 'agent_source', 'folder_source', 'detected', 'locked_fields', 'created_at', 'updated_at',
         ]
         read_only_fields = ['source', 'detected', 'locked_fields', 'created_at', 'updated_at']
 
@@ -24,6 +27,21 @@ class ProjectSerializer(serializers.ModelSerializer):
         if not isinstance(value, list) or not all(isinstance(t, str) for t in value):
             raise serializers.ValidationError('Tags must be a list of strings.')
         return [t.strip()[:40] for t in value if t.strip()][:12]
+
+    def get_folder_source(self, project) -> int | None:
+        # Read once per request when serializing a list (the context is shared).
+        if 'folder_sources' not in self.context:
+            self.context['folder_sources'] = herdr.folder_sources()
+        return herdr.source_of_folder(project.path, self.context['folder_sources'])
+
+    def validate_agent_source(self, value):
+        if value is None:
+            return None
+        try:
+            herdr.get_source(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+        return value
 
     def update(self, instance, validated_data):
         # Remember hand edits so the next scan doesn't overwrite them.

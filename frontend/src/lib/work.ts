@@ -66,8 +66,13 @@ export function folderIn(project: Pick<Project, 'path' | 'places'> | undefined, 
   return project.places?.find((x) => x.machine === machine && x.dir)?.dir ?? ''
 }
 
-/** Where a new agent for the project can start: the sources that answer, those that have its folder first. */
-export function startPlaces(project: Pick<Project, 'path' | 'places'> | undefined, agents: Agents | undefined): AgentSource[] {
-  const rank = (s: AgentSource) => (!project ? 0 : machineOfSource(s) == null ? (s.kind === 'env' && project.path ? 0 : 1) : folderIn(project, s) ? 0 : 2)
+/** Where the project's agents start by default: its own pick, else its scan folder's; null when neither is set. */
+export const defaultSource = (project: Pick<Project, 'agent_source' | 'folder_source'>): number | null => project.agent_source ?? project.folder_source ?? null
+
+/** Where a new agent for the project can start: the sources that answer, the project's default first, then those
+    that have its folder. */
+export function startPlaces(project: Pick<Project, 'path' | 'places' | 'agent_source' | 'folder_source'> | undefined, agents: Agents | undefined): AgentSource[] {
+  const rank = (s: AgentSource) =>
+    !project ? 0 : s.id === defaultSource(project) ? -1 : machineOfSource(s) == null ? (s.kind === 'env' && project.path ? 0 : 1) : folderIn(project, s) ? 0 : 2
   return (agents?.sources ?? []).filter((s) => s.available).sort((a, b) => rank(a) - rank(b))
 }

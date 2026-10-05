@@ -57,8 +57,9 @@ def _with_status(projects: list[Project]) -> list[dict]:
     runtime = _runtime(projects)
     elsewhere = places.by_project(projects)
     rows = []
+    context = {'folder_sources': herdr.folder_sources()}
     for p in projects:
-        data = ProjectSerializer(p).data
+        data = ProjectSerializer(p, context=context).data
         checks = {'local': [], 'online': []}
         for c in p.recent_checks:
             if len(checks[c.target]) < RECENT_CHECKS:
@@ -358,6 +359,8 @@ class MachineViewSet(viewsets.ModelViewSet):
         machines.sync()
 
     def perform_destroy(self, instance):
+        Project.objects.filter(agent_source=herdr.MACHINE_BASE + instance.id).update(agent_source=None)
+        herdr.forget_folder_source(herdr.MACHINE_BASE + instance.id)
         instance.delete()
         machines.sync()
 
@@ -512,10 +515,12 @@ def overview_view(request):
 def _roots_payload() -> dict:
     paths = list(Project.objects.filter(hidden=False).exclude(path='').values_list('path', flat=True))
     rows = []
+    defaults = herdr.folder_sources()
     for r in discovery.roots():
         folder = Path(r['path'])
         rows.append({
             **r,
+            'agent_source': defaults.get(r['path']),
             'found': folder.is_dir(),
             'projects': sum(discovery.under(p, r['path']) and p != r['path'] for p in paths),
         })
@@ -542,6 +547,23 @@ def roots(request):
     ScanRoot.objects.create(path=path)
     scan = discovery.scan()
     return Response({**_roots_payload(), 'scan': scan}, status=201)
+
+
+@api_view(['POST'])
+def root_source(request):
+    """{path, agent_source}: where the agents of every project in a scan folder start by default (null: no default)."""
+    path, source = request.data.get('path'), request.data.get('agent_source')
+    if not any(r['path'] == path for r in discovery.roots()):
+        return Response({'detail': 'That folder isn\'t scanned.'}, status=400)
+    if source is not None:
+        if not isinstance(source, int) or isinstance(source, bool):
+            return Response({'detail': 'Not an agent source.'}, status=400)
+        try:
+            herdr.get_source(source)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+    herdr.set_folder_source(path, source)
+    return Response(_roots_payload())
 
 
 @api_view(['DELETE'])
@@ -654,6 +676,11 @@ class AgentSourceViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         serializer.save()
         herdr.forget_failures()
+
+    def perform_destroy(self, instance):
+        Project.objects.filter(agent_source=instance.id).update(agent_source=None)
+        herdr.forget_folder_source(instance.id)
+        instance.delete()
 
 
 def _agent_source(request) -> herdr.Source:

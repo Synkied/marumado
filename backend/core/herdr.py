@@ -104,6 +104,45 @@ def set_env_folders(folders: list[dict]) -> None:
     Setting.objects.update_or_create(key=ENV_FOLDERS, defaults={'value': folders})
 
 
+FOLDER_SOURCES = 'folder_agent_sources'
+
+
+def folder_sources() -> dict[str, int]:
+    """The default agent source of scan folders, by folder: every project in one starts its agents there, unless it
+    has its own (Project.agent_source). Set in Projects → Folders."""
+    from .models import Setting
+    try:
+        found = Setting.objects.filter(key=FOLDER_SOURCES).first()
+    except Exception:  # the database isn't ready (first start, migrations)
+        return {}
+    value = found.value if found and isinstance(found.value, dict) else {}
+    return {k: v for k, v in value.items() if isinstance(v, int)}
+
+
+def set_folder_source(folder: str, source_id: int | None) -> None:
+    from .models import Setting
+    value = folder_sources()
+    if source_id is None:
+        value.pop(folder, None)
+    else:
+        value[folder] = source_id
+    Setting.objects.update_or_create(key=FOLDER_SOURCES, defaults={'value': value})
+
+
+def forget_folder_source(source_id: int) -> None:
+    """A source was removed: the folders that started their agents there go back to no default."""
+    value = folder_sources()
+    if source_id in value.values():
+        from .models import Setting
+        Setting.objects.update_or_create(key=FOLDER_SOURCES, defaults={'value': {k: v for k, v in value.items() if v != source_id}})
+
+
+def source_of_folder(path: str, defaults: dict[str, int]) -> int | None:
+    """The default source of the deepest folder in `defaults` that holds `path`, or None."""
+    best = max((f for f in defaults if path and (path == f or path.startswith(f.rstrip('/') + '/'))), key=len, default=None)
+    return defaults[best] if best is not None else None
+
+
 def clean_folders(value) -> list[dict]:
     """[{here, there}, …] with both absolute folders, without trailing slashes. Raises ValueError otherwise."""
     if not isinstance(value, list):

@@ -31,6 +31,10 @@ export type Project = {
   kind: 'project' | 'link'
   /** what the owner decided in Momentum; archiving a project hides it */
   focus: '' | 'push' | 'park'
+  /** the agent source its new agents start in by default; null: the one that has its folder */
+  agent_source: number | null
+  /** the default agent source of the scan folder it is in, which agent_source overrides */
+  folder_source: number | null
   detected: {
     stacks?: string[]
     /** notable libraries, as skill labels */
@@ -160,6 +164,8 @@ export type ScanRoot = {
   id: number | null
   path: string
   source: 'env' | 'app'
+  /** where the agents of its projects start by default */
+  agent_source: number | null
   found: boolean
   projects: number
 }

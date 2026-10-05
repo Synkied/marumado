@@ -884,3 +884,54 @@ class TerminalCommandTests(TestCase):
         self.assertEqual(click, {'type': 'terminal.mouse', 'action': 'down', 'button': 'left', 'column': 9, 'row': 0})
         self.assertIsNone(terminal._command({'type': 'terminal.mouse', 'action': 'move', 'button': 'left'}, fit=False))
         self.assertIsNone(terminal._command({'type': 'terminal.mouse', 'action': 'down', 'button': 'wheel'}, fit=False))
+
+
+@override_settings(MARUMADO_TOKEN='test-token')
+@mock.patch.object(monitor, 'ensure_started', lambda: None)
+class ProjectAgentSourceTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.api.credentials(HTTP_AUTHORIZATION='Bearer test-token')
+        self.project = Project.objects.create(name='My Blog', path='/projects/my-blog')
+        self.vm = AgentSource.objects.create(name='dev-vm', kind='ssh', target='me@dev-vm')
+
+    def test_sets_and_clears_the_default_source(self):
+        res = self.api.patch(f'/api/projects/{self.project.id}', {'agent_source': self.vm.id}, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['agent_source'], self.vm.id)
+        res = self.api.patch(f'/api/projects/{self.project.id}', {'agent_source': None}, format='json')
+        self.assertIsNone(res.json()['agent_source'])
+
+    def test_refuses_an_unknown_source(self):
+        res = self.api.patch(f'/api/projects/{self.project.id}', {'agent_source': 999}, format='json')
+        self.assertEqual(res.status_code, 400)
+
+    def test_removing_the_source_clears_the_default(self):
+        self.project.agent_source = self.vm.id
+        self.project.save()
+        self.assertEqual(self.api.delete(f'/api/agent-sources/{self.vm.id}').status_code, 204)
+        self.project.refresh_from_db()
+        self.assertIsNone(self.project.agent_source)
+
+    @override_settings(MARUMADO_PROJECT_ROOTS=['/projects'], MARUMADO_PROJECT_ROOTS_DEFAULT=False)
+    def test_a_scan_folder_gives_its_projects_a_default_source(self):
+        res = self.api.post('/api/roots/source', {'path': '/projects', 'agent_source': self.vm.id}, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['roots'][0]['agent_source'], self.vm.id)
+        listed = self.api.get(f'/api/projects/{self.project.id}').json()
+        self.assertEqual((listed['folder_source'], listed['agent_source']), (self.vm.id, None))
+        # Removing the source clears the folder's default too.
+        self.api.delete(f'/api/agent-sources/{self.vm.id}')
+        self.assertIsNone(self.api.get('/api/roots').json()['roots'][0]['agent_source'])
+
+    @override_settings(MARUMADO_PROJECT_ROOTS=['/projects'], MARUMADO_PROJECT_ROOTS_DEFAULT=False)
+    def test_refuses_a_folder_that_isnt_scanned(self):
+        res = self.api.post('/api/roots/source', {'path': '/elsewhere', 'agent_source': self.vm.id}, format='json')
+        self.assertEqual(res.status_code, 400)
+
+    def test_the_deepest_folder_wins(self):
+        defaults = {'/projects': 1, '/projects/work': 2}
+        self.assertEqual(herdr.source_of_folder('/projects/work/api', defaults), 2)
+        self.assertEqual(herdr.source_of_folder('/projects/blog', defaults), 1)
+        self.assertIsNone(herdr.source_of_folder('/projectsx/blog', defaults))
+

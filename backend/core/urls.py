@@ -23,6 +23,7 @@ urlpatterns = [
     path('docker/<str:cid>/logs', views.docker_logs),
     path('docker/<str:cid>/<str:verb>', views.docker_action),
     path('roots', views.roots),
+    path('roots/source', views.root_source),
     path('roots/<int:pk>', views.root_detail),
     path('open', views.open_folder),
     path('files', views.file_list),

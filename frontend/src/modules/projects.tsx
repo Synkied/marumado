@@ -3,7 +3,7 @@ import { ConfirmButton } from '../components/ConfirmButton'
 import { DotChart } from '../components/DotChart'
 import { Icon } from '../components/Icon'
 import { OpenFolder } from '../components/OpenFolder'
-import { agentHref, agentKey, sourceLabel } from '../lib/agents'
+import { agentHref, agentKey, sourceLabel, sourcesOf } from '../lib/agents'
 import { api, type MachineId } from '../lib/api'
 import { ago, hostOf } from '../lib/format'
 import { commits, pace, PACE_LABEL } from '../lib/growth'
@@ -825,7 +825,9 @@ function ArchivedSheet() {
 }
 
 function FoldersSheet() {
-  const { refreshProjects } = useHub()
+  const { refreshProjects, agents } = useHub()
+  // With several places Herdr runs, each folder can say where its projects' agents start.
+  const sources = sourcesOf(agents)
   const [roots, setRoots] = useState<ScanRoot[] | null>(null)
   const [path, setPath] = useState('')
   const [error, setError] = useState('')
@@ -864,7 +866,10 @@ function FoldersSheet() {
       <header className="sheet__head">
         <h2 className="sheet__title">Scan folders</h2>
       </header>
-      <p className="sheet__lede">Every folder inside these is a project. Adding or removing one rescans right away.</p>
+      <p className="sheet__lede">
+        Every folder inside these is a project. Adding or removing one rescans right away. With several agent sources, pick where each folder&rsquo;s projects start
+        their agents; a project can still pick its own on its page.
+      </p>
       {!roots ? (
         !error && <div className="sheet__empty">Loading…</div>
       ) : (
@@ -879,6 +884,30 @@ function FoldersSheet() {
                   {r.source === 'env' && ' · set in .env'}
                 </span>
               </span>
+              {sources.length > 1 && (
+                <>
+                  <label className="sr-only" htmlFor={`root-source-${r.path}`}>
+                    Where agents start for projects in {r.path}
+                  </label>
+                  <select
+                    id={`root-source-${r.path}`}
+                    className="start-agent__pick"
+                    value={r.agent_source ?? ''}
+                    disabled={busy}
+                    title="Where the agents of every project in this folder start, unless a project picks its own"
+                    onChange={(e) => change(api('roots/source', { method: 'POST', json: { path: r.path, agent_source: e.target.value === '' ? null : Number(e.target.value) } }))}
+                  >
+                    <option value="">Agents: wherever its folder is</option>
+                    {sources.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        Agents on {s.name}
+                        {s.available ? '' : ' (not answering)'}
+                      </option>
+                    ))}
+                    {r.agent_source != null && !sources.some((s) => s.id === r.agent_source) && <option value={r.agent_source}>Agents on a removed source</option>}
+                  </select>
+                </>
+              )}
               {r.found && <OpenFolder path={r.path} />}
               {r.id != null && (
                 <ConfirmButton onConfirm={() => change(api(`roots/${r.id}`, { method: 'DELETE' })).then(() => {})} confirmLabel="Confirm remove" disabled={busy}>

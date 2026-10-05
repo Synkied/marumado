@@ -26,6 +26,8 @@ class Project(models.Model):
     FOCUS_PARK = 'park'
     FOCUSES = [('', 'Undecided'), (FOCUS_PUSH, 'Push'), (FOCUS_PARK, 'Park')]
     focus = models.CharField(max_length=10, choices=FOCUSES, default='', blank=True)
+    # The agent source (herdr.Source id) its new agents start in by default; null: the one that has its folder.
+    agent_source = models.PositiveIntegerField(null=True, blank=True)
     # Facts found by the scanner (stack, git branch, last commit...). Never edited by hand.
     detected = models.JSONField(default=dict, blank=True)
     # Fields the user changed by hand; the scanner never overwrites these.
