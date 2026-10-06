@@ -2128,7 +2128,7 @@ dependencies = [
 
 [[package]]
 name = "marumado-desktop"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "ab_glyph",
  "getrandom 0.3.4",
