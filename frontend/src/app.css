@@ -67,6 +67,22 @@
   letter-spacing: var(--track-wordmark);
 }
 
+/* The name, with the version just under it. */
+.wordmark__name {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.wordmark__version {
+  font-family: var(--f-mono);
+  font-size: var(--text-xs);
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+
 .wordmark__kanji {
   flex: none;
   white-space: nowrap;
@@ -2472,7 +2488,8 @@ a.heat__row:focus-visible {
 
 /* Phones: the header can't fit the wordmark and the machine picker; the round chart mark stays as the logo. */
 @media (max-width: 520px) {
-  .wordmark__kanji {
+  .wordmark__kanji,
+  .wordmark__version {
     display: none;
   }
   .wordmark__text {

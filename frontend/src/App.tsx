@@ -29,7 +29,10 @@ function Wordmark() {
         <circle className="wordmark__hub" cx="16" cy="16" r="5" />
         <path className="wordmark__pen" d="M16 1.5V8" />
       </svg>
-      <span className="wordmark__text">marumado</span>
+      <span className="wordmark__name">
+        <span className="wordmark__text">marumado</span>
+        <span className="wordmark__version" title="Marumado's version">v{__MARUMADO_VERSION__}</span>
+      </span>
       <span className="wordmark__kanji" lang="ja">丸窓</span>
     </a>
   )
