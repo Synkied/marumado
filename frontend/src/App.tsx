@@ -124,10 +124,10 @@ function Vitals() {
   )
 }
 
-/** Your work, as small dials in the top bar, one click from anywhere: Projects, Tasks, Agents and URLs. The agents'
+/** Your work, as small dials in the top bar, one click from anywhere: Agents, Tasks, Projects and URLs. The agents'
     dial carries a count of what waits on you there (an agent's question or approval, a plan's step waiting for your
     go) and opens the Agents inbox, where you answer them; with nothing waiting, it opens the first terminal. */
-const WORK: ModuleId[] = ['projects', 'tasks', 'agents', 'urls']
+const WORK: ModuleId[] = ['agents', 'tasks', 'projects', 'urls']
 
 function WorkDials({ active }: { active?: ModuleId }) {
   const summaries = useSummaries()

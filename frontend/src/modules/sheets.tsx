@@ -771,6 +771,7 @@ function PlansButton({ onOpen }: { onOpen: () => void }) {
 function AgentTab({ agent: a, active, sub, onQueue }: { agent: Agent; active: boolean; sub: string; onQueue: (a: Agent) => void }) {
   const lamp = lampOf(a)
   const name = a.name || a.kind
+  const queued = a.queued?.length ?? 0
   // The whole card is the link (stretched over it), so the + can sit on it without nesting a button in a link.
   return (
     <div className={`agent-tab${active ? ' is-active' : ''}${a.status === 'blocked' ? ' is-fault' : ''}${a.kind !== 'terminal' ? ' has-queue' : ''}`}>
@@ -784,9 +785,16 @@ function AgentTab({ agent: a, active, sub, onQueue }: { agent: Agent; active: bo
         </span>
       </span>
       {a.kind !== 'terminal' && (
-        <button type="button" className="tool agent-tab__queue" aria-haspopup="dialog" onClick={() => onQueue(a)} title={`New task: queue what ${name} does next`}>
-          <Icon name="plus" size={16} />
-          <span className="sr-only">New task for {name}</span>
+        <button
+          type="button"
+          className={`tool agent-tab__queue${queued ? ' tool--bell is-queued mod-tasks' : ''}`}
+          aria-haspopup="dialog"
+          onClick={() => onQueue(a)}
+          title={queued ? `${queued} queued for ${name}: queue more, or see them` : `New task: queue what ${name} does next`}
+        >
+          {queued ? <Icon name="queue" size={16} /> : <Icon name="plus" size={16} />}
+          {queued > 0 && <span className="tool__count">{queued}</span>}
+          <span className="sr-only">{queued ? `${queued} queued for ${name}: queue more` : `New task for ${name}`}</span>
         </button>
       )}
     </div>
@@ -1038,7 +1046,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
                 {current.kind !== 'terminal' && (
                   <button
                     type="button"
-                    className={`tool tool--bell${currentAsks ? ' is-fault' : ''}`}
+                    className={`tool tool--bell${currentAsks ? ' is-fault' : queued.length ? ' is-queued mod-tasks' : ''}`}
                     aria-haspopup="dialog"
                     onClick={() => setPlansOpen(current)}
                     title={currentAsks ? `${currentAsks} queued for ${current.name || current.kind} wait${currentAsks === 1 ? 's' : ''} for your go: open to give it` : queued.length ? `${queued.length} queued for ${current.name || current.kind}: queue more, or open the plans` : `Queue what ${current.name || current.kind} does next, or open the plans`}

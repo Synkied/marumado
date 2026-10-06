@@ -12,7 +12,7 @@ import type { Plan, Project, Task, TaskDetail, TaskEvent, TaskState } from '../l
 import { folderIn, machineOfSource, startPlaces } from '../lib/work'
 import { usePoll } from '../lib/usePoll'
 import { SheetHead } from './sheetHead'
-import { NewPlan, PlanPage, PlansList } from './plans'
+import { NewPlan, PlanPage, PlanPlace, PlansList } from './plans'
 import { TraceView, type Wait } from './trace'
 import { TaskWorkView } from './taskWork'
 import { UsageLine } from '../components/UsageLine'
@@ -656,10 +656,8 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
   const { refreshTasks } = useHub()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  // A task to review opens on its work; one at work on what its agent does.
-  const [tab, setTab] = useState<'task' | 'trace' | 'work' | 'activity'>(
-    !task.started_at || assign ? 'task' : task.state === 'review' && !task.landed ? 'work' : 'trace',
-  )
+  // A task to review opens on its work; any other on the task itself.
+  const [tab, setTab] = useState<'task' | 'trace' | 'work' | 'activity'>(task.state === 'review' && !task.landed && !assign ? 'work' : 'task')
   const [draft, setDraft] = useState<Draft>({ title: task.title, prompt: task.prompt, project: task.project })
   const dirty = draft.title !== task.title || draft.prompt !== task.prompt || draft.project !== task.project
 
@@ -699,9 +697,24 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
   }
   const unassigned = task.state === 'todo' || task.state === 'queued' || task.state === 'failed'
   const activity = task.events.filter((e) => e.kind !== 'created').length
-  // Top right of the task on a wide screen; a bar along the bottom on a phone.
+  // Top right of the task on a wide screen; a bar along the bottom on a phone. Its state's moves first, on every tab.
   const bar = (where: string) => (
     <div className={`sheet__actions ${where}`}>
+      {!unassigned && task.state !== 'done' && (
+        <button className="btn" type="button" disabled={busy} onClick={() => act('done')}>
+          Mark done
+        </button>
+      )}
+      {!unassigned &&
+        (task.state === 'done' ? (
+          <button className="btn btn--quiet" type="button" disabled={busy} onClick={() => act('reopen')}>
+            Reopen
+          </button>
+        ) : (
+          <ConfirmButton confirmLabel="Stop following it" onConfirm={() => act('reopen')} disabled={busy}>
+            Back to to do
+          </ConfirmButton>
+        ))}
       <button className="btn" type="button" disabled={busy || !dirty || !(draft.title.trim() || draft.prompt.trim())} onClick={save}>
         {busy && dirty ? 'Saving' : dirty ? 'Save changes' : 'Saved'}
       </button>
@@ -737,11 +750,7 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
         </div>
       </header>
 
-      {task.plan != null && (
-        <p className="sheet__lede">
-          A step of a plan{task.state === 'queued' ? ': it starts by itself when its turn comes' : ''}. <a href={`#/m/tasks/plan/${task.plan}`}>Open the plan</a>
-        </p>
-      )}
+      {task.plan != null && <PlanPlace task={task} />}
       {task.archived_at && (
         <p className="notice">
           Archived {ago(task.archived_at)}: off the board and every list.{' '}
@@ -777,14 +786,19 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
       </div>
 
       {tab === 'task' ? (
-        <>
-          {unassigned ? (
-            <AssignForm task={task} onAssigned={() => (refresh(), setTab('trace'))} />
-          ) : (
-            <AgentFacts task={task} busy={busy} act={act} />
-          )}
-          <TaskFields task={task} draft={draft} onChange={setDraft} />
-        </>
+        // What the task is, on the left; who takes it, on the right (under it on a narrow sheet).
+        <div className="tdetail">
+          <div className="tdetail__grid">
+            <TaskFields task={task} draft={draft} onChange={setDraft} />
+            <aside className="tdetail__side" aria-label="Agent">
+              {unassigned ? (
+                <AssignForm task={task} dirty={dirty} onAssigned={() => (refresh(), setTab('trace'))} />
+              ) : (
+                <AgentFacts task={task} />
+              )}
+            </aside>
+          </div>
+        </div>
       ) : tab === 'work' ? (
         <TaskWorkView task={task} refresh={refresh} />
       ) : tab === 'trace' ? (
@@ -805,7 +819,7 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
   )
 }
 
-function AgentFacts({ task, busy, act }: { task: TaskDetail; busy: boolean; act: (path: string) => void }) {
+function AgentFacts({ task }: { task: TaskDetail }) {
   const { agents } = useHub()
   const href = agentHref({ pane_id: task.pane_id, source: task.agent_source })
   const on = sourceLabel(agents, { source: task.agent_source })
@@ -864,34 +878,16 @@ function AgentFacts({ task, busy, act }: { task: TaskDetail; busy: boolean; act:
           </>
         )}
       </dl>
-      <div className="sheet__actions" style={{ justifyContent: 'start' }}>
-        {task.state !== 'done' && (
-          <button className="btn" type="button" disabled={busy} onClick={() => act('done')}>
-            Mark done
-          </button>
-        )}
-        {task.state === 'done' ? (
-          <button className="btn btn--quiet" type="button" disabled={busy} onClick={() => act('reopen')}>
-            Reopen
-          </button>
-        ) : (
-          <ConfirmButton confirmLabel="Stop following it" onConfirm={() => act('reopen')} disabled={busy}>
-            Back to to do
-          </ConfirmButton>
-        )}
-      </div>
     </section>
   )
 }
 
 type Draft = { title: string; prompt: string; project: number | null }
 
-/** The task's own fields. Saved with the button at the top of the page. */
+/** The task's own fields: the prompt, then its title and project side by side. Saved with the button at the top. */
 function TaskFields({ task, draft, onChange }: { task: TaskDetail; draft: Draft; onChange: (d: Draft) => void }) {
   return (
-    <section className="sheet__section">
-      <h3>Task</h3>
-      {task.live && <p className="sheet__lede">The agent already has it: changes here are for your list, not sent to the agent.</p>}
+    <section className="tdetail__brief" aria-label="The task">
       <label className="field">
         Prompt
         <textarea
@@ -900,21 +896,28 @@ function TaskFields({ task, draft, onChange }: { task: TaskDetail; draft: Draft;
           onChange={(e) => onChange({ ...draft, prompt: e.target.value })}
           placeholder={`What the agent is told. Empty, it gets the title: “${task.title}”.`}
         />
+        <span className="field__hint">
+          {task.live ? 'The agent already has it: changes here are for your list, not sent to the agent.' : 'What the agent is told, in full.'}
+        </span>
       </label>
-      <label className="field">
-        Title
-        <input value={draft.title} onChange={(e) => onChange({ ...draft, title: e.target.value })} maxLength={200} placeholder="Made from the prompt" />
-        <span className="field__hint">For the board and lists. Left empty, it is made from the prompt again.</span>
-      </label>
-      <label className="field">
-        Project
-        <ProjectSelect value={draft.project} onChange={(project) => onChange({ ...draft, project })} />
-      </label>
-      {task.project != null && (
-        <a className="row__link" href={`#/m/projects/${task.project}`} style={{ justifySelf: 'start' }}>
-          Open {task.project_name || 'the project'}
-        </a>
-      )}
+      <div className="tdetail__pair">
+        <label className="field">
+          Title
+          <input value={draft.title} onChange={(e) => onChange({ ...draft, title: e.target.value })} maxLength={200} placeholder="Made from the prompt" />
+          <span className="field__hint">For the board and lists. Left empty, it is made from the prompt.</span>
+        </label>
+        <div className="field">
+          <label htmlFor="task-project">Project</label>
+          <ProjectSelect id="task-project" value={draft.project} onChange={(project) => onChange({ ...draft, project })} />
+          <span className="field__hint">
+            {task.project != null ? (
+              <a href={`#/m/projects/${task.project}`}>Open {task.project_name || 'the project'}</a>
+            ) : (
+              'Its agent starts in the project’s folder.'
+            )}
+          </span>
+        </div>
+      </div>
     </section>
   )
 }
@@ -934,7 +937,6 @@ function useAgentPick(project: Project | undefined) {
   const chosenPane = pane || (ready[0] ? agentKey(ready[0]) : '')
   const chosenPlace = place != null && places.some((s) => s.id === place) ? place : places[0]?.id ?? 0
   const chosen = places.find((s) => s.id === chosenPlace)
-  const placeName = places.length > 1 ? chosen?.name : ''
   const startsIn = chosen ? folderIn(project, chosen) : project?.path ?? ''
   const usable = !!agents?.available && agents.terminal === 'control'
 
@@ -953,68 +955,75 @@ function useAgentPick(project: Project | undefined) {
     <>
       <div className="seg seg--mod mod-tasks" role="group" aria-label="Which agent">
         <button type="button" className="seg__btn" aria-pressed={how === 'new'} onClick={() => setHow('new')}>
-          Start a new agent
+          New agent
         </button>
         <button type="button" className="seg__btn" aria-pressed={how === 'open'} onClick={() => setHow('open')}>
-          An open agent · {ready.length}
+          Open agent · {ready.length}
         </button>
       </div>
+      {/* Who and where as one sentence with the choices in it, as a plan's setup reads. */}
       {how === 'new' ? (
         <>
-          <label className="field">
-            Agent
-            <select value={kind} onChange={(e) => setKind(e.target.value)}>
-              {(agents.kinds ?? ['claude']).map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                </option>
-              ))}
-            </select>
-          </label>
-          {places.length > 1 && (
-            <label className="field">
-              Where
-              <select value={chosenPlace} onChange={(e) => setPlace(Number(e.target.value))}>
-                {places.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                    {project && machineOfSource(s) != null && !folderIn(project, s) ? ' · no folder for this project there' : ''}
+          <p className="plan__setup tdetail__sentence">
+            <label>
+              Start a new{' '}
+              <select className="plan__inline" value={kind} onChange={(e) => setKind(e.target.value)}>
+                {(agents.kinds ?? ['claude']).map((k) => (
+                  <option key={k} value={k}>
+                    {k}
                   </option>
                 ))}
               </select>
             </label>
-          )}
-          <p className="sheet__lede">
-            Opens a new Herdr workspace{placeName ? <> on <strong>{placeName}</strong></> : ''}{' '}
+            {places.length > 1 ? (
+              <label>
+                on{' '}
+                <select className="plan__inline" value={chosenPlace} onChange={(e) => setPlace(Number(e.target.value))}>
+                  {places.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                      {project && machineOfSource(s) != null && !folderIn(project, s) ? ' · no folder for this project there' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              chosen && <span>on {chosen.name}</span>
+            )}
+            <span>{startsIn ? <>in {project?.name}’s folder</> : 'in Herdr’s default folder'}</span>
+          </p>
+          <p className="tdetail__note">
             {startsIn ? (
               <>
-                in <strong className="mono">{project?.name}</strong>&rsquo;s folder (<Secret label="Folder">{startsIn}</Secret>)
+                A new Herdr workspace at <Secret label="Folder">{startsIn}</Secret>.
               </>
             ) : project ? (
-              `in Herdr’s default folder: ${project.name} has no folder there that Marumado knows of`
+              `${project.name} has no folder there that Marumado knows of.`
             ) : (
-              'in Herdr’s default folder (pick a project to start there)'
-            )}
-            , starts {kind} and gives it the task. If {kind} asks something first, the task waits under Needs you until you answer.
+              'Pick a project to start in its folder.'
+            )}{' '}
+            If {kind} asks something first, the task waits under Needs you until you answer.
           </p>
         </>
       ) : ready.length ? (
-        <label className="field">
-          Agent
-          <select value={chosenPane} onChange={(e) => setPane(e.target.value)}>
-            {open.map((a) => {
-              const on = sourceLabel(agents, a)
-              return (
-                <option key={agentKey(a)} value={agentKey(a)} disabled={a.status === 'working' || a.status === 'blocked'}>
-                  {a.name || a.kind} · {a.kind}
-                  {on ? ` on ${on}` : ''} · {a.cwd.split('/').filter(Boolean).pop() || a.cwd} · {a.status === 'working' ? 'busy' : a.status === 'blocked' ? 'waiting on you' : 'ready'}
-                </option>
-              )
-            })}
-          </select>
-        </label>
+        <p className="plan__setup tdetail__sentence">
+          <label>
+            Give it to{' '}
+            <select className="plan__inline" value={chosenPane} onChange={(e) => setPane(e.target.value)}>
+              {open.map((a) => {
+                const on = sourceLabel(agents, a)
+                return (
+                  <option key={agentKey(a)} value={agentKey(a)} disabled={a.status === 'working' || a.status === 'blocked'}>
+                    {a.name || a.kind} · {a.kind}
+                    {on ? ` on ${on}` : ''} · {a.cwd.split('/').filter(Boolean).pop() || a.cwd} · {a.status === 'working' ? 'busy' : a.status === 'blocked' ? 'waiting on you' : 'ready'}
+                  </option>
+                )
+              })}
+            </select>
+          </label>
+        </p>
       ) : (
-        <p className="sheet__lede">{open.length ? 'Every open agent is busy or waiting on you.' : 'No agent is open in Herdr.'} Start a new one instead.</p>
+        <p className="tdetail__note">{open.length ? 'Every open agent is busy or waiting on you.' : 'No agent is open in Herdr.'} Start a new one instead.</p>
       )}
     </>
   )
@@ -1022,7 +1031,7 @@ function useAgentPick(project: Project | undefined) {
 }
 
 /** Give the task to an agent already open in Herdr, or start a new one in the project's folder. */
-function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => void }) {
+function AssignForm({ task, dirty, onAssigned }: { task: TaskDetail; dirty: boolean; onAssigned: () => void }) {
   const { agents, projects, refreshTasks, refreshAgents } = useHub()
   const pick = useAgentPick((projects ?? []).find((p) => p.id === task.project))
   const [busy, setBusy] = useState(false)
@@ -1051,19 +1060,14 @@ function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => 
       setBusy(false)
     }
   }
-  const prompt = task.prompt.trim() || task.title
-
   return (
     <section className="sheet__section">
       <h3>Give it to an agent</h3>
       {pick.fields}
-      <details className="task__prompt">
-        <summary>What the agent will be told</summary>
-        <pre className="logs">{prompt}</pre>
-      </details>
       {error && <p className="notice signal-text">{error}</p>}
-      <div className="sheet__actions" style={{ justifyContent: 'start' }}>
-        <button className="btn" type="button" disabled={busy || !pick.ready} onClick={assign}>
+      {dirty && <p className="tdetail__note">Save your changes first: the agent is given the task as saved.</p>}
+      <div className="sheet__actions tdetail__actions">
+        <button className="btn" type="button" disabled={busy || !pick.ready || dirty} onClick={assign}>
           <Icon name="agent" size={16} /> {busy ? 'Handing over…' : task.state === 'failed' ? 'Try again' : 'Give it to the agent'}
         </button>
       </div>

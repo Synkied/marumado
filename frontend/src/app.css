@@ -558,6 +558,16 @@
   color: var(--on-signal);
 }
 
+/* Steps queued for the agent: the button takes the Tasks pen, so a queue is seen at a glance. */
+.tool--bell.is-queued {
+  border-color: color-mix(in oklab, var(--mod) 55%, var(--rule-soft));
+  background: color-mix(in oklab, var(--mod) 10%, var(--ground-raised));
+}
+
+.tool--bell.is-queued svg {
+  color: var(--mod);
+}
+
 .tool__count {
   font-family: var(--f-mono);
   font-size: var(--text-md);
@@ -785,6 +795,10 @@
 
 .agent-tab.has-queue {
   padding-right: calc(var(--sp-3) + var(--control-sm));
+}
+
+.agent-tab.has-queue:has(.is-queued) {
+  padding-right: calc(var(--sp-3) + var(--control-sm) + var(--sp-9));
 }
 
 .agent-tab__title {
@@ -3696,6 +3710,7 @@ details[open] > summary.rstep__line .rstep__title {
   }
   .task__bar--bottom {
     display: flex;
+    flex-wrap: wrap;
     position: sticky;
     bottom: 0;
     z-index: 5;
@@ -3709,6 +3724,89 @@ details[open] > summary.rstep__line .rstep__title {
 .task__tabs,
 .sheet__section > .seg--mod {
   justify-self: start;
+}
+
+/* The Task tab: what the task is (its prompt, then title and project side by side), and beside it, who takes it. */
+.tdetail {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.tdetail__grid {
+  display: grid;
+  gap: var(--sp-14);
+  align-items: start;
+}
+
+.tdetail__brief {
+  display: grid;
+  gap: var(--sp-10);
+  min-width: 0;
+}
+
+.tdetail__pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: var(--sp-10) var(--sp-12);
+  align-items: start;
+}
+
+.field__hint a {
+  color: inherit;
+  text-underline-offset: 0.2em;
+}
+
+.field__hint a:hover {
+  color: var(--ink);
+}
+
+.tdetail__side {
+  display: grid;
+  gap: var(--sp-10);
+  min-width: 0;
+}
+
+.tdetail__side > .sheet__section:first-child > h3 {
+  margin-top: 0;
+}
+
+.tdetail__side .facts {
+  gap: var(--sp-4) var(--sp-9);
+}
+
+.tdetail__side .facts dd {
+  font-size: var(--text-lg);
+}
+
+.tdetail__sentence {
+  font-size: var(--text-lg);
+  line-height: 1.6;
+}
+
+.tdetail__note {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+  max-width: 60ch;
+  overflow-wrap: anywhere;
+}
+
+.tdetail__actions {
+  justify-content: start;
+}
+
+/* Wide enough: the brief takes the room, the agent a column of its own along a hairline, staying in view while the
+   prompt scrolls. */
+@container (min-width: 820px) {
+  .tdetail__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  }
+  .tdetail__side {
+    position: sticky;
+    top: var(--sp-8);
+    padding-left: var(--sp-14);
+    border-left: 1px solid var(--rule-soft);
+  }
 }
 
 /* Dragging a card between columns. */

@@ -274,18 +274,46 @@ export function PlansList() {
   )
 }
 
-/** A plan's shape in miniature: one column per row, one cell per step, in its state. */
-function Strip({ plan }: { plan: Plan }) {
+/** A plan's shape in miniature: one column per row, one cell per step, in its state; `here`, a step ringed. */
+function Strip({ plan, here }: { plan: Plan; here?: number }) {
   return (
     <span className="pstrip" aria-hidden="true">
       {layoutOf(plan).map((row, i) => (
         <span className="pstrip__row" key={i}>
           {row.map((t) => (
-            <span key={t.id} className={`pstrip__cell pstrip__cell--${mark(t, plan.asking)}`} />
+            <span key={t.id} className={`pstrip__cell pstrip__cell--${mark(t, plan.asking)}${t.id === here ? ' is-here' : ''}`} />
           ))}
         </span>
       ))}
     </span>
+  )
+}
+
+/** On a step's own page: its plan, with the plan's strip and this step ringed in it, its row, and what runs beside it. */
+export function PlanPlace({ task }: { task: Task }) {
+  const res = usePoll<Plan>(task.plan != null ? `plans/${task.plan}` : null, 5000)
+  const plan = res.data
+  const rows = plan ? layoutOf(plan) : []
+  const r = rows.findIndex((row) => row.some((t) => t.id === task.id))
+  const beside = r >= 0 ? rows[r].filter((t) => t.id !== task.id) : []
+  const words = [
+    plan ? `${STATE_WORDS[planState(plan)]} plan` : 'A step of a plan',
+    r >= 0 ? `step ${r + 1} of ${rows.length}` : '',
+    beside.length === 1 ? `at the same time as “${beside[0].title}”` : beside.length ? `at the same time as ${beside.length} others` : '',
+    task.state === 'queued' ? 'starts by itself when its turn comes' : '',
+    task.ask && !task.go ? 'asks you before it starts' : '',
+  ]
+  return (
+    <a className="tplan mod-tasks" href={`#/m/tasks/plan/${task.plan}`}>
+      {plan && <Strip plan={plan} here={task.id} />}
+      <span className="tplan__text">
+        <span className="tplan__name">{plan?.title ?? 'Its plan'}</span>
+        <span className="tplan__meta">{words.filter(Boolean).join(' · ')}</span>
+      </span>
+      <span className="tplan__open">
+        Open the plan <Icon name="arrow" size={16} />
+      </span>
+    </a>
   )
 }
 
@@ -954,7 +982,9 @@ function StepCard({ t, above, alone, first, last, inRow, agents, busy, asking, h
   remove: () => void
 }) {
   const open = (agents?.agents ?? []).filter((a) => a.kind !== 'terminal')
-  const can = movable(t) && !busy
+  // Its controls stay while a change is saved, only disabled: taking them away would shorten every card at once and
+  // pull the page up under the pointer.
+  const can = movable(t)
   const value = t.runner === 'agent' ? `agent:${t.want_source}/${t.want_pane}` : t.runner
   const runnerWords =
     t.runner === 'agent'
@@ -966,10 +996,10 @@ function StepCard({ t, above, alone, first, last, inRow, agents, busy, asking, h
         ? `a new agent${inRow > 1 ? ', in its own worktree' : ''}`
         : `continues with ${above.agent_name || 'the agent of “' + above.title + '”'}`
   const sub = asking
-    ? `waits for your go · ${runnerWords}`
+    ? runnerWords
     : movable(t)
       ? `${runnerWords}${t.ask && !t.go ? ' · asks you first' : ''}`
-      : `${STEP_WORDS[t.state]}${CHECK_WORDS[t.check_state] ? ` · ${CHECK_WORDS[t.check_state]}` : ''}${t.landed ? ` · ${t.landed}` : ''}${t.agent_name ? ` · ${t.agent_name}` : ''}${t.worktree ? ` · ${t.worktree}` : ''}`
+      : [CHECK_WORDS[t.check_state], t.landed, t.agent_name, t.worktree].filter(Boolean).join(' · ')
   const m = mark(t, asking ? [t.id] : [])
 
   // Continues the agent of the step above it: drawn as a dotted line up to that step.
@@ -981,36 +1011,38 @@ function StepCard({ t, above, alone, first, last, inRow, agents, busy, asking, h
       style={held ? { transform: `translate(${held.dx}px, ${held.dy}px)` } : undefined}
       onPointerDown={(e) => onGrab(e, t)}
     >
+      {/* Its state and tools on one line, so the title below gets the card's whole width. */}
       <span className="pstep__head">
         {can && (
           <span className="pstep__grip" title="Drag to move it" aria-hidden="true">
             <Icon name="grip" size={16} />
           </span>
         )}
-        <a className="pstep__title" href={`#/m/tasks/${t.id}`} draggable={false}>
-          <span className={`pstep__lamp pstep__lamp--${m}`} aria-hidden="true" />
-          {t.title}
-        </a>
+        <span className={`pstep__lamp pstep__lamp--${m}`} aria-hidden="true" />
+        <span className={`pstep__state${m === 'fault' ? ' signal-text' : ''}`}>{asking ? 'waits for your go' : STEP_WORDS[t.state]}</span>
         {can && (
           <span className="pstep__moves">
-            <button className="pstep__tool" type="button" disabled={first && alone} onClick={() => move({ kind: 'gap', index: rowIndex - (alone ? 1 : 0) })} aria-label="Earlier: on its own, before this row" title="Earlier: on its own, before this row">
+            <button className="pstep__tool" type="button" disabled={busy || (first && alone)} onClick={() => move({ kind: 'gap', index: rowIndex - (alone ? 1 : 0) })} aria-label="Earlier: on its own, before this row" title="Earlier: on its own, before this row">
               <Icon name="up" size={16} />
             </button>
-            <button className="pstep__tool" type="button" disabled={last && alone} onClick={() => move({ kind: 'gap', index: rowIndex + 1 + (alone ? 1 : 0) })} aria-label="Later: on its own, after this row" title="Later: on its own, after this row">
+            <button className="pstep__tool" type="button" disabled={busy || (last && alone)} onClick={() => move({ kind: 'gap', index: rowIndex + 1 + (alone ? 1 : 0) })} aria-label="Later: on its own, after this row" title="Later: on its own, after this row">
               <Icon name="down" size={16} />
             </button>
             {rowIndex > 0 && (
-              <button className="pstep__tool" type="button" onClick={() => move({ kind: 'row', index: rowIndex - 1 })} aria-label="At the same time as the row above" title="At the same time as the row above">
+              <button className="pstep__tool" type="button" disabled={busy} onClick={() => move({ kind: 'row', index: rowIndex - 1 })} aria-label="At the same time as the row above" title="At the same time as the row above">
                 <Icon name="join" size={16} />
               </button>
             )}
-            <button className="pstep__tool" type="button" onClick={remove} aria-label="Remove: back to To do" title="Remove: back to To do">
+            <button className="pstep__tool" type="button" disabled={busy} onClick={remove} aria-label="Remove: back to To do" title="Remove: back to To do">
               <Icon name="close" size={16} />
             </button>
           </span>
         )}
       </span>
-      <span className={`pstep__sub${m === 'fault' ? ' signal-text' : ''}`}>{sub}</span>
+      <a className="pstep__title" href={`#/m/tasks/${t.id}`} draggable={false}>
+        {t.title}
+      </a>
+      {sub && <span className="pstep__sub">{sub}</span>}
       {t.prompt.trim() && t.prompt.trim() !== t.title && (
         <details className="pstep__prompt">
           <summary>Prompt</summary>
@@ -1026,6 +1058,7 @@ function StepCard({ t, above, alone, first, last, inRow, agents, busy, asking, h
         <select
           className="plan__inline pstep__who"
           value={value}
+          disabled={busy}
           aria-label={`Who takes “${t.title}”`}
           onChange={(e) => {
             const v = e.target.value

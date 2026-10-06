@@ -98,6 +98,26 @@ textarea::placeholder {
   animation-play-state: paused !important;
 }
 
+/* While a scroll is under way, every loop holds still, so the frames go to the scroll. */
+:root[data-scrolling] *,
+:root[data-scrolling] *::before,
+:root[data-scrolling] *::after {
+  animation-play-state: paused !important;
+}
+
+/* Between their bursts (lib/away.ts) the loops are off, each critter back in its plain pose; they start again from
+   their own beat. A critter that needs you keeps hopping: that one is an alarm. */
+:root[data-rest] .critter__blink,
+:root[data-rest] .critter--working .critter__body,
+:root[data-rest] .critter--working .critter__pen,
+:root[data-rest] .critter__trace,
+:root[data-rest] .critter--idle .critter__body,
+:root[data-rest] .critter__z,
+:root[data-rest] .dial__pulse,
+:root[data-rest] .ribbon__tip::after {
+  animation: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
