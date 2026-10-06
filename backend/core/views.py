@@ -10,7 +10,7 @@ from rest_framework.response import Response
 
 import json
 
-from . import auth, discovery, files, herdr, machines, monitor, opener, overview, places, plans, pulse, tasks, transcripts
+from . import auth, checks, discovery, files, herdr, land, machines, monitor, opener, overview, places, plans, pulse, tasks, transcripts
 from .models import AgentSource, Machine, Plan, Project, ScanRoot, Skill, Task, UptimeCheck
 from .serializers import AgentSourceSerializer, MachineSerializer, PlanSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
 
@@ -258,6 +258,65 @@ class TaskViewSet(viewsets.ModelViewSet):
         return self.retrieve(request, pk)
 
 
+    # ---- reviewing and landing the agent's work (core/land.py), and its plan's check (core/checks.py)
+
+    def _do(self, request, pk, work):
+        try:
+            said = work(self.get_object())
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        except herdr.TimedOut as exc:
+            return Response({'detail': str(exc)}, status=504)
+        except RuntimeError as exc:
+            return Response({'detail': str(exc)}, status=502)
+        task = self.get_object()
+        return Response({**TaskSerializer(task).data, 'events': TaskEventSerializer(task.events.all(), many=True).data,
+                         'said': said if isinstance(said, str) else ''})
+
+    @action(detail=True, methods=['get'])
+    def work(self, request, pk=None):
+        """What the agent's work is: its branch or the project's folder, its commits and changed files. `?path=`: one
+        file's diff."""
+        task = self.get_object()
+        try:
+            path = request.query_params.get('path')
+            return Response(land.diff(task, path) if path is not None else land.review(task))
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        except RuntimeError as exc:
+            return Response({'detail': str(exc)}, status=502)
+
+    @action(detail=True, methods=['post'])
+    def merge(self, request, pk=None):
+        """{clean_up}: merge its branch into the project's (then remove its worktree and branch, by default)."""
+        return self._do(request, pk, lambda t: land.merge(t, clean_up=request.data.get('clean_up', True) is not False))
+
+    @action(detail=True, methods=['post'])
+    def pr(self, request, pk=None):
+        """Push its branch and open a pull request for it."""
+        return self._do(request, pk, land.pull_request)
+
+    @action(detail=True, methods=['post'])
+    def discard(self, request, pk=None):
+        """Throw its branch and worktree away; the task goes back to To do."""
+        return self._do(request, pk, land.discard)
+
+    @action(detail=True, methods=['post'])
+    def feedback(self, request, pk=None):
+        """{text}: send it back to its agent with what to change."""
+        text = request.data.get('text')
+        if not isinstance(text, str) or not text.strip():
+            return Response({'detail': 'Write what to change.'}, status=400)
+        if herdr.terminal_mode() != 'control':
+            return Response({'detail': 'Giving tasks to agents is turned off (MARUMADO_HERDR_TERMINAL).'}, status=403)
+        return self._do(request, pk, lambda t: tasks.send_back(t, text.strip()))
+
+    @action(detail=True, methods=['post'])
+    def check(self, request, pk=None):
+        """Run its plan's check again."""
+        return self._do(request, pk, checks.again)
+
+
 class PlanViewSet(viewsets.ModelViewSet):
     """Steps for agents to take over on their own, in order or side by side (core/plans.py)."""
 
@@ -273,6 +332,12 @@ class PlanViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         plans.dissolve(instance)
         instance.delete()
+
+    def perform_update(self, serializer):
+        had = serializer.instance.check_command.strip()
+        plan = serializer.save()
+        if plan.check_command.strip() and not had:
+            checks.skip_finished(plan)
 
     @action(detail=True, methods=['post'])
     def arrange(self, request, pk=None):

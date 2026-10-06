@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import shlex
 import shutil
 import signal
@@ -720,6 +721,22 @@ def open_worktree(cwd: str, branch: str, label: str = '', source: 'int | Source'
     return {'pane_id': pane['pane_id'], 'cwd': made['worktree'].get('path') or pane.get('cwd') or ''}
 
 
+def worktrees(cwd: str, source: 'int | Source' = ENV) -> list[dict]:
+    """The git worktrees of the repository at `cwd`, as Herdr knows them: {branch, path, open_workspace_id…} each."""
+    src = get_source(source)
+    if src.kind == 'machine':
+        raise RuntimeError(f"{src.name}'s worktrees are handled by its Marumado.")
+    return _run(src, 'worktree', 'list', '--cwd', cwd).get('worktrees') or []
+
+
+def remove_worktree(workspace: str, force: bool = False, source: 'int | Source' = ENV) -> None:
+    """Remove the git worktree open as `workspace`, closing the workspace (and the agent in it). `force`: with changes
+    not committed in it."""
+    if not WORKSPACE_ID.match(workspace):
+        raise ValueError('Not a Herdr workspace id.')
+    _run(get_source(source), 'worktree', 'remove', '--workspace', workspace, *(['--force'] if force else []), text=True)
+
+
 def launch_agent(name: str, kind: str, pane_id: str, source: 'int | Source' = ENV) -> bool:
     """Start a `kind` agent named `name` in the shell in `pane_id`. True when it is ready for input already;
     False when it is still starting (or stopped on a startup question): Herdr carries on without us."""
@@ -822,6 +839,81 @@ def close(pane_id: str, source: 'int | Source' = ENV) -> None:
         _remote(src, 'POST', f'agents/{pane_id}/close')
         return
     _run(src, 'pane', 'close', pane_id)
+
+
+class TimedOut(RuntimeError):
+    """A command run by execute() didn't end in the time it was given."""
+
+
+RUN_LINES = 3000  # how much of a command's output execute() reads back from a terminal
+
+
+def _contained() -> bool:
+    """Whether Marumado runs in a container beside the Herdr it asks: there it can't write the projects' folders (they
+    are mounted read-only) nor run their tools."""
+    return bool(env('HERDR_SOCKET')) or Path('/.dockerenv').exists()
+
+
+def execute(source: 'int | Source', cwd: str, script: str, timeout: float = 60, near: str = '') -> tuple[int, str]:
+    """Run the sh `script` in the folder `cwd` where the agents of `source` run, and wait for it to end: (its exit
+    code, what it printed). Raises TimedOut past `timeout` seconds, RuntimeError when it can't be run.
+    In a VM or on an SSH host, or with Marumado on the same machine as Herdr, that is a plain shell. Marumado in a
+    container runs it in a Herdr terminal of its own instead, opened beside pane `near` (or in a new workspace) and
+    closed after: there, it runs with the owner's tools and rights, as the agents do."""
+    src = get_source(source)
+    if src.kind == 'machine':
+        raise RuntimeError(f"Commands can't be run on {src.name} from here yet: use the Marumado there.")
+    nonce = secrets.token_hex(6)
+    # The markers around what it prints are put together as it runs, so the command as typed in a terminal (which
+    # shows it, maybe wrapped) never holds them.
+    start, marker = f'__marumado_{nonce}_start__', re.compile(rf'__marumado_{nonce}_(\d+)__')
+    q = shlex.quote
+    full = (f'printf "__marumado_%s_start__\\n" {nonce}; '
+            f'( cd {q(cwd)} 2>/dev/null || {{ echo {q(f"No folder {cwd} where Herdr runs.")}; exit 97; }}; {script} ) </dev/null 2>&1; '
+            f'printf "\\n__marumado_%s_%s__\\n" {nonce} $?')
+    if any(_elsewhere(src)) or not _contained():
+        try:
+            out = shell(src, full, timeout=timeout).decode(errors='replace')
+        except RuntimeError as exc:
+            if 'in time' in str(exc):
+                raise TimedOut(f'It took longer than {_duration(timeout)}.')
+            raise
+    else:
+        out = _in_terminal(src, full, marker, timeout, near)
+    m = marker.search(out)
+    if not m:
+        raise RuntimeError('It ended without saying how (its exit code was lost).')
+    out = out[:m.start()]
+    begins = out.rfind(start)
+    return int(m.group(1)), (out[begins + len(start):] if begins >= 0 else out).strip('\n')
+
+
+def _duration(seconds: float) -> str:
+    return f'{int(seconds // 60)} minutes' if seconds >= 120 else f'{int(seconds)} seconds'
+
+
+def _in_terminal(src: Source, full: str, marker: re.Pattern, timeout: float, near: str) -> str:
+    try:
+        pane = new_terminal(near, src)['pane_id']
+    except RuntimeError:
+        if not near:
+            raise
+        pane = new_terminal('', src)['pane_id']  # the pane it was to go beside was closed meanwhile
+    try:
+        _run(src, 'pane', 'run', pane, 'sh -c ' + shlex.quote(full), text=True)  # sh, whatever the owner's shell is
+        try:
+            _run(src, 'pane', 'wait-output', pane, '--regex', marker.pattern, '--source', 'recent-unwrapped', '--lines', str(RUN_LINES),
+                 '--timeout', str(int(timeout * 1000)), text=True, timeout=timeout + 10)
+        except RuntimeError as exc:
+            if any(w in str(exc).lower() for w in ('timeout', 'timed out', 'in time')):
+                raise TimedOut(f'It took longer than {_duration(timeout)}.')
+            raise
+        return _run(src, 'pane', 'read', pane, '--source', 'recent-unwrapped', '--lines', str(RUN_LINES), text=True)
+    finally:
+        try:
+            close(pane, src)
+        except (RuntimeError, ValueError):
+            pass
 
 
 def terminal_command(pane_id: str, cols: int, rows: int, control: bool, takeover: bool = False,

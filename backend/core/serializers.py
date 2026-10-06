@@ -127,6 +127,7 @@ class TaskSerializer(serializers.ModelSerializer):
             'id', 'title', 'prompt', 'project', 'project_name', 'state', 'pane_id', 'agent_source', 'agent_name', 'agent_kind',
             'agent_state', 'agent_title', 'live', 'prompt_pending', 'started_at', 'finished_at', 'archived_at', 'created_at', 'updated_at',
             'plan', 'plan_row', 'plan_col', 'runner', 'want_pane', 'want_source', 'worktree', 'ask', 'go',
+            'usage', 'check_state', 'check_tries', 'landed', 'pr_url',
         ]
         read_only_fields = [f for f in fields if f not in ('title', 'prompt', 'project', 'runner', 'want_pane', 'want_source', 'ask')]
 
@@ -148,12 +149,24 @@ class PlanSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True, default='')
     steps = serializers.SerializerMethodField()
     asking = serializers.SerializerMethodField()
+    usage = serializers.SerializerMethodField()
+    check_command = serializers.CharField(max_length=500, required=False, allow_blank=True, trim_whitespace=True)
+    check_fixes = serializers.IntegerField(required=False, min_value=0, max_value=5)
 
     class Meta:
         model = Plan
         fields = ['id', 'title', 'project', 'project_name', 'kind', 'source', 'running', 'start_at', 'pane_id', 'pane_source', 'archived_at', 'created_at',
-                  'updated_at', 'steps', 'asking']
-        read_only_fields = ['running', 'pane_id', 'pane_source', 'archived_at', 'created_at', 'updated_at', 'steps', 'asking']
+                  'updated_at', 'steps', 'asking', 'usage', 'check_command', 'check_fixes']
+        read_only_fields = ['running', 'pane_id', 'pane_source', 'archived_at', 'created_at', 'updated_at', 'steps', 'asking', 'usage']
+
+    def get_usage(self, plan):
+        """What its steps' agents used, all together."""
+        from .usage import add
+
+        total = None
+        for t in plan.steps.all():
+            total = add(total, t.usage)
+        return total
 
     def get_steps(self, plan):
         """Row by row, left to right."""

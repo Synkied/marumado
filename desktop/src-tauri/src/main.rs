@@ -17,7 +17,7 @@ use docker::Stack;
 use marumado::{Act, Entry, Look, Reading, Watch};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{mpsc, Mutex};
+use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::image::Image;
 use tauri::ipc::CapabilityBuilder;
@@ -90,8 +90,22 @@ fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
+/// Where log() also writes: marumado-desktop.log in the app's config folder (set once the app starts). An app started
+/// from the desktop has nowhere to show its stderr, so a notification the system refused would go unseen.
+static LOG_FILE: OnceLock<PathBuf> = OnceLock::new();
+const LOG_MAX: u64 = 256 * 1024; // past this, the file starts over
+
 fn log(message: &str) {
     eprintln!("marumado-desktop: {message}");
+    let Some(path) = LOG_FILE.get() else { return };
+    if std::fs::metadata(path).is_ok_and(|m| m.len() > LOG_MAX) {
+        let _ = std::fs::remove_file(path);
+    }
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        use std::io::Write;
+        let _ = writeln!(f, "{secs} {message}");
+    }
 }
 
 // ---------- the window ----------
@@ -443,6 +457,7 @@ fn update(app: &AppHandle, r: Reading) {
     let news = d.watch.lock().unwrap().observe(&r, now_ms());
     if config_of(app).is_some_and(|c| c.notify) {
         for (title, body) in news {
+            log(&format!("notifying: {title}"));
             if let Err(e) = app
                 .notification()
                 .builder()
@@ -860,6 +875,8 @@ fn main() {
         })
         .setup(move |app| {
             let handle = app.handle().clone();
+            let _ = std::fs::create_dir_all(config_dir(&handle));
+            let _ = LOG_FILE.set(config_dir(&handle).join("marumado-desktop.log"));
             let config = config::load(&config_dir(&handle));
             if let Some(c) = &config {
                 allow_remote(&handle, &c.url);

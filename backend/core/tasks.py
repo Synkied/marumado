@@ -8,6 +8,7 @@ and files it changed in the project.
 import logging
 import re
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
@@ -348,6 +349,7 @@ def _follow(task: Task, agent: dict | None) -> None:
         was_working = task.state in (Task.STARTING, Task.WORKING, Task.BLOCKED)
         event(task, 'closed', 'The agent was closed before it finished' if was_working else 'The agent was closed')
         record_changes(task)
+        record_usage(task)
         task.live = False
         if was_working:
             task.state, task.finished_at = Task.FAILED, _now()
@@ -362,6 +364,8 @@ def _follow(task: Task, agent: dict | None) -> None:
         event(task, 'activity', title)
 
     status = agent['status']
+    if status == 'working':
+        record_usage(task, every=USAGE_EVERY)
     if status == task.agent_state or status == 'unknown':
         if retitled:
             task.save(update_fields=['agent_title', 'updated_at'])
@@ -388,6 +392,7 @@ def _follow(task: Task, agent: dict | None) -> None:
             task.state, task.finished_at = Task.REVIEW, _now()
             event(task, 'state', 'Finished its turn', state=status, output=_snapshot(task, FINAL_LINES))
             record_changes(task)
+            record_usage(task)
         else:
             event(task, 'state', 'Idle', state=status)
     _save(task)
@@ -412,10 +417,34 @@ def trace(task: Task, start: int = 0) -> dict:
         data = herdr._remote(src, 'GET', 'agents/trace', query=urlencode(query), timeout=40)
     else:
         data = transcripts.trace(src, task.agent_kind, cwd, since, prompt_text(task), task.transcript, start, any_session=followed)
+    fields = []
     if data.get('path') and data['path'] != task.transcript:
         task.transcript = data['path']
-        task.save(update_fields=['transcript'])
+        fields.append('transcript')
+    if data.get('usage') and data['usage'] != task.usage:
+        task.usage = data['usage']
+        fields.append('usage')
+    if fields:
+        task.save(update_fields=fields)
     return data
+
+
+USAGE_EVERY = 60  # seconds between two reads of what a working agent used
+_usage_read: dict[int, float] = {}
+
+
+def record_usage(task: Task, every: float = 0) -> None:
+    """Keep what the agent used for the task (Task.usage), read from its session record: at once, or when the last
+    read is `every` seconds old. A record that can't be read leaves it as it was."""
+    if not task.started_at or task.agent_kind not in transcripts.KINDS:
+        return
+    if every and time.monotonic() - _usage_read.get(task.id, 0) < every:
+        return
+    _usage_read[task.id] = time.monotonic()
+    try:
+        trace(task, start=1 << 30)
+    except (RuntimeError, ValueError) as exc:
+        log.debug('reading the usage of task %s failed: %s', task.id, exc)
 
 
 # ---------------------------------------------------------------- owner's actions
@@ -427,6 +456,29 @@ def mark_done(task: Task) -> None:
     task.finished_at = task.finished_at or _now()
     task.save()
     event(task, 'done', 'Marked done')
+
+
+def send_back(task: Task, text: str, by: str = 'you') -> None:
+    """Give the task's agent more to do on it: what to change, from the owner's review (`by` you) or a failed check.
+    The task is at work again; once the agent finishes, it is to review (and checked) again."""
+    if not task.live or not task.pane_id:
+        raise ValueError('No agent follows this task any more: reopen it to hand it over again.')
+    if task.state not in (Task.REVIEW, Task.DONE, Task.FAILED):
+        raise ValueError('The agent is still on it: wait for it to finish its turn.')
+    if task.landed:
+        raise ValueError(f'Its work was {task.landed} already.')
+    try:
+        picked_up = herdr.prompt_task(task.pane_id, text, task.agent_source)
+    except herdr.Blocked:
+        raise ValueError('The agent is waiting on a question: answer it in Agents first.')
+    # Picked up, it is working; otherwise any state the agent reports next counts as a change (see _follow).
+    task.state = Task.WORKING if picked_up else Task.STARTING
+    task.agent_state = 'working' if picked_up else ''
+    task.finished_at = None
+    if by == 'you':
+        task.check_state, task.check_tries = '', 0
+    task.save(update_fields=['state', 'agent_state', 'finished_at', 'check_state', 'check_tries', 'updated_at'])
+    event(task, 'feedback', 'Sent back by the check' if by == 'check' else 'Sent back to the agent', output=text)
 
 
 def to_review(task: Task) -> None:
@@ -442,6 +494,7 @@ def reopen(task: Task) -> None:
     """Back to the to-do list, keeping its history. The agent (if still open) is left as it is."""
     task.state, task.live, task.prompt_pending = Task.QUEUED if task.plan_id and task.plan.running else Task.TODO, False, False
     task.agent_state, task.archived_at = '', None
+    task.check_state, task.check_tries, task.landed = '', 0, ''
     task.save()
     event(task, 'reopened', 'Back to to do')
 

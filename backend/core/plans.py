@@ -2,6 +2,7 @@
 
 A plan's steps are tasks laid out in rows. While the plan runs, the monitor calls advance() after tasks.watch():
 a row's steps start once every step of the rows above it is finished (to review, or done), all of a row's at once.
+A plan with a check (core/checks.py) counts a step to review as finished only once its check passed.
 Who takes a step:
 - runner '' (the default): the agent of the step above it (at the same place in the row above), so it keeps that
   agent's context and folder. A step of the first row, one past the width of the row above, or one whose agent was
@@ -27,7 +28,7 @@ from pathlib import Path
 from django.db import transaction
 from django.db.models import Max
 
-from . import herdr, tasks
+from . import checks, herdr, tasks
 from .models import Plan, Task
 
 log = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ def asking(plan: Plan, layout: list[list[Task]]) -> set[int]:
         return out
     for row in layout:
         out |= {t.id for t in row if t.state == Task.QUEUED and t.ask and not t.go}
-        if not all(t.state in FINISHED for t in row):
+        if not all(checks.passed(t, plan) for t in row):
             break
     return out
 
@@ -120,7 +121,7 @@ def _advance(plan: Plan, agents: dict, unreachable: set[int], taken: set) -> Non
         for step in row:
             if step.state == Task.QUEUED:
                 _try(plan, step, row, layout, agents, unreachable, taken)
-        if not all(t.state in FINISHED for t in row):
+        if not all(checks.passed(t, plan) for t in row):
             return  # the rows under it wait
 
 

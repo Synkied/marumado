@@ -24,7 +24,7 @@ import time
 from collections import OrderedDict
 from datetime import datetime
 
-from . import herdr
+from . import herdr, usage
 
 KINDS = ('claude', 'codex')
 MAX_READ = 8 * 1024 * 1024  # read at most this much of a record per poll
@@ -140,6 +140,12 @@ class Parser:
         self.steps: list[dict] = []
         self.open: dict[str, dict] = {}  # tool calls waiting for their result, by call id
         self.prev = 0  # when the last record was written
+        # What each model call used (usage.py), by message id, in the order they came; and how full the agent's
+        # context was at its last call of its own (not a sub-agent's): {t, tokens, window}.
+        self.calls: dict[str, list] = {}
+        self.context: dict | None = None
+        self._totals: dict = {}  # Codex: the session's running totals, to tell what each call added
+        self._model = ''  # Codex: the model of the current turn
         self.lock = threading.Lock()
 
     # The first step that may still change: everything before it is final.
@@ -158,6 +164,10 @@ class Parser:
             except ValueError:
                 continue
             if isinstance(record, dict):
+                try:
+                    (self._claude_usage if self.kind == 'claude' else self._codex_usage)(record)
+                except (KeyError, TypeError, AttributeError, ValueError):
+                    pass
                 try:
                     (self._claude if self.kind == 'claude' else self._codex)(record)
                 except (KeyError, TypeError, AttributeError, ValueError):
@@ -200,7 +210,30 @@ class Parser:
             return
         self.add('you', t, first_line(text), clip(text), end=t)
 
+    def usage(self, since: int | None = None) -> dict:
+        """What the session used from `since` (ms) on: usage.total of its model calls."""
+        return usage.total((e for e in self.calls.values() if since is None or e[0] >= since), self.context)
+
     # ---- Claude Code
+
+    def _claude_usage(self, r: dict) -> None:
+        """Claude Code writes a reply once per block, each line with the usage so far: the largest numbers count."""
+        msg = r.get('message') or {}
+        u = msg.get('usage')
+        if r.get('type') != 'assistant' or not isinstance(u, dict) or msg.get('model') == '<synthetic>':
+            return
+        key = msg.get('id') or r.get('uuid') or str(len(self.calls))
+        split = u.get('cache_creation') if isinstance(u.get('cache_creation'), dict) else {}
+        write_1h = int(split.get('ephemeral_1h_input_tokens') or 0)
+        write = int(u.get('cache_creation_input_tokens') or 0) - write_1h
+        entry = [_ms(r.get('timestamp', '')), msg.get('model') or '', int(u.get('input_tokens') or 0), max(write, 0), write_1h,
+                 int(u.get('cache_read_input_tokens') or 0), int(u.get('output_tokens') or 0), u.get('speed') == 'fast']
+        old = self.calls.get(key)
+        if old:
+            entry = [old[0], old[1] or entry[1], *(max(a, b) for a, b in zip(old[2:7], entry[2:7])), old[7] or entry[7]]
+        self.calls[key] = entry
+        if not r.get('isSidechain'):
+            self.context = {'t': entry[0], 'tokens': entry[2] + entry[3] + entry[4] + entry[5], 'window': None}
 
     def _claude(self, r: dict) -> None:
         if r.get('type') not in ('user', 'assistant') or r.get('isSidechain') or r.get('isMeta'):
@@ -321,6 +354,28 @@ class Parser:
         self.close(call, t, not error, clip(text) if text.strip() else '')
 
     # ---- Codex
+
+    def _codex_usage(self, r: dict) -> None:
+        """Codex reports the session's running totals after each call: what a call used is what the totals grew by."""
+        p = r.get('payload') or {}
+        if r.get('type') == 'turn_context':
+            self._model = p.get('model') or self._model
+            return
+        if r.get('type') != 'event_msg' or p.get('type') != 'token_count' or not isinstance(p.get('info'), dict):
+            return
+        info = p['info']
+        now = info.get('total_token_usage') or {}
+        grew = {k: int(now.get(k) or 0) - int(self._totals.get(k) or 0) for k in ('input_tokens', 'cached_input_tokens', 'output_tokens')}
+        if any(v < 0 for v in grew.values()):  # the totals started again
+            grew = {k: int(now.get(k) or 0) for k in grew}
+        self._totals = now
+        t = _ms(r.get('timestamp', ''))
+        if any(grew.values()):
+            cached = grew['cached_input_tokens']
+            self.calls[str(len(self.calls))] = [t, self._model, max(grew['input_tokens'] - cached, 0), 0, 0, cached, grew['output_tokens'], False]
+        last = info.get('last_token_usage') or {}
+        if last.get('input_tokens'):
+            self.context = {'t': t, 'tokens': int(last['input_tokens']), 'window': info.get('model_context_window') or None}
 
     def _codex(self, r: dict) -> None:
         t = _ms(r.get('timestamp', ''))
@@ -484,7 +539,10 @@ def trace(src, kind: str, cwd: str, since: float | None, title: str, path: str =
         first = _first(steps, since, piece)
         settled = parser.settled()
         start = max(first, min(start, settled))
-        return {'found': True, 'path': path, 'first': first, 'from': start, 'total': len(steps), 'steps': steps[start:]}
+        # What the task used: from the prompt that gave it (or from when it was given, before that is written).
+        begin = steps[first]['t'] if first < len(steps) else (since - SLACK) * 1000 if since is not None else None
+        return {'found': True, 'path': path, 'first': first, 'from': start, 'total': len(steps), 'steps': steps[start:],
+                'usage': parser.usage(None if since is None else begin)}
 
 
 def _parser(key: tuple, kind: str, cwd: str) -> Parser:
@@ -542,7 +600,8 @@ def pulse(src, kind: str, cwd: str, n: int = 1) -> dict:
     session records (which record is whose can't be told, so they are reported together): every edit as
     [ms, lines added, lines removed, index in `files`], how many steps of each kind, and the latest step (`now`).
     `steps`: every step of the last PULSE_STEP_HOURS as [ms, kind, ok], oldest first. `turn`: since you last wrote to
-    them (`since`, ms, or None), how many steps they took, the files they edited and the steps that failed."""
+    them (`since`, ms, or None), how many steps they took, the files they edited and the steps that failed. `usage`: the
+    tokens of the last PULSE_HOURS (usage.total), with how full the agent's context is when there is one agent."""
     if kind not in KINDS:
         return {'found': False, 'edits': [], 'files': [], 'kinds': {}, 'now': None, 'steps': [], 'turn': None}
     paths = _newest(src, kind, cwd)[:max(1, n)]
@@ -554,12 +613,17 @@ def pulse(src, kind: str, cwd: str, n: int = 1) -> dict:
     recent = (time.time() - PULSE_STEP_HOURS * 3600) * 1000
     steps: list[list] = []
     every: list[dict] = []
+    calls: list[list] = []
+    context = None
     for path in paths:
         parser = _parser((getattr(src, 'id', src), path, None, ''), kind, cwd)
         with parser.lock:
             data = _read(src, path, parser.offset)
             if data:
                 parser.feed(data)
+            calls += [e for e in parser.calls.values() if e[0] >= floor]
+            if len(paths) == 1:
+                context = parser.context
             for s in parser.steps:
                 if s['t'] < floor:
                     continue
@@ -582,4 +646,4 @@ def pulse(src, kind: str, cwd: str, n: int = 1) -> dict:
         edited = {f['path'] for s in mine if s['kind'] == 'edit' and s['ok'] is not False for f in s.get('files') or []}
         turn = {'since': since, 'steps': len(mine), 'files': len(edited), 'failed': sum(1 for s in mine if s['ok'] is False)}
     return {'found': bool(paths), 'edits': edits[-PULSE_EDITS:], 'files': list(files), 'kinds': kinds, 'now': now,
-            'steps': steps[-PULSE_STEPS:], 'turn': turn}
+            'steps': steps[-PULSE_STEPS:], 'turn': turn, 'usage': usage.total(calls, context) if paths else None}

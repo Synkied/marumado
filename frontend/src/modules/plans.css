@@ -1068,3 +1068,6 @@
 .plan__clear {
   margin-left: var(--sp-2);
 }
+
+.plan__check { width: 16ch; font-family: var(--f-mono); }
+.plan__usage { margin-top: calc(-1 * var(--sp-2)); }

@@ -13,6 +13,8 @@ import { usePoll } from '../lib/usePoll'
 import { SheetHead } from './sheetHead'
 import { NewPlan, PlanPage, PlansList } from './plans'
 import { TraceView, type Wait } from './trace'
+import { TaskWorkView } from './taskWork'
+import { UsageLine } from '../components/UsageLine'
 
 const STATE_LABEL: Record<TaskState, string> = {
   todo: 'TO DO',
@@ -619,7 +621,10 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
   const { refreshTasks } = useHub()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<'task' | 'trace' | 'activity'>(task.started_at && !assign ? 'trace' : 'task')
+  // A task to review opens on its work; one at work on what its agent does.
+  const [tab, setTab] = useState<'task' | 'trace' | 'work' | 'activity'>(
+    !task.started_at || assign ? 'task' : task.state === 'review' && !task.landed ? 'work' : 'trace',
+  )
   const [draft, setDraft] = useState<Draft>({ title: task.title, prompt: task.prompt, project: task.project })
   const dirty = draft.title !== task.title || draft.prompt !== task.prompt || draft.project !== task.project
 
@@ -726,6 +731,11 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
         <button type="button" className="seg__btn" aria-pressed={tab === 'trace'} onClick={() => setTab('trace')}>
           What it did
         </button>
+        {task.started_at && task.project != null && (
+          <button type="button" className="seg__btn" aria-pressed={tab === 'work'} onClick={() => setTab('work')}>
+            {task.state === 'review' && !task.landed ? 'Review' : 'Work'}
+          </button>
+        )}
         <button type="button" className="seg__btn" aria-pressed={tab === 'activity'} onClick={() => setTab('activity')}>
           History · {activity}
         </button>
@@ -740,6 +750,8 @@ function TaskDetailView({ task, refresh, back, assign }: { task: TaskDetail; ref
           )}
           <TaskFields task={task} draft={draft} onChange={setDraft} />
         </>
+      ) : tab === 'work' ? (
+        <TaskWorkView task={task} refresh={refresh} />
       ) : tab === 'trace' ? (
         task.started_at ? (
           <TraceView task={task} waits={waits(task)} key={task.started_at} />
@@ -790,6 +802,30 @@ function AgentFacts({ task, busy, act }: { task: TaskDetail; busy: boolean; act:
           <>
             <dt>Started</dt>
             <dd>{ago(task.started_at)}</dd>
+          </>
+        )}
+        {task.usage && task.usage.calls > 0 && (
+          <>
+            <dt>Used</dt>
+            <dd>
+              <UsageLine usage={task.usage} context={task.live} />
+            </dd>
+          </>
+        )}
+        {(task.landed || task.pr_url) && (
+          <>
+            <dt>Its work</dt>
+            <dd>
+              {task.landed === 'merged' ? 'merged' : task.landed === 'discarded' ? 'discarded' : ''}
+              {task.pr_url && (
+                <>
+                  {task.landed ? ' · ' : ''}
+                  <a href={task.pr_url} target="_blank" rel="noreferrer">
+                    pull request
+                  </a>
+                </>
+              )}
+            </dd>
           </>
         )}
       </dl>
@@ -1073,12 +1109,15 @@ function Timeline({ task }: { task: TaskDetail }) {
   )
 }
 
-const EVENT_DOT: Partial<Record<TaskEvent['kind'], string>> = { closed: 'quiet', activity: 'quiet', created: 'quiet', archived: 'quiet', restored: 'quiet' }
+const EVENT_DOT: Partial<Record<TaskEvent['kind'], string>> = {
+  closed: 'quiet', activity: 'quiet', created: 'quiet', archived: 'quiet', restored: 'quiet', merged: 'on', pr: 'on', discarded: 'quiet',
+}
 
 /** Signal only for what needs you now: the wait the agent is in, or the error that failed the task. */
 function eventDot(e: TaskEvent, now: boolean): string {
   if (e.kind === 'state') return e.state === 'blocked' ? (now ? 'fault' : 'ink') : e.state === 'working' ? 'on' : 'quiet'
   if (e.kind === 'error') return now ? 'fault' : 'ink'
+  if (e.kind === 'check') return e.data.ok ? 'on' : e.data.ok === false ? (now ? 'fault' : 'ink') : 'quiet'
   if (e.kind === 'changes' || e.kind === 'done') return 'on'
   return EVENT_DOT[e.kind] ?? ''
 }
@@ -1145,9 +1184,17 @@ function History({ events, state }: { events: TaskEvent[]; state: TaskState }) {
                 {e.kind === 'activity' ? `Doing: ${e.text}` : e.text}
               </span>
               {e.kind === 'changes' && <Changes data={e.data} />}
+              {e.kind === 'pr' && e.data.url && (
+                <>
+                  {' '}
+                  <a href={e.data.url} target="_blank" rel="noreferrer">
+                    Open it
+                  </a>
+                </>
+              )}
               {e.output && (
                 <details className="tlog__more">
-                  <summary>{e.kind === 'prompt' ? 'What it was told' : 'Terminal at that moment'}</summary>
+                  <summary>{e.kind === 'prompt' || e.kind === 'feedback' ? 'What it was told' : e.kind === 'check' ? 'What the check printed' : 'Terminal at that moment'}</summary>
                   <Secret label="Output">
                     <pre className="logs">{e.output}</pre>
                   </Secret>

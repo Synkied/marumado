@@ -24,7 +24,7 @@ def _folder(src: herdr.Source, kind: str, cwd: str, panes: list[str]) -> dict:
         return {**row, **transcripts.pulse(src, kind, cwd, len(panes))}
     except RuntimeError as exc:
         return {**row, 'found': False, 'error': str(exc), 'edits': [], 'files': [], 'kinds': {}, 'now': None,
-                'steps': [], 'turn': None}
+                'steps': [], 'turn': None, 'usage': None}
 
 
 def _machine(src: herdr.Source) -> list[dict]:

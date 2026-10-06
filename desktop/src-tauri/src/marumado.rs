@@ -323,10 +323,15 @@ pub fn icon_look(r: &Reading) -> Look {
     (!r.error.is_empty(), statuses)
 }
 
+/// How long an agent missing from the readings keeps its last state: a source that misses a listing (Marumado skips
+/// one that failed for 15 seconds) drops its agents for a while, and what one did meanwhile is still news when it is back.
+const KEEP_MS: u64 = 5 * 60 * 1000;
+
 /// What was last seen of each agent, to tell when one starts waiting or finishes, and since when each is working.
 #[derive(Default)]
 pub struct Watch {
-    last: HashMap<String, String>,
+    /// Each agent's last state, and when it was seen in it.
+    last: HashMap<String, (String, u64)>,
     /// When each agent was first seen working, this time (milliseconds since the epoch).
     pub since: HashMap<String, u64>,
 }
@@ -345,7 +350,7 @@ impl Watch {
             } else {
                 self.since.remove(&k);
             }
-            let Some(was) = self.last.get(&k) else { continue };
+            let Some((was, _)) = self.last.get(&k) else { continue };
             if *was == a.status {
                 continue;
             }
@@ -357,7 +362,10 @@ impl Watch {
             }
         }
         self.since.retain(|k, _| r.agents.iter().any(|a| key(a) == *k));
-        self.last = r.agents.iter().map(|a| (key(a), a.status.clone())).collect();
+        for a in &r.agents {
+            self.last.insert(key(a), (a.status.clone(), now_ms));
+        }
+        self.last.retain(|_, (_, seen)| now_ms.saturating_sub(*seen) < KEEP_MS);
         news
     }
 }
@@ -454,6 +462,24 @@ mod tests {
         );
         assert!(w.since.is_empty());
         assert!(w.observe(&r("blocked", "idle"), 3).is_empty(), "done to idle is no news");
+    }
+
+    #[test]
+    fn an_agent_missing_from_a_reading_keeps_its_state() {
+        let mut w = Watch::default();
+        let one = |status: &str| Reading {
+            agents: vec![agent("1", status)],
+            ..Default::default()
+        };
+        w.observe(&one("working"), 1_000);
+        // Its source missed a listing: the agent is gone from it for a while, and finished meanwhile.
+        assert!(w.observe(&Reading::default(), 4_000).is_empty());
+        let news = w.observe(&one("done"), 20_000);
+        assert_eq!(news.iter().map(|n| n.0.as_str()).collect::<Vec<_>>(), vec!["a1 finished its turn"]);
+        // Gone for longer than KEEP_MS, it is forgotten: back, it is only learnt again.
+        w.observe(&one("working"), 21_000);
+        w.observe(&Reading::default(), 21_000 + KEEP_MS);
+        assert!(w.observe(&one("blocked"), 22_000 + KEEP_MS).is_empty());
     }
 
     #[test]

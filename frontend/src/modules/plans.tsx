@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { Icon } from '../components/Icon'
+import { UsageLine } from '../components/UsageLine'
 import { agentKey, parseAgentRef, sourceLabel } from '../lib/agents'
 import { api } from '../lib/api'
 import { ago } from '../lib/format'
@@ -164,6 +165,47 @@ function StartAt({ plan, disabled, patch }: { plan: Plan; disabled: boolean; pat
     </label>
   )
 }
+
+/** The plan's check: a command run in a step's folder once its agent finishes (the tests, say); the rows under it
+    wait for it to pass. Kept on leaving the field. */
+function CheckCommand({ plan, disabled, patch }: { plan: Plan; disabled: boolean; patch: (json: object) => void }) {
+  const [draft, setDraft] = useState(plan.check_command)
+  useEffect(() => setDraft(plan.check_command), [plan.check_command])
+  const commit = () => draft.trim() !== plan.check_command && patch({ check_command: draft.trim() })
+  return (
+    <label title="Run in a step's folder once its agent finishes. The steps under it start only once it passes; a failure goes back to the agent to fix.">
+      check{' '}
+      <input
+        className="plan__inline plan__check"
+        value={draft}
+        placeholder="none (make test, say)"
+        maxLength={500}
+        spellCheck={false}
+        disabled={disabled}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && commit()}
+        aria-label="Check command"
+      />
+      {plan.check_command && (
+        <>
+          {' '}fixes{' '}
+          <select className="plan__inline" value={plan.check_fixes} disabled={disabled} onChange={(e) => patch({ check_fixes: Number(e.target.value) })}
+            aria-label="How many times a failed check goes back to the agent">
+            {[0, 1, 2, 3, 5].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+    </label>
+  )
+}
+
+/** A step's check, in a few words, once its agent finished. */
+const CHECK_WORDS: Record<string, string> = { running: 'checking', passed: 'check passed', failed: 'check failed', fixing: 'fixing the check' }
 
 /** The state of a step, as a mark: the class of its cell in the strips and lanes. */
 function mark(t: Task, asking: number[] = []): string {
@@ -474,7 +516,14 @@ function PlanView({ plan, refresh, back }: { plan: Plan; refresh: () => void; ba
             <StartAt plan={plan} disabled={busy || !control} patch={patch} />
           </>
         )}
+        {!plan.archived_at && (
+          <>
+            <span className="plan__sep" aria-hidden="true">·</span>
+            <CheckCommand plan={plan} disabled={busy} patch={patch} />
+          </>
+        )}
       </p>
+      {plan.usage && plan.usage.calls > 0 && <UsageLine usage={plan.usage} context={false} className="plan__usage" />}
 
       {plan.archived_at && (
         <p className="notice">
@@ -487,7 +536,11 @@ function PlanView({ plan, refresh, back }: { plan: Plan; refresh: () => void; ba
       {needsYou.map((t) => (
         <p className="notice notice--fault" key={t.id}>
           <strong>{t.state === 'failed' ? `“${t.title}” failed.` : `“${t.title}” is waiting on you.`}</strong>{' '}
-          {t.state === 'failed' ? 'The steps under it wait until you move it back to To do (it runs again) or mark it done.' : 'Its row carries on once you answer.'}{' '}
+          {t.state === 'failed'
+            ? t.check_state === 'failed'
+              ? 'Its check still fails: the steps under it wait until you run the check again (from the step), move it back to To do or mark it done.'
+              : 'The steps under it wait until you move it back to To do (it runs again) or mark it done.'
+            : 'Its row carries on once you answer.'}{' '}
           <a href={`#/m/tasks/${t.id}`}>Open the step</a>.
         </p>
       ))}
@@ -916,7 +969,7 @@ function StepCard({ t, above, alone, first, last, inRow, agents, busy, asking, h
     ? `waits for your go · ${runnerWords}`
     : movable(t)
       ? `${runnerWords}${t.ask && !t.go ? ' · asks you first' : ''}`
-      : `${STEP_WORDS[t.state]}${t.agent_name ? ` · ${t.agent_name}` : ''}${t.worktree ? ` · ${t.worktree}` : ''}`
+      : `${STEP_WORDS[t.state]}${CHECK_WORDS[t.check_state] ? ` · ${CHECK_WORDS[t.check_state]}` : ''}${t.landed ? ` · ${t.landed}` : ''}${t.agent_name ? ` · ${t.agent_name}` : ''}${t.worktree ? ` · ${t.worktree}` : ''}`
   const m = mark(t, asking ? [t.id] : [])
 
   // Continues the agent of the step above it: drawn as a dotted line up to that step.

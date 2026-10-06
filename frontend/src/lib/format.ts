@@ -40,3 +40,16 @@ export function hostOf(url: string): string {
     return url
   }
 }
+
+/** A count of tokens, short: 950, 84k, 1.2M. */
+export function tokens(n: number): string {
+  if (n < 1000) return String(n)
+  if (n < 1_000_000) return `${n < 10_000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') : Math.round(n / 1000)}k`
+  return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0).replace(/\.0$/, '')}M`
+}
+
+/** Dollars at API prices: $0.42, $3.10, $128. */
+export function dollars(n: number): string {
+  if (n > 0 && n < 0.01) return '<$0.01'
+  return n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`
+}

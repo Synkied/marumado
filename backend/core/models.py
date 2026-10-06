@@ -163,6 +163,10 @@ class Plan(models.Model):
     # An agent's own queue: the plan its steps go into when they are queued from its page (plans.queue_for).
     pane_id = models.CharField(max_length=40, blank=True, default='')
     pane_source = models.PositiveIntegerField(default=0)
+    # A command run in a step's folder once its agent finishes (core/checks.py): the rows under it start only once it
+    # passes. A failure goes back to the step's agent to fix, up to `check_fixes` times, then the step fails.
+    check_command = models.CharField(max_length=500, blank=True, default='')
+    check_fixes = models.PositiveSmallIntegerField(default=2)
     # Finished and put away, its steps with it: out of the plans list until restored.
     archived_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -236,6 +240,19 @@ class Task(models.Model):
     # The folder the agent works in, where Herdr runs, and the record of its session there (core/transcripts.py).
     agent_cwd = models.CharField(max_length=500, blank=True, default='')
     transcript = models.CharField(max_length=500, blank=True, default='')
+    # What the agent used for it, from its session record (usage.total), kept as last read.
+    usage = models.JSONField(null=True, blank=True)
+    # Its plan's check (core/checks.py): '' (none run yet), running, passed, failed, fixing (sent back to the agent
+    # with what failed), or skipped (finished before the plan had a check); and how many times it was sent back.
+    CHECK_STATES = [('', 'Not run'), ('running', 'Running'), ('passed', 'Passed'), ('failed', 'Failed'), ('fixing', 'Being fixed'),
+                    ('skipped', 'Not checked')]  # to review already when its plan got its check
+    check_state = models.CharField(max_length=10, blank=True, default='', choices=CHECK_STATES)
+    check_tries = models.PositiveSmallIntegerField(default=0)
+    # What became of its work (core/land.py): merged into the branch the project is on, or discarded; and the pull
+    # request opened for it.
+    LANDED = [('', 'Not yet'), ('merged', 'Merged'), ('discarded', 'Discarded')]
+    landed = models.CharField(max_length=10, blank=True, default='', choices=LANDED)
+    pr_url = models.CharField(max_length=300, blank=True, default='')
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     # Done and put away (or its plan was): off the board and every list until restored.
@@ -267,6 +284,11 @@ class TaskEvent(models.Model):
         ('moved', 'Moved'),  # put under review by hand
         ('archived', 'Archived'),
         ('restored', 'Restored'),  # back from the archive
+        ('check', 'Check'),  # its plan's check ran: data {ok, code, seconds, command}, output the end of what it printed
+        ('feedback', 'Sent back'),  # the owner (or a failed check) told the agent what to change
+        ('merged', 'Merged'),
+        ('pr', 'Pull request'),
+        ('discarded', 'Discarded'),
     ]
 
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='events')

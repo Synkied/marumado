@@ -285,6 +285,46 @@ export type Task = {
   /** a step that waits for the owner's go when its turn comes, and whether it was given */
   ask: boolean
   go: boolean
+  /** what its agent used for it, from its session record, as last read */
+  usage: Usage | null
+  /** its plan's check (core/checks.py), and how many times a failure went back to the agent */
+  check_state: CheckState
+  check_tries: number
+  /** what became of its work: merged, or discarded; and the pull request opened for it */
+  landed: '' | 'merged' | 'discarded'
+  pr_url: string
+}
+
+/** '' not run yet; fixing: sent back to the agent with what failed; skipped: finished before its plan had a check. */
+export type CheckState = '' | 'running' | 'passed' | 'failed' | 'fixing' | 'skipped'
+
+/** Tokens an agent used and what they cost at API prices (core/usage.py). `priced`: every model had a known price
+    (Codex's are never priced). `context`: how full the agent's context was at its last call. */
+export type Usage = {
+  calls: number
+  tokens: { input: number; cache_write: number; cache_write_1h: number; cache_read: number; output: number }
+  total: number
+  cost: number
+  priced: boolean
+  models: string[]
+  context: { t: number; tokens: number; window: number | null } | null
+}
+
+/** GET tasks/<id>/work: the agent's work. `branch`: a step's own branch, against the branch the project is on (`into`);
+    `folder`: what changed in the project's folder since it got the task. `reason`: why there is nothing to show. */
+export type TaskWork = {
+  kind: 'branch' | 'folder' | null
+  branch: string
+  into: string
+  exists: boolean
+  ahead: number
+  behind: number
+  commits: { sha: string; subject: string }[]
+  files: { path: string; status: string; original: string | null; add: number; del: number }[]
+  file_count?: number
+  landed: Task['landed']
+  pr_url: string
+  reason?: string
 }
 
 /** Steps for agents to take over on their own (core/plans.py). New agents are `kind`, started in `source`. */
@@ -309,9 +349,16 @@ export type Plan = {
   steps: Task[]
   /** the steps whose turn has come, waiting for the owner's go */
   asking: number[]
+  /** what its steps' agents used, all together */
+  usage: Usage | null
+  /** run in a step's folder once its agent finishes; the rows under it wait for it to pass. A failure goes back to the
+      agent up to `check_fixes` times. */
+  check_command: string
+  check_fixes: number
 }
 
 export type TaskEventKind = 'created' | 'assigned' | 'prompt' | 'state' | 'activity' | 'changes' | 'closed' | 'error' | 'done' | 'reopened' | 'moved' | 'archived' | 'restored'
+  | 'check' | 'feedback' | 'merged' | 'pr' | 'discarded'
 
 export type TaskChanges = {
   commits: { sha: string; subject: string }[]
@@ -330,7 +377,8 @@ export type TaskEvent = {
   text: string
   /** the end of the agent's terminal at that moment */
   output: string
-  data: Partial<TaskChanges>
+  /** `changes`: what changed; `check`: how its check went; `pr`: its address */
+  data: Partial<TaskChanges> & { ok?: boolean; code?: number | null; seconds?: number; command?: string; error?: string; url?: string; sha?: string }
 }
 
 export type TaskDetail = Task & { events: TaskEvent[] }
@@ -428,6 +476,8 @@ export type PulseFolder = {
   steps?: [number, string, boolean | null][]
   /** Since you last wrote to them: how many steps, files edited and steps failed. */
   turn?: { since: number; steps: number; files: number; failed: number } | null
+  /** The tokens of the last day, and how full the agent's context is when one agent is read (absent from an older Marumado). */
+  usage?: Usage | null
 }
 
 export type Pulse = { time: number; folders: PulseFolder[] }

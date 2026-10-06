@@ -1,6 +1,6 @@
 import { Critter } from '../components/Critter'
 import { agentActionHref, agentKey, nameOf, sourceLabel, STATE_WORDS } from '../lib/agents'
-import { ago, duration } from '../lib/format'
+import { ago, dollars, duration, tokens } from '../lib/format'
 import { useHub } from '../lib/hub'
 import type { Agent, Pulse, PulseFolder } from '../lib/types'
 import { usePoll } from '../lib/usePoll'
@@ -178,6 +178,7 @@ function LaneRow({ lane: l, peak, pending, now }: { lane: Lane; peak: number; pe
 
   // The turn: at it since you last wrote while it works; otherwise, how long since its last step.
   const turn = f?.turn
+  const usage = f?.usage
   const last = f?.now?.t
   const since = (t: number) => duration(Math.max(60, (now - t) / 1000))
   const headline = busy ? (turn ? `at it ${since(turn.since)}` : 'working') : last ? `${fault ? 'waiting' : 'quiet'} ${since(last)}` : '—'
@@ -211,6 +212,12 @@ function LaneRow({ lane: l, peak, pending, now }: { lane: Lane; peak: number; pe
             <span className="lane__tally">
               {tally}
               {turn.failed > 0 && <span className="signal-text"> · {turn.failed} failed</span>}
+            </span>
+          )}
+          {usage && usage.calls > 0 && (
+            <span className="lane__tally lane__usage" title="The last day: its tokens and what they cost at API prices, and how full its context is">
+              {tokens(usage.total)} tokens{usage.priced ? ` · ${dollars(usage.cost)}` : ''}
+              {usage.context && usage.context.tokens > 0 ? ` · context ${tokens(usage.context.tokens)}` : ''}
             </span>
           )}
         </span>
