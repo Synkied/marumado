@@ -23,7 +23,7 @@ use tauri::image::Image;
 use tauri::ipc::CapabilityBuilder;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::webview::NewWindowResponse;
+use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, RunEvent, State, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_dialog::DialogExt as _;
@@ -62,6 +62,8 @@ struct Desk {
     card_height: Mutex<Option<f64>>,
     /// While the app starts Marumado's containers: the page to open once it answers.
     starting: Mutex<Option<String>>,
+    /// Why Marumado didn't start, as the starting page's `window.failed(…)` call: made again if the page loads after.
+    failed: Mutex<Option<String>>,
     /// Wakes the tray's reader early (after connecting to another Marumado).
     poke: Mutex<Option<mpsc::Sender<()>>>,
 }
@@ -183,6 +185,13 @@ fn main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         WebviewUrl::External(start)
     };
     window(app, "main", start)
+        .on_page_load(|w, load| {
+            if load.event() == PageLoadEvent::Finished && load.url().path().ends_with("/starting.html") {
+                if let Some(call) = desk(w.app_handle()).failed.lock().unwrap().as_ref() {
+                    let _ = w.eval(call);
+                }
+            }
+        })
         .title("Marumado")
         .inner_size(1280.0, 840.0)
         .min_inner_size(640.0, 420.0)
@@ -562,27 +571,36 @@ fn start_marumado(app: &AppHandle) {
         Ok(found) => found,
         Err(e) => return log(&e),
     };
-    let Some(stack) = stack else { return };
     if !changed && docker::answers(&c.url) {
         return;
     }
     *desk(app).starting.lock().unwrap() = Some("#/".into());
     let app = app.clone();
     std::thread::spawn(move || {
-        if let Err(e) = start_stack(&app, &c.url, &stack, changed) {
+        let started = match &stack {
+            Some(stack) => start_stack(&app, &c.url, stack, changed).map(|_| ()),
+            // Nothing to start it from (an installed app has no checkout): it was started some other way, and isn't now.
+            None => Err(format!("nothing answers at {}", c.url)),
+        };
+        if let Err(e) = started {
             log(&e);
             let after = match stack {
-                Stack::Checkout(_) => "Start it with <code>make up</code> in Marumado’s folder: this window opens it as soon as it answers.",
-                Stack::Hosted { .. } => "Check that Docker runs, then open the app again. This window opens Marumado as soon as it answers.",
+                Some(Stack::Checkout(_)) => "Start it with <code>make up</code> in Marumado’s folder: this window opens it as soon as it answers.",
+                Some(Stack::Hosted { .. }) => "Check that Docker runs, then open the app again. This window opens Marumado as soon as it answers.",
+                None => "<a href=\"index.html\">Set up Marumado</a> to have the app run it, or connect to another one. If you start it yourself (<code>make up</code> in its folder), this window opens it as soon as it answers.",
             };
+            let arg = |s: &str| serde_json::to_string(s).unwrap_or_default();
+            let call = format!("window.failed({}, {})", arg(&e), arg(after));
             if let Some(w) = app.get_webview_window("main") {
-                let arg = |s: &str| serde_json::to_string(s).unwrap_or_default();
-                let _ = w.eval(format!("window.failed({}, {})", arg(&e), arg(after)));
+                let _ = w.eval(&call);
             }
-            // Started some other way (`make up`), it is just as good.
-            while !docker::answers(&c.url) {
+            *desk(&app).failed.lock().unwrap() = Some(call);
+            // Started some other way (`make up`, or the setup page), it is just as good; another Marumado chosen on
+            // the setup page too.
+            while config_of(&app).is_some_and(|now| now.url == c.url) && !docker::answers(&c.url) {
                 std::thread::sleep(Duration::from_secs(2));
             }
+            *desk(&app).failed.lock().unwrap() = None;
         }
         let hash = desk(&app).starting.lock().unwrap().take().unwrap_or_default();
         poke(&app);
@@ -590,8 +608,9 @@ fn start_marumado(app: &AppHandle) {
         if let Some(card) = app.get_webview_window("card") {
             let _ = card.destroy();
         }
+        let url = config_of(&app).map_or(c.url, |now| now.url);
         if let Some(w) = app.get_webview_window("main") {
-            if let Ok(url) = format!("{}/{hash}", c.url).parse() {
+            if let Ok(url) = format!("{url}/{hash}").parse() {
                 let _ = w.navigate(url);
             }
         }

@@ -11,6 +11,9 @@ MARUMADO_SSH_USER is the host user's name. ssh in the container would log in as 
 `ssh server` on the host logs in as you, so the copied config ends with a fallback `User` line. A User
 in the target (you@server) or in the host's own config for that host still wins.
 
+A config with IdentityFile lines (work.pem) stops ssh from trying the usual keys (id_rsa, id_ed25519…). On the host
+ssh-agent offers them anyway, but the container has no agent: so the copied config names the usual keys last.
+
 MARUMADO_SSH_KEYS (comma separated, e.g. id_rsa) copies only those keys, their .pub and known_hosts, not
 the config. With many keys, ssh offers them one by one and servers cut it off after a few (MaxAuthTries)
 before the right one; a config with IdentityFile lines would bring them back.
@@ -20,6 +23,9 @@ import shutil
 import stat
 import threading
 from pathlib import Path
+
+# The keys ssh tries when no IdentityFile is set.
+DEFAULT_KEYS = ('id_rsa', 'id_ecdsa', 'id_ecdsa_sk', 'id_ed25519', 'id_ed25519_sk', 'id_xmss', 'id_dsa')
 
 _lock = threading.Lock()
 _copied: tuple | None = None
@@ -63,11 +69,20 @@ def prepare():
             except OSError:
                 continue
             dest.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        config = target / 'config'
+        text = config.read_text(errors='replace') if config.is_file() else ''
+        # ssh keeps the first value it finds, so a fallback goes last. IdentityFile lines add up instead.
+        fallback = ''
         user = os.environ.get('MARUMADO_SSH_USER', '').strip()
         if user:
-            config = target / 'config'
-            # ssh keeps the first value it finds, so a fallback goes last.
-            text = config.read_text(errors='replace') if config.is_file() else ''
-            config.write_text(f'{text.rstrip()}\n\n# Added by Marumado: log in as the host user, like ssh on the host does.\nMatch all\n  User {user}\n'.lstrip())
+            fallback += f'\n\n# Added by Marumado: log in as the host user, like ssh on the host does.\nMatch all\n  User {user}\n'
+        defaults = [k for k in DEFAULT_KEYS if (target / k).is_file()]
+        if text and defaults:
+            fallback += (
+                '\n\n# Added by Marumado: the usual keys too, as the host\'s ssh-agent offers them.\nMatch all\n'
+                + ''.join(f'  IdentityFile ~/.ssh/{k}\n' for k in defaults)
+            )
+        if fallback:
+            config.write_text(f'{text.rstrip()}{fallback}'.lstrip())
             config.chmod(stat.S_IRUSR | stat.S_IWUSR)
         _copied = signature

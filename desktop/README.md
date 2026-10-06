@@ -37,7 +37,8 @@ front.
   developer's machine, the checkout the app was built from (`docker compose up -d` there, `make up` if it has no
   `.env` yet; a `"folder"` in `config.json` names another checkout). It retries for a minute and a half while Docker
   starts with the session. Meanwhile the window shows *Starting Marumado…* (`setup/starting.html`, or why it
-  couldn't), and opens Marumado as soon as it answers. *Quit Marumado* stops the containers the app started
+  couldn't), and opens Marumado as soon as it answers. With nothing to start (an installed app, connected to
+  a Marumado started with `make up` that isn't running), that page offers the first-run page to set one up. *Quit Marumado* stops the containers the app started
   (`docker compose stop`), and only those: a Marumado started with `make up`, or by Docker at boot, keeps running.
 - Closing the window keeps the app in the tray. *Quit Marumado* in the tray's menu ends it. The window keeps its size
   and place, maximized or full screen, from one run to the next.
