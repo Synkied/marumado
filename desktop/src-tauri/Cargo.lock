@@ -2145,6 +2145,7 @@ dependencies = [
  "tiny-skia",
  "ureq",
  "url",
+ "webkit2gtk",
 ]
 
 [[package]]

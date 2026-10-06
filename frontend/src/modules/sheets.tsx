@@ -1104,14 +1104,27 @@ function AgentsSheet({ sub }: { sub?: string }) {
                 {current.kind}
                 {current.workspace ? ` · ${current.workspace}` : ''} · {current.pane_id}
               </span>
-              {current.kind !== 'terminal' && <AgentTask agent={current} projectId={project?.id ?? null} />}
-              {queued.length > 0 && (
-                <span className={`agent-head__item mod-tasks${queued[0].asking ? ' signal-text' : ''}`}>
-                  <Icon name="queue" size={15} />
-                  <button className="agent-head__link" type="button" onClick={() => setPlansOpen(current)} title="What this agent does next">
-                    Next: {queued[0].title}
-                  </button>
-                  {queued[0].asking ? ' · waits for your go' : queued.length > 1 ? ` · ${queued.length - 1} more` : ''}
+              {current.kind !== 'terminal' && (
+                <span className="agent-head__chain mod-tasks">
+                  <AgentTask agent={current} projectId={project?.id ?? null} />
+                  {queued.length > 0 && (
+                    <span className={`agent-head__next${queued[0].asking ? ' signal-text' : ''}`}>
+                      <Icon name="arrow" size={14} />
+                      <button
+                        className="agent-head__link"
+                        type="button"
+                        onClick={() => setPlansOpen(current)}
+                        title={`Next: ${queued[0].title}${queued[0].asking ? ' (waits for your go)' : ''}${queued.length > 1 ? `, then ${queued.length - 1} more` : ''}`}
+                      >
+                        {queued[0].title}
+                      </button>
+                      {queued[0].asking ? (
+                        <span className="agent-head__pill agent-head__pill--go">go?</span>
+                      ) : queued.length > 1 ? (
+                        <span className="agent-head__pill">+{queued.length - 1}</span>
+                      ) : null}
+                    </span>
+                  )}
                 </span>
               )}
             </p>

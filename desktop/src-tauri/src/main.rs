@@ -197,6 +197,20 @@ fn main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .min_inner_size(640.0, 420.0)
         .visible(false)
         .build()
+        .inspect(steady_scroll)
+}
+
+/// WebKitGTK eases every wheel notch into a short animation, so scrolling lags behind the wheel: off, as in a browser.
+fn steady_scroll(w: &WebviewWindow) {
+    #[cfg(target_os = "linux")]
+    let _ = w.with_webview(|v| {
+        use webkit2gtk::{SettingsExt as _, WebViewExt as _};
+        if let Some(settings) = v.inner().settings() {
+            settings.set_enable_smooth_scrolling(false);
+        }
+    });
+    #[cfg(not(target_os = "linux"))]
+    let _ = w;
 }
 
 fn bring_forward(w: &WebviewWindow) {

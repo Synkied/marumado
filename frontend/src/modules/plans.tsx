@@ -245,32 +245,52 @@ export function PlansList() {
       {res.error && !res.data ? (
         <p className="notice signal-text">Couldn't read the plans: {res.error.message}</p>
       ) : !res.data ? null : plans.length ? (
-        <ul className="plans__list">
-          {plans.map((p) => {
-            const state = planState(p)
-            const done = p.steps.filter((t) => FINISHED.includes(t.state)).length
-            const waiting = p.asking.length > 0 || p.steps.some((t) => t.state === 'blocked' || t.state === 'failed')
-            return (
-              <li key={p.id}>
-                <PlanLink className={`plans__item${state === 'scheduled' ? ' is-scheduled' : ''}${waiting ? ' is-fault' : ''}`} to={{ plan: p.id }}>
-                  <span className="plans__name">{p.title}</span>
-                  {state === 'scheduled' && <Icon name="clock" size={18} className="plans__scheduled-icon" />}
-                  <span className="plans__meta">
-                    {p.project_name || 'No project'} · {state === 'scheduled' && p.start_at ? `starts ${when(p.start_at)}` : STATE_WORDS[state].toLowerCase()} · {done} of {p.steps.length} done
-                    {p.asking.length ? <span className="signal-text"> · {p.asking.length} waiting for your go</span> : null}
-                  </span>
-                  <Strip plan={p} />
-                </PlanLink>
-              </li>
-            )
+        <div className="plans__groups">
+          {GROUP_ORDER.map((g) => {
+            const group = plans.filter((p) => planState(p) === g)
+            return group.length ? (
+              <section className="plans__group" key={g} aria-labelledby={`plans-${g}`}>
+                <h4 id={`plans-${g}`} className="plans__group-title">
+                  {STATE_WORDS[g]} <span className="plans__count">{group.length}</span>
+                </h4>
+                <ul className="plans__list">
+                  {group.map((p) => (
+                    <PlanItem key={p.id} p={p} />
+                  ))}
+                </ul>
+              </section>
+            ) : null
           })}
-        </ul>
+        </div>
       ) : (
         <p className="plans__empty">
           Lay out steps for agents to take over on their own: one after the other, or side by side at the same time. Each starts as soon as the steps above it are finished.
         </p>
       )}
     </section>
+  )
+}
+
+/** The order the plans list goes in: what's at work first, what's put to bed last. */
+const GROUP_ORDER: PlanState[] = ['running', 'scheduled', 'paused', 'draft', 'finished']
+
+function PlanItem({ p }: { p: Plan }) {
+  const state = planState(p)
+  const done = p.steps.filter((t) => FINISHED.includes(t.state)).length
+  const waiting = p.asking.length > 0 || p.steps.some((t) => t.state === 'blocked' || t.state === 'failed')
+  return (
+    <li>
+      <PlanLink className={`plans__item${state === 'scheduled' ? ' is-scheduled' : ''}${waiting ? ' is-fault' : ''}`} to={{ plan: p.id }}>
+        <span className="plans__name">{p.title}</span>
+        {state === 'scheduled' && <Icon name="clock" size={18} className="plans__scheduled-icon" />}
+        <span className="plans__meta">
+          {p.project_name || 'No project'}
+          {state === 'scheduled' && p.start_at ? ` · starts ${when(p.start_at)}` : ''} · {done} of {p.steps.length} done
+          {p.asking.length ? <span className="signal-text"> · {p.asking.length} waiting for your go</span> : null}
+        </span>
+        <Strip plan={p} />
+      </PlanLink>
+    </li>
   )
 }
 

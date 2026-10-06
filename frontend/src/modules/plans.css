@@ -29,6 +29,34 @@
   color: var(--ink-2);
 }
 
+.plans__groups {
+  display: grid;
+  gap: var(--sp-8);
+}
+
+.plans__group {
+  display: grid;
+  gap: var(--sp-4);
+}
+
+.plans__group-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-strong);
+  color: var(--ink);
+}
+
+.plans__count {
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  font-weight: normal;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
 .plans__list {
   list-style: none;
   display: grid;
