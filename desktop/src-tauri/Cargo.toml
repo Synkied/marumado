@@ -1,6 +1,6 @@
 [package]
 name = "marumado-desktop"
-version = "0.5.2"
+version = "0.6.0"
 description = "Marumado on the desktop: one window, the tray and the agents' card"
 edition = "2021"
 publish = false
