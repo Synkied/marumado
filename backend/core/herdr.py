@@ -461,6 +461,9 @@ def _list(src: Source) -> dict:
     try:
         # Every pane, so plain shells (from New terminal, say) can be watched too.
         listed = _run(src, 'pane', 'list')['panes']
+        # Only `agent list` carries completion_seq (how a finished turn gets seen) and the agent's name.
+        known = {a['pane_id']: a for a in _run(src, 'agent', 'list').get('agents') or []}
+        listed = [{**p, **known.get(p['pane_id'], {})} for p in listed]
         spaces = _workspaces(_run(src, 'workspace', 'list')['workspaces'])
     except (RuntimeError, ValueError, KeyError, OSError) as exc:
         with _failed_lock:

@@ -539,8 +539,11 @@ class SeenTests(SimpleTestCase):
 
     def listing(self, panes):
         def run(src, *args, text=False, timeout=0):
+            # As Herdr does: completion_seq is in `agent list` only.
             if args[:2] == ('pane', 'list'):
-                return {'panes': panes}
+                return {'panes': [{k: v for k, v in p.items() if k != 'completion_seq'} for p in panes]}
+            if args[:2] == ('agent', 'list'):
+                return {'agents': panes}
             return {'workspaces': []}
         with mock.patch.object(herdr, '_run', run):
             return [a['status'] for a in herdr._list(self.src)['agents']]
