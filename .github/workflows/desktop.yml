@@ -1,5 +1,7 @@
-# The desktop app (desktop/), built for Linux, Windows and macOS. The bundles are kept as the run's artifacts.
+# The desktop app (desktop/), built for Linux, Windows and macOS. The bundles are kept as the run's artifacts; a tag
+# vX.Y.Z also publishes them as the GitHub release vX.Y.Z (the .deb, .rpm, .AppImage, Windows installers and .dmg).
 # Not signed yet: macOS and Windows warn before opening them the first time.
+# A release: `make release VERSION=X.Y.Z` (scripts/release.py) sets the version everywhere, commits, tags and pushes.
 name: Desktop app
 
 on:
@@ -67,3 +69,39 @@ jobs:
             desktop/src-tauri/target/release/bundle/
             desktop/src-tauri/target/universal-apple-darwin/release/bundle/
           if-no-files-found: error
+
+  # A tag: the bundles of every system, as the release of that tag. Image (image.yml) publishes its Docker image.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The tag is Marumado's version, everywhere
+        run: |
+          want=${GITHUB_REF_NAME#v}
+          bad=0
+          check() {
+            if [ "$2" != "$want" ]; then echo "::error file=$1::$1 says $2, the tag $GITHUB_REF_NAME"; bad=1; fi
+          }
+          check desktop/src-tauri/tauri.conf.json "$(jq -r .version desktop/src-tauri/tauri.conf.json)"
+          check desktop/src-tauri/Cargo.toml "$(sed -n 's/^version = "\(.*\)"/\1/p' desktop/src-tauri/Cargo.toml | head -1)"
+          check frontend/package.json "$(jq -r .version frontend/package.json)"
+          check backend/pyproject.toml "$(sed -n 's/^version = "\(.*\)"/\1/p' backend/pyproject.toml | head -1)"
+          exit $bad
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: bundles
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=$(find bundles -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.msi' \
+            -o -name '*-setup.exe' -o -name '*.dmg' \))
+          echo "$files"
+          gh release create "$GITHUB_REF_NAME" $files --verify-tag --generate-notes --title "Marumado $GITHUB_REF_NAME"

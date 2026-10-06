@@ -86,11 +86,24 @@ artifacts. They aren't signed yet.
 
 ## Release it
 
-The app runs the image of its own version, so the two are released together:
+The app runs the image of its own version, so the two are released together, as a GitHub release with the app's
+bundles and a Docker image of the same version:
 
-1. Set the version in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (say `0.2.0`), and commit.
-2. Push the tag `v0.2.0`. `.github/workflows/image.yml` checks the tag against `tauri.conf.json`, then publishes
-   `ghcr.io/synkied/marumado:0.2.0` (and `:latest`) for amd64 and arm64; `desktop.yml` builds the app's bundles.
+1. From an up-to-date `main` with nothing uncommitted, at the repository's root:
+
+   ```sh
+   make release VERSION=0.2.0       # or VERSION=patch, minor or major
+   make release VERSION=0.2.0 DRY_RUN=1   # only show what it would change
+   ```
+
+   It sets the version in every file that holds one (`tauri.conf.json`, `Cargo.toml`, the two `package.json`,
+   `pyproject.toml`, and their lock files), asks, then commits `chore: release v0.2.0`, tags `v0.2.0` and pushes both
+   (`scripts/release.py`; `YES=1` skips the question).
+2. The tag starts the release on GitHub. `.github/workflows/image.yml` checks the tag against `tauri.conf.json`, then publishes
+   `ghcr.io/synkied/marumado:0.2.0` (and `:latest`) for amd64 and arm64. `desktop.yml` builds the bundles on Linux,
+   Windows and macOS, checks the tag against all four versions, then creates the release `v0.2.0` with the `.deb`,
+   `.rpm`, `.AppImage`, `.msi`, `-setup.exe` and `.dmg` attached, and notes made from the commits and pull requests
+   since the last release (edit them on GitHub afterwards).
 3. The first time only: make the package public (GitHub → the package → *Package settings* → *Change visibility*),
    or nobody else can pull it.
 

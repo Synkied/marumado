@@ -2,7 +2,7 @@
 # (desktop/src-tauri/src/host.rs), pinned to its own version, and `docker compose` can use it instead of a build.
 #   a tag vX.Y.Z  → ghcr.io/<owner>/marumado:X.Y.Z and :latest (what the app of that version runs)
 #   main          → :main
-# A release: set the version in desktop/src-tauri/tauri.conf.json and Cargo.toml, then push the tag vX.Y.Z.
+# A release: see "Release it" in desktop/README.md.
 name: Image
 
 on:

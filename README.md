@@ -42,8 +42,35 @@ On first run it offers two ways, and can start with your session:
   checkout, no command, no token to copy: an updated app brings its updated Marumado.
 - **Another machine**: its address and access token (`make access-token` there).
 
+Download it from the [Releases](https://github.com/Synkied/marumado/releases) page: on Debian or Ubuntu, the `.deb`
+(`sudo apt install ./Marumado_*_amd64.deb`); on Fedora, the `.rpm`; on any other Linux, the `.AppImage`
+(`chmod +x` it, then run it); the `.dmg` on macOS and the `-setup.exe` or `.msi` on Windows.
+
 It loads Marumado from its address rather than bundling the web app, so one build works with any Marumado. Builds for each system come from GitHub Actions (`.github/workflows/desktop.yml`);
 see [desktop/README.md](desktop/README.md) to build it yourself and for Linux's tray.
+
+### Uninstalling the app
+
+1. In the tray's menu, turn off *Start with the session*, then *Quit Marumado*.
+2. If the app ran Marumado on this computer, remove its container, in the folder the app wrote its compose file to:
+
+   ```sh
+   cd ~/.config/dev.marumado.desktop/marumado
+   docker compose down               # the container; its data is kept
+   docker compose down -v --rmi all  # or the data and the image too
+   ```
+
+   Its data volume (`marumado_marumado-data`) is the same one a checkout's `make up` uses: `-v` deletes your tasks,
+   plans and projects added by hand for both.
+3. Remove the app itself:
+   - **Linux**: `sudo apt remove marumado` (.deb), `sudo dnf remove marumado` (.rpm), or delete the `.AppImage`.
+   - **macOS**: move *Marumado* from Applications to the Trash.
+   - **Windows**: Settings → Apps → Installed apps → Marumado → Uninstall.
+4. Delete its settings (address, access token, window size) and its web view's data:
+   - **Linux**: `~/.config/dev.marumado.desktop`, `~/.local/share/dev.marumado.desktop`, `~/.cache/dev.marumado.desktop`
+   - **macOS**: `~/Library/Application Support/dev.marumado.desktop`, `~/Library/Caches/dev.marumado.desktop`,
+     `~/Library/WebKit/dev.marumado.desktop`
+   - **Windows**: `%APPDATA%\dev.marumado.desktop`, `%LOCALAPPDATA%\dev.marumado.desktop`
 
 ## Run it with Docker (recommended)
 

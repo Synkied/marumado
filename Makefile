@@ -3,7 +3,7 @@ COMPOSE ?= docker compose
 SERVICE := marumado
 
 .DEFAULT_GOAL := help
-.PHONY: help env mounts up down restart build rebuild logs ps shell scan migrate secret token access-token password clean dev
+.PHONY: help env mounts up down restart build rebuild logs ps shell scan migrate secret token access-token password clean dev release
 
 help: ## List the shortcuts
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  \033[1m%-9s\033[0m %s\n", $$1, $$2}'
@@ -63,3 +63,6 @@ clean: ## Stop and DELETE the data volume (projects you added by hand, uptime hi
 
 dev: ## Run without Docker: backend on :7878 + Vite dev server on :5173
 	@cd backend && uv run python manage.py serve & cd frontend && npx vite
+
+release: ## Release a version: VERSION=0.2.0 (or patch, minor, major); DRY_RUN=1 to only show it
+	@python3 scripts/release.py $(VERSION) $(if $(DRY_RUN),--dry-run) $(if $(YES),--yes)
