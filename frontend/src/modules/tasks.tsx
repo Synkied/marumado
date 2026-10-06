@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { Icon } from '../components/Icon'
 import { agentHref, agentKey, parseAgentRef, sourceLabel } from '../lib/agents'
@@ -72,14 +73,37 @@ function taskLine(t: Task): string {
   }
 }
 
-type Drag = { id: number; x0: number; y0: number; dx: number; dy: number; touch: boolean; active: boolean; over: string | null }
+type Drag = {
+  id: number
+  x0: number
+  y0: number
+  dx: number
+  dy: number
+  touch: boolean
+  active: boolean
+  over: string | null
+  /** Where the card sat when grabbed: the dragged copy starts there. */
+  at: { left: number; top: number; width: number }
+}
+
+function CardBody({ t }: { t: Task }) {
+  return (
+    <>
+      <span className="kcard__head">
+        <span className={lamp(t.state)} role="img" aria-label={STATE_LABEL[t.state].toLowerCase()} />
+        <span className="kcard__title">{t.title}</span>
+      </span>
+      <span className={`kcard__sub${fault(t.state) ? ' signal-text' : ''}`}>{taskLine(t)}</span>
+    </>
+  )
+}
 
 function TaskCard({ t, drag, onGrab, dragged }: { t: Task; drag: Drag | null; onGrab: (e: ReactPointerEvent, t: Task) => void; dragged: () => boolean }) {
   const moving = drag?.active && drag.id === t.id
+  const faulty = fault(t.state) ? ' kcard--fault' : ''
   return (
     <li
-      className={`kcard${fault(t.state) ? ' kcard--fault' : ''}${moving ? ' kcard--dragging' : ''}`}
-      style={moving ? { transform: `translate(${drag.dx}px, ${drag.dy}px)` } : undefined}
+      className={`kcard${faulty}${moving ? ' kcard--placeholder' : ''}`}
       onPointerDown={(e) => onGrab(e, t)}
       onContextMenu={(e) => drag?.id === t.id && e.preventDefault()}
     >
@@ -89,12 +113,22 @@ function TaskCard({ t, drag, onGrab, dragged }: { t: Task; drag: Drag | null; on
         draggable={false}
         onClick={(e) => dragged() && e.preventDefault()}
       >
-        <span className="kcard__head">
-          <span className={lamp(t.state)} role="img" aria-label={STATE_LABEL[t.state].toLowerCase()} />
-          <span className="kcard__title">{t.title}</span>
-        </span>
-        <span className={`kcard__sub${fault(t.state) ? ' signal-text' : ''}`}>{taskLine(t)}</span>
+        <CardBody t={t} />
       </a>
+      {/* The columns scroll, so they would clip the card: the one being dragged is drawn over the whole page instead. */}
+      {moving &&
+        createPortal(
+          <div
+            className={`kcard kcard--dragging mod-tasks${faulty}`}
+            aria-hidden
+            style={{ left: drag.at.left, top: drag.at.top, width: drag.at.width, transform: `translate(${drag.dx}px, ${drag.dy}px)` }}
+          >
+            <div className="kcard__link">
+              <CardBody t={t} />
+            </div>
+          </div>,
+          document.body,
+        )}
     </li>
   )
 }
@@ -326,7 +360,8 @@ function useBoardDrag(onDrop: (id: number, column: string) => void) {
   const grab = (e: ReactPointerEvent, t: Task) => {
     if (e.button !== 0) return
     const touch = e.pointerType === 'touch'
-    const d: Drag = { id: t.id, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, touch, active: false, over: null }
+    const { left, top, width } = e.currentTarget.getBoundingClientRect()
+    const d: Drag = { id: t.id, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, touch, active: false, over: null, at: { left, top, width } }
     set(d)
     if (touch)
       timer.current = window.setTimeout(() => {

@@ -589,7 +589,19 @@ def _roots_payload() -> dict:
             'found': folder.is_dir(),
             'projects': sum(discovery.under(p, r['path']) and p != r['path'] for p in paths),
         })
-    return {'roots': rows}
+    return {'roots': rows, 'visible': discovery.visible_dirs()}
+
+
+def _unseen_folder(path: str) -> str:
+    """Why a folder can't be added: it doesn't exist, or Docker doesn't share it with Marumado."""
+    if not Path('/.dockerenv').exists():
+        return 'There is no folder at that path.'
+    visible = discovery.visible_dirs()
+    if any(discovery.under(path, d) for d in visible):
+        return 'There is no folder at that path.'
+    shared = f"Marumado runs in Docker and only sees {', '.join(visible)}. " if visible else 'Marumado runs in Docker and sees no folders of this machine. '
+    return (f'{shared}If {path} exists, add it (or a parent) to MARUMADO_MOUNTS in .env, then run make up. '
+            'Leave MARUMADO_MOUNTS empty to share your whole home folder.')
 
 
 @api_view(['GET', 'POST'])
@@ -605,10 +617,7 @@ def roots(request):
     if any(r['path'] == path for r in discovery.roots()):
         return Response({'detail': 'That folder is already scanned.'}, status=400)
     if not Path(path).is_dir():
-        return Response({
-            'detail': "Marumado can't see that folder. If it runs in Docker, add the folder (or a parent) "
-                      'to MARUMADO_PROJECT_DIRS or MARUMADO_MOUNTS in .env and run make up.',
-        }, status=400)
+        return Response({'detail': _unseen_folder(path)}, status=400)
     ScanRoot.objects.create(path=path)
     scan = discovery.scan()
     return Response({**_roots_payload(), 'scan': scan}, status=201)

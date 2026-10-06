@@ -829,13 +829,18 @@ function FoldersSheet() {
   // With several places Herdr runs, each folder can say where its projects' agents start.
   const sources = sourcesOf(agents)
   const [roots, setRoots] = useState<ScanRoot[] | null>(null)
+  // In Docker, the host folders Marumado can see (empty when it runs natively and sees everything).
+  const [visible, setVisible] = useState<string[]>([])
   const [path, setPath] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    api<{ roots: ScanRoot[] }>('roots')
-      .then((d) => setRoots(d.roots))
+    api<{ roots: ScanRoot[]; visible: string[] }>('roots')
+      .then((d) => {
+        setRoots(d.roots)
+        setVisible(d.visible)
+      })
       .catch((err) => setError(`Couldn't load folders: ${err.message}`))
   }, [])
 
@@ -929,7 +934,12 @@ function FoldersSheet() {
         </button>
       </div>
       <p className="sheet__lede">
-        Removing a folder drops its projects, except ones you edited or pinned. Running in Docker? Marumado only sees folders mounted into it: list them in <span className="mono">MARUMADO_PROJECT_DIRS</span> or <span className="mono">MARUMADO_MOUNTS</span> in .env, then <span className="mono">make up</span>.
+        Removing a folder drops its projects, except ones you edited or pinned.
+        {visible.length > 0 && (
+          <>
+            {' '}Marumado runs in Docker: any folder inside {visible.map((d, i) => <span key={d}>{i > 0 && ', '}<span className="mono">{d}</span></span>)} can be added. For others, add a parent to <span className="mono">MARUMADO_MOUNTS</span> in .env, then <span className="mono">make up</span>.
+          </>
+        )}
       </p>
     </form>
   )

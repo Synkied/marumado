@@ -764,6 +764,21 @@ class ProjectFolderTests(TestCase):
         with override_settings(MARUMADO_PROJECT_ROOTS=['/no/such/folder'], MARUMADO_PROJECT_ROOTS_DEFAULT=False):
             self.assertEqual([r['path'] for r in discovery.roots()], ['/no/such/folder'])
 
+    def test_tilde_is_the_host_home_in_docker(self):
+        from . import discovery
+        with mock.patch.dict(os.environ, {'MARUMADO_HOST_HOME': '/home/me'}):
+            self.assertEqual(discovery.normalize('~/code/'), '/home/me/code')
+            self.assertEqual(discovery.normalize('~'), '/home/me')
+
+    def test_an_unseen_folder_says_what_docker_shares(self):
+        from pathlib import Path
+        from . import views
+        real_exists = Path.exists
+        in_docker = mock.patch.object(Path, 'exists', lambda p: str(p) == '/.dockerenv' or real_exists(p))
+        with in_docker, mock.patch.dict(os.environ, {'MARUMADO_VISIBLE_DIRS': '/projects,/home/me'}):
+            self.assertIn('only sees /projects, /home/me', views._unseen_folder('/srv/code'))
+            self.assertEqual(views._unseen_folder('/home/me/typo'), 'There is no folder at that path.')
+
 
 @override_settings(MARUMADO_TOKEN='test-token')
 @mock.patch.object(monitor, 'ensure_started', lambda: None)

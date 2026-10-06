@@ -260,7 +260,17 @@ def roots() -> list[dict]:
 
 
 def normalize(path: str) -> str:
-    return os.path.normpath(os.path.expanduser(path.strip()))
+    path = path.strip()
+    # In Docker, ~ is the host user's home (make up passes it), not the container's /root.
+    home = os.environ.get('MARUMADO_HOST_HOME')
+    if home and (path == '~' or path.startswith('~/')):
+        path = home + path[1:]
+    return os.path.normpath(os.path.expanduser(path))
+
+
+def visible_dirs() -> list[str]:
+    """In Docker, the host folders mounted into the container (make up passes them); [] natively."""
+    return [d for d in os.environ.get('MARUMADO_VISIBLE_DIRS', '').split(',') if d]
 
 
 def under(path: str, root: str) -> bool:

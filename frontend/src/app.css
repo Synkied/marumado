@@ -3720,11 +3720,19 @@ details[open] > summary.rstep__line .rstep__title {
 }
 
 .kcard--dragging {
-  position: relative;
-  z-index: 10;
+  position: fixed;
+  z-index: 1000;
+  margin: 0;
   pointer-events: none;
   border-color: var(--mod);
   rotate: 1.5deg;
+  cursor: grabbing;
+}
+
+/* Where the dragged card came from, held open until it lands. */
+.kcard--placeholder {
+  opacity: 0.35;
+  border-style: dashed;
 }
 
 .board--dragging,

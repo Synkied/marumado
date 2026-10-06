@@ -89,8 +89,10 @@ The container only sees folders mounted into it. `make up` generates `compose.ov
 
 ```sh
 MARUMADO_PROJECT_DIRS=/projects,/home/me/code   # scanned
-MARUMADO_MOUNTS=/home/me                        # visible only, so folders inside can be added in the app
+MARUMADO_MOUNTS=/srv,/mnt/data                  # visible only, so folders inside can be added in the app
 ```
+
+`MARUMADO_MOUNTS` left empty shares your home folder, so any folder in it can be added from the app without touching `.env` (set it to `none` to share nothing beyond `MARUMADO_PROJECT_DIRS`). In the app, `~` means your home on the host, not the container's.
 
 Leave `MARUMADO_PROJECT_DIRS` unset to use `/projects` only where it exists, or set it empty on a machine with no projects. Folders that don't exist are left out of the mounts.
 
