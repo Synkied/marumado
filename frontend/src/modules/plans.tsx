@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { Icon } from '../components/Icon'
 import { UsageLine } from '../components/UsageLine'
@@ -126,69 +126,210 @@ const STATE_WORDS: Record<PlanState, string> = { draft: 'Draft', scheduled: 'Sch
 const when = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
-/** An ISO time as the values of a date and a time input, in local time. */
-function localInput(iso: string | null): { date: string; time: string } {
-  if (!iso) return { date: '', time: '' }
-  const d = new Date(iso)
-  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString()
-  return { date: local.slice(0, 10), time: local.slice(11, 16) }
+/** A time of day, as the owner reads it: "09:00". */
+const clock = (d: Date) => d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+
+const pad = (n: number) => String(n).padStart(2, '0')
+
+/** A day's local midnight. */
+const dayOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
+const sameDay = (a: Date, b: Date) => dayOf(a).getTime() === dayOf(b).getTime()
+const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)
+
+/** The Monday a day's week starts on. */
+const weekOf = (d: Date) => addDays(dayOf(d), -((d.getDay() + 6) % 7))
+
+/** Monday to Sunday, in the owner's words: 2024-01-01 was a Monday. */
+const weekdays = (style: 'narrow' | 'short') => Array.from({ length: 7 }, (_, i) => new Date(2024, 0, 1 + i).toLocaleDateString(undefined, { weekday: style }))
+
+/** The plans that start by themselves: scheduled, and not finished. */
+const scheduledPlans = (plans: Plan[]) => plans.filter((p) => p.start_at && planState(p) === 'scheduled')
+
+/** When the plan starts by itself: a button saying so, opening a small calendar and a time to pick. Not the browser's
+    date and time inputs: some webviews (WebKitGTK, the Linux desktop app) give no time picker at all. Unset, it
+    starts only by hand. */
+function StartAt({ plan, disabled, patch }: { plan: Plan; disabled: boolean; patch: (json: object) => void }) {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const away = (e: PointerEvent) => box.current && !box.current.contains(e.target as Node) && setOpen(false)
+    document.addEventListener('pointerdown', away)
+    return () => document.removeEventListener('pointerdown', away)
+  }, [open])
+  const set = (at: string | null) => {
+    setOpen(false)
+    if (at !== plan.start_at) patch({ start_at: at })
+  }
+  return (
+    <span className="plan__when" ref={box}>
+      starts{' '}
+      <button
+        className="plan__inline plan__when-btn"
+        type="button"
+        disabled={disabled}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        title="It starts by itself then, as if you pressed Start"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {plan.start_at ? when(plan.start_at) : <span className="plan__hint">by hand</span>}
+        <Icon name="clock" size={14} />
+      </button>
+      {open && <WhenPicker plan={plan} onSet={set} onCancel={() => setOpen(false)} />}
+    </span>
+  )
 }
 
-/** When the plan starts by itself: a date and a time, kept on leaving either field (not on every keystroke); a date
-    with no time yet starts at 09:00. Two fields rather than one datetime-local: some webviews (WebKitGTK, the Linux
-    desktop app) give that one a date picker only. Emptied, it starts only by hand. */
-function StartAt({ plan, disabled, patch }: { plan: Plan; disabled: boolean; patch: (json: object) => void }) {
-  const saved = localInput(plan.start_at)
-  const [date, setDate] = useState(saved.date)
-  const [time, setTime] = useState(saved.time)
-  useEffect(() => {
-    setDate(saved.date)
-    setTime(saved.time)
-  }, [saved.date, saved.time])
-  const commit = () => {
-    const at = date ? new Date(`${date}T${time || '09:00'}`).toISOString() : null
-    const same = at && plan.start_at ? new Date(at).getTime() === new Date(plan.start_at).getTime() : at === plan.start_at
-    if (same) return
-    if (date && !time) setTime('09:00')
-    patch({ start_at: at })
+const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5)
+
+/** The next whole hour from now. */
+function nextHour(): Date {
+  const d = new Date()
+  d.setHours(d.getHours() + 1, 0, 0, 0)
+  return d
+}
+
+/** A day on a month's calendar and a time of day; the days other plans start on are dotted, and listed under the day
+    picked, so two runs don't land on each other unawares. */
+function WhenPicker({ plan, onSet, onCancel }: { plan: Plan; onSet: (at: string | null) => void; onCancel: () => void }) {
+  const first = plan.start_at ? new Date(plan.start_at) : nextHour()
+  const [day, setDay] = useState(dayOf(first))
+  const [month, setMonth] = useState(new Date(first.getFullYear(), first.getMonth(), 1))
+  const [hour, setHour] = useState(first.getHours())
+  const [minute, setMinute] = useState(first.getMinutes())
+  const others = scheduledPlans(usePoll<Plan[]>('plans', 15000).data ?? []).filter((p) => p.id !== plan.id)
+
+  // Opened near the right edge (of the window, or the plans modal), it opens leftwards.
+  const panel = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = panel.current
+    const room = el?.closest('.pmodal__body')?.getBoundingClientRect().right ?? window.innerWidth
+    if (el && el.getBoundingClientRect().right > room - 8) el.classList.add('when--left')
+  }, [])
+
+  const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, minute)
+  const gone = at.getTime() <= Date.now()
+  const today = dayOf(new Date())
+  const put = (d: Date) => {
+    setDay(dayOf(d))
+    setMonth(new Date(d.getFullYear(), d.getMonth(), 1))
+    setHour(d.getHours())
+    setMinute(d.getMinutes())
   }
-  const keys = (e: KeyboardEvent) => e.key === 'Enter' && commit()
+  const tonight = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 22)
+  const quick: [string, Date][] = [
+    ['In an hour', new Date(Date.now() + 3600000)],
+    ...(tonight.getTime() > Date.now() ? [['Tonight 22:00', tonight] as [string, Date]] : []),
+    ['Tomorrow 09:00', new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 9)],
+    ['Monday 09:00', new Date(addDays(weekOf(today), 7).getTime() + 9 * 3600000)],
+  ]
+
+  // The month's weeks, Monday first, padded with the days around it.
+  const start = weekOf(month)
+  const cells = Array.from({ length: 42 }, (_, i) => addDays(start, i)).filter((d, i) => i < 35 || d.getMonth() === month.getMonth())
+  const busy = (d: Date) => others.filter((p) => sameDay(new Date(p.start_at!), d))
+  const sameTime = others.filter((p) => Math.abs(Date.parse(p.start_at!) - at.getTime()) < 30 * 60000)
+
   return (
-    <span className="plan__when" title="It starts by itself then, as if you pressed Start">
-      starts{' '}
-      <input
-        className="plan__inline"
-        type="date"
-        value={date}
-        min={localInput(new Date().toISOString()).date}
-        disabled={disabled}
-        onChange={(e) => setDate(e.target.value)}
-        onBlur={commit}
-        onKeyDown={keys}
-        aria-label="Start date"
-      />{' '}
-      {date && (
-        <>
-          at{' '}
-          <input
-            className="plan__inline"
-            type="time"
-            value={time}
-            disabled={disabled}
-            onChange={(e) => setTime(e.target.value)}
-            onBlur={commit}
-            onKeyDown={keys}
-            aria-label="Start time"
-          />
-        </>
-      )}
-      {!plan.start_at && !date && <span className="plan__hint"> by hand</span>}
-      {plan.start_at && (
-        <button className="btn btn--quiet plan__clear" type="button" disabled={disabled} onClick={() => patch({ start_at: null })} title="Start it only by hand">
-          Clear
+    <div
+      ref={panel}
+      className="when"
+      role="dialog"
+      aria-label="When it starts"
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape') return
+        // Not the plans modal's Escape too.
+        e.preventDefault()
+        e.stopPropagation()
+        onCancel()
+      }}
+    >
+      <div className="when__quick">
+        {quick.map(([label, d]) => (
+          <button key={label} type="button" className="when__chip" onClick={() => put(d)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="when__month">
+        <button type="button" className="tool when__nav" aria-label="Month before" disabled={month <= new Date(today.getFullYear(), today.getMonth(), 1)}
+          onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>
+          <Icon name="chevron" size={16} className="when__prev" />
         </button>
+        <span className="when__title">{month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
+        <button type="button" className="tool when__nav" aria-label="Month after" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>
+          <Icon name="chevron" size={16} className="when__next" />
+        </button>
+      </div>
+      <div className="when__grid" role="grid">
+        {weekdays('narrow').map((w, i) => (
+          <span key={i} className="when__wd" aria-hidden="true">
+            {w}
+          </span>
+        ))}
+        {cells.map((d) => {
+          const n = busy(d).length
+          return (
+            <button
+              key={d.getTime()}
+              type="button"
+              className={`when__day${d.getMonth() !== month.getMonth() ? ' is-out' : ''}${sameDay(d, today) ? ' is-today' : ''}${n ? ' is-busy' : ''}`}
+              aria-pressed={sameDay(d, day)}
+              aria-label={`${d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}${n ? `, ${n} other plan${n === 1 ? '' : 's'}` : ''}`}
+              disabled={d < today}
+              onClick={() => setDay(d)}
+            >
+              {d.getDate()}
+            </button>
+          )
+        })}
+      </div>
+      <div className="when__time">
+        <span>at</span>
+        <select className="plan__inline" value={hour} onChange={(e) => setHour(Number(e.target.value))} aria-label="Hour">
+          {Array.from({ length: 24 }, (_, h) => (
+            <option key={h} value={h}>
+              {pad(h)}
+            </option>
+          ))}
+        </select>
+        :
+        <select className="plan__inline" value={minute} onChange={(e) => setMinute(Number(e.target.value))} aria-label="Minute">
+          {(MINUTES.includes(minute) ? MINUTES : [...MINUTES, minute].sort((a, b) => a - b)).map((m) => (
+            <option key={m} value={m}>
+              {pad(m)}
+            </option>
+          ))}
+        </select>
+        <span className="when__said">{when(at.toISOString())}</span>
+      </div>
+      {busy(day).length > 0 && (
+        <ul className="when__others" aria-label="Other plans that day">
+          {busy(day)
+            .sort((a, b) => Date.parse(a.start_at!) - Date.parse(b.start_at!))
+            .map((p) => (
+              <li key={p.id} className={sameTime.includes(p) ? 'signal-text' : undefined}>
+                <span className="when__other-at">{clock(new Date(p.start_at!))}</span> {p.title} <span className="plan__hint">· {p.kind}</span>
+              </li>
+            ))}
+        </ul>
       )}
-    </span>
+      {gone && <p className="when__note signal-text">That time has gone by: pick one to come.</p>}
+      <div className="when__actions">
+        {plan.start_at && (
+          <button type="button" className="btn btn--quiet" onClick={() => onSet(null)} title="Start it only by hand">
+            By hand
+          </button>
+        )}
+        <button type="button" className="btn btn--quiet" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="button" className="btn" disabled={gone} onClick={() => onSet(at.toISOString())}>
+          <Icon name="clock" size={14} /> Schedule
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -258,19 +399,36 @@ const STEP_WORDS: Record<TaskState, string> = {
 export function PlansList() {
   const res = usePoll<Plan[]>('plans', 4000)
   const plans = res.data ?? []
+  const [view, setView] = useState(rememberedView)
+  const show = (v: View) => {
+    setView(v)
+    rememberView(v)
+  }
   return (
     <section className="plans" aria-labelledby="plans-title">
       <header className="plans__head">
         <h3 id="plans-title" className="plans__title">
           Plans
         </h3>
-        <PlanLink className="btn btn--quiet" to="new">
-          <Icon name="plus" size={16} /> New plan
-        </PlanLink>
+        <div className="plans__tools">
+          <div className="seg plans__view" role="group" aria-label="Show the plans as">
+            <button type="button" className="seg__btn" aria-pressed={view === 'list'} onClick={() => show('list')}>
+              List
+            </button>
+            <button type="button" className="seg__btn" aria-pressed={view === 'calendar'} onClick={() => show('calendar')}>
+              Calendar
+            </button>
+          </div>
+          <PlanLink className="btn btn--quiet" to="new">
+            <Icon name="plus" size={16} /> New plan
+          </PlanLink>
+        </div>
       </header>
       {res.error && !res.data ? (
         <p className="notice signal-text">Couldn't read the plans: {res.error.message}</p>
-      ) : !res.data ? null : plans.length ? (
+      ) : !res.data ? null : view === 'calendar' ? (
+        <Week plans={plans} />
+      ) : plans.length ? (
         <div className="plans__groups">
           {GROUP_ORDER.map((g) => {
             const group = plans.filter((p) => planState(p) === g)
@@ -294,6 +452,100 @@ export function PlansList() {
         </p>
       )}
     </section>
+  )
+}
+
+type View = 'list' | 'calendar'
+const VIEW_KEY = 'marumado.plans.view'
+
+function rememberedView(): View {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'calendar' ? 'calendar' : 'list'
+  } catch {
+    return 'list'
+  }
+}
+
+function rememberView(v: View) {
+  try {
+    localStorage.setItem(VIEW_KEY, v)
+  } catch {
+    // private mode: for this visit only
+  }
+}
+
+/** The agents' week: each day, the plans that start by themselves then, at their time, with the kind of agent they
+    start; today also has the plans at work now. */
+function Week({ plans }: { plans: Plan[] }) {
+  const [monday, setMonday] = useState(() => weekOf(new Date()))
+  const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i))
+  const now = new Date()
+  const scheduled = scheduledPlans(plans).sort((a, b) => Date.parse(a.start_at!) - Date.parse(b.start_at!))
+  const running = plans.filter((p) => planState(p) === 'running')
+  const names = weekdays('short')
+  const thisWeek = sameDay(monday, weekOf(now))
+  const later = scheduled.filter((p) => Date.parse(p.start_at!) >= addDays(monday, 7).getTime()).length
+  return (
+    <div className="week">
+      <div className="week__head">
+        <button type="button" className="tool" aria-label="Week before" onClick={() => setMonday(addDays(monday, -7))}>
+          <Icon name="chevron" size={16} className="when__prev" />
+        </button>
+        <span className="week__title">
+          {days[0].toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} – {days[6].toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+        </span>
+        <button type="button" className="tool" aria-label="Week after" onClick={() => setMonday(addDays(monday, 7))}>
+          <Icon name="chevron" size={16} className="when__next" />
+        </button>
+        {!thisWeek && (
+          <button type="button" className="btn btn--quiet" onClick={() => setMonday(weekOf(now))}>
+            This week
+          </button>
+        )}
+        {later > 0 && <span className="plan__hint">{later} more after this week</span>}
+      </div>
+      <ol className="week__days">
+        {days.map((d, i) => {
+          const today = sameDay(d, now)
+          const own = scheduled.filter((p) => sameDay(new Date(p.start_at!), d))
+          const empty = !own.length && !(today && running.length)
+          return (
+            <li key={i} className={`week__day${today ? ' is-today' : ''}${d < dayOf(now) ? ' is-past' : ''}${empty ? ' is-empty' : ''}`}>
+              <span className="week__date">
+                {names[i]} <strong>{d.getDate()}</strong>
+              </span>
+              <ul className="week__runs">
+                {today &&
+                  running.map((p) => (
+                    <li key={p.id}>
+                      <PlanLink className="week__run is-on" to={{ plan: p.id }}>
+                        <span className="week__at">now</span>
+                        <span className="week__name">{p.title}</span>
+                        <span className="week__who">{p.kind}{p.project_name ? ` · ${p.project_name}` : ''}</span>
+                      </PlanLink>
+                    </li>
+                  ))}
+                {own.map((p) => (
+                  <li key={p.id}>
+                    <PlanLink className="week__run" to={{ plan: p.id }}>
+                      <span className="week__at">{clock(new Date(p.start_at!))}</span>
+                      <span className="week__name">{p.title}</span>
+                      <span className="week__who">
+                        {p.kind}
+                        {p.project_name ? ` · ${p.project_name}` : ''} · {p.steps.length} step{p.steps.length === 1 ? '' : 's'}
+                      </span>
+                    </PlanLink>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          )
+        })}
+      </ol>
+      {!scheduled.length && !running.length && (
+        <p className="plans__empty">Nothing scheduled. Open a plan and pick when it starts: it starts by itself then, as if you pressed Start.</p>
+      )}
+    </div>
   )
 }
 

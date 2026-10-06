@@ -1168,8 +1168,341 @@
   color: var(--ink-3);
 }
 
-.plan__clear {
-  margin-left: var(--sp-2);
+/* ---------- when a plan starts: a button in the sentence, opening a small calendar ---------- */
+
+.plan__when {
+  position: relative;
+}
+
+.plan__when-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.plan__when-btn svg {
+  align-self: center;
+  color: var(--c-momentum);
+}
+
+.when {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + var(--sp-3));
+  left: 0;
+  display: grid;
+  gap: var(--sp-5);
+  box-sizing: border-box;
+  width: min(340px, calc(100vw - 32px));
+  padding: var(--sp-6);
+  font-size: var(--text-md);
+  letter-spacing: normal;
+  text-transform: none;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-lg);
+  background: var(--ground-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+}
+
+.when--left {
+  left: auto;
+  right: 0;
+}
+
+.when__quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.when__chip {
+  padding: var(--sp-1) var(--sp-4);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.when__chip:hover {
+  border-color: var(--c-momentum);
+  color: var(--ink);
+}
+
+.when__month {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.when__title {
+  font-weight: var(--weight-strong);
+  text-transform: capitalize;
+}
+
+.when__prev { transform: rotate(90deg); }
+.when__next { transform: rotate(-90deg); }
+
+.when__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--sp-1);
+  text-align: center;
+}
+
+.when__wd {
+  font-size: var(--text-sm);
+  color: var(--ink-3);
+}
+
+.when__day {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.when__day:hover:not(:disabled) {
+  border-color: var(--rule);
+}
+
+.when__day.is-out {
+  color: var(--ink-3);
+}
+
+.when__day:disabled {
+  color: var(--ink-3);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.when__day.is-today {
+  border-color: var(--rule);
+  font-weight: var(--weight-strong);
+}
+
+/* Another plan starts that day. */
+.when__day.is-busy::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--c-momentum);
+}
+
+.when__day[aria-pressed='true'] {
+  border-color: var(--c-momentum);
+  background: var(--c-momentum);
+  color: var(--ground-raised);
+}
+
+.when__day[aria-pressed='true']::after {
+  background: var(--ground-raised);
+}
+
+.when__time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+  color: var(--ink-2);
+}
+
+.when__time select {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.when__said {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--ink-3);
+}
+
+.when__others {
+  display: grid;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: var(--sp-3) 0 0;
+  border-top: 1px solid var(--rule-soft);
+  list-style: none;
+  font-size: var(--text-sm);
+}
+
+.when__other-at,
+.week__at {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.when__note {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.when__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+}
+
+/* ---------- the plans' week: what starts when, on which agents ---------- */
+
+.plans__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.week {
+  display: grid;
+  gap: var(--sp-5);
+}
+
+.week__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.week__title {
+  min-width: 18ch;
+  font-weight: var(--weight-strong);
+  text-align: center;
+}
+
+.week__days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-lg);
+  list-style: none;
+  overflow: hidden;
+}
+
+.week__day {
+  display: grid;
+  align-content: start;
+  gap: var(--sp-3);
+  min-height: 160px;
+  padding: var(--sp-4);
+  border-left: 1px solid var(--rule-soft);
+  background: var(--ground-raised);
+}
+
+.week__day:first-child {
+  border-left: 0;
+}
+
+.week__day.is-past {
+  background: none;
+  color: var(--ink-3);
+}
+
+.week__day.is-today {
+  box-shadow: inset 0 3px 0 var(--c-momentum);
+}
+
+.week__date {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.week__date strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.week__day.is-today .week__date strong {
+  color: var(--c-momentum);
+}
+
+.week__runs {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.week__run {
+  display: grid;
+  gap: 1px;
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 3px solid var(--c-momentum);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--c-momentum) 10%, var(--ground-raised));
+  color: var(--ink);
+  font-size: var(--text-sm);
+  text-decoration: none;
+}
+
+.week__run:hover {
+  background: color-mix(in oklab, var(--c-momentum) 20%, var(--ground-raised));
+}
+
+.week__run.is-on {
+  border-left-color: var(--moss, var(--ink));
+}
+
+.week__at {
+  color: var(--c-momentum);
+}
+
+.week__name {
+  display: -webkit-box;
+  overflow: hidden;
+  font-weight: var(--weight-strong);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.week__who {
+  overflow: hidden;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Narrow: the days one under the other, the empty ones left out. */
+@media (max-width: 760px) {
+  .week__days {
+    grid-template-columns: 1fr;
+  }
+
+  .week__day {
+    min-height: 0;
+    border-left: 0;
+    border-top: 1px solid var(--rule-soft);
+  }
+
+  .week__day:first-child {
+    border-top: 0;
+  }
+
+  .week__day.is-empty:not(.is-today) {
+    display: none;
+  }
 }
 
 .plan__check { width: 16ch; font-family: var(--f-mono); }
