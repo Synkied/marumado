@@ -45,6 +45,7 @@ export function PlansModal({ agent, onClose }: { agent: Agent | null; onClose: (
   }, [place])
 
   const onPlans = place !== 'agent'
+  const inPlan = place === 'new' || typeof place === 'object'
   return (
     <dialog
       ref={dialog}
@@ -60,6 +61,11 @@ export function PlansModal({ agent, onClose }: { agent: Agent | null; onClose: (
         <h2 className="sr-only" id="pmodal-title">
           {agent && !onPlans ? `Queue for ${nameOf(agent)}` : 'Plans'}
         </h2>
+        {inPlan && (
+          <button className="side__back pmodal__back" type="button" onClick={() => setPlace('list')}>
+            <Icon name="back" size={18} /> All plans
+          </button>
+        )}
         <div className="seg pmodal__tabs" role="group" aria-label="Show">
           {agent && (
             <button type="button" className="seg__btn" aria-pressed={!onPlans} onClick={() => setPlace('agent')}>

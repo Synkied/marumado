@@ -481,6 +481,28 @@ class PlanTests(TestCase):
         self.assertIn(ids['One'], listed)
         self.assertEqual(self.step(ids, 'Two').state, 'review')
 
+    def test_a_done_plan_archives_itself_two_days_on(self):
+        pid, ids = self.plan(['One'], ['Two'])
+        self.api.post(f'/api/tasks/{ids["One"]}/done')
+        self.api.post(f'/api/tasks/{ids["Two"]}/review')
+        later = tasks._now() + plans.AUTO_ARCHIVE + timedelta(minutes=1)
+        with mock.patch.object(tasks, '_now', return_value=later):
+            plans.archive_done()
+        self.assertIsNone(Plan.objects.get(pk=pid).archived_at, 'a step still to review')
+
+        self.api.post(f'/api/tasks/{ids["Two"]}/done')
+        plans.archive_done()
+        self.assertIsNone(Plan.objects.get(pk=pid).archived_at, 'not before two days')
+        later = tasks._now() + plans.AUTO_ARCHIVE + timedelta(minutes=1)
+        with mock.patch.object(tasks, '_now', return_value=later):
+            plans.archive_done()
+        self.assertTrue(Plan.objects.get(pk=pid).archived_at)
+        self.assertTrue(Task.objects.get(pk=ids['Two']).archived_at, 'its steps with it')
+
+        self.api.post(f'/api/plans/{pid}/restore')
+        plans.archive_done()
+        self.assertIsNone(Plan.objects.get(pk=pid).archived_at, 'restored: two more days')
+
     def test_arranging_and_deleting_give_steps_back_to_the_ideas(self):
         pid, ids = self.plan(['One'], ['Two'])
         idea = self.api.post('/api/tasks', {'title': 'Idea', 'project': self.project.id}, format='json').json()['id']

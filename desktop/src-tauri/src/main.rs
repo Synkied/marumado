@@ -8,10 +8,12 @@
 
 mod config;
 mod docker;
+mod host;
 mod icon;
 mod marumado;
 
 use config::Config;
+use docker::Stack;
 use marumado::{Act, Entry, Look, Reading, Watch};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -24,6 +26,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, RunEvent, State, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as _;
+use tauri_plugin_dialog::DialogExt as _;
 use tauri_plugin_notification::NotificationExt as _;
 use tauri_plugin_opener::OpenerExt as _;
 use tauri_plugin_window_state::{AppHandleExt as _, StateFlags};
@@ -354,7 +357,7 @@ fn build_menu(app: &AppHandle, entries: &[Entry]) -> tauri::Result<Menu<tauri::W
         autostart,
         None::<&str>,
     )?)?;
-    menu.append(&MenuItem::with_id(app, "connect", "Connect to another Marumado…", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "connect", "Set up or connect Marumado…", true, None::<&str>)?)?;
     menu.append(&MenuItem::with_id(app, "quit", "Quit Marumado", true, None::<&str>)?)?;
     Ok(menu)
 }
@@ -500,20 +503,66 @@ fn poll(app: AppHandle, poke: mpsc::Receiver<()>) {
     }
 }
 
-/// Starts the Marumado on this machine if it isn't running. Meanwhile the main window shows the bundled
-/// "Starting Marumado…" page, and goes to Marumado once it answers (to the page asked for meanwhile, if any).
+/// What to start the Marumado on this machine from: the app's own (its compose file written first), else a checkout.
+/// `true` with it: the compose file changed (new settings, or a new version of the app), so it is started again even
+/// if it answers.
+fn stack_for(app: &AppHandle, c: &Config) -> Result<(Option<Stack>, bool), String> {
+    let Some(h) = &c.host else {
+        return Ok((docker::folder(c.folder.as_deref()).map(Stack::Checkout), false));
+    };
+    let image = host::image(h, &app.package_info().version.to_string());
+    let dir = host::dir(&config_dir(app));
+    let changed = host::write(&dir, &host::compose(h, &c.token, &image))
+        .map_err(|e| format!("couldn't write Marumado's compose file in {} ({e})", dir.display()))?;
+    Ok((Some(Stack::Hosted { dir, image }), changed))
+}
+
+/// Tells the window what is happening while Marumado starts (the first-run and the starting pages show it).
+fn step(app: &AppHandle, text: &str) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.eval(format!("window.step && window.step({})", serde_json::to_string(text).unwrap_or_default()));
+    }
+}
+
+/// Starts it, saying first when its image is downloaded (the first time, and after the app was updated).
+fn start_stack(app: &AppHandle, url: &str, stack: &Stack, force: bool) -> Result<bool, String> {
+    if let Stack::Hosted { image, .. } = stack {
+        if !docker::has_image(image) {
+            let version = image.rsplit(':').next().unwrap_or_default();
+            step(app, &format!("Downloading Marumado {version}: the first time, it takes a minute or two."));
+        }
+    }
+    docker::ensure(url, Some(stack), force)
+}
+
+/// Starts the Marumado on this machine if it isn't running, or again if its compose file changed. Meanwhile the main
+/// window shows the bundled "Starting Marumado…" page, and goes to Marumado once it answers (to the page asked for
+/// meanwhile, if any).
 fn start_marumado(app: &AppHandle) {
     let Some(c) = config_of(app) else { return };
-    if !docker::will_start(&c.url, c.folder.as_deref()) {
+    if !docker::is_local(&c.url) {
+        return;
+    }
+    let (stack, changed) = match stack_for(app, &c) {
+        Ok(found) => found,
+        Err(e) => return log(&e),
+    };
+    let Some(stack) = stack else { return };
+    if !changed && docker::answers(&c.url) {
         return;
     }
     *desk(app).starting.lock().unwrap() = Some("#/".into());
     let app = app.clone();
     std::thread::spawn(move || {
-        if let Err(e) = docker::ensure(&c.url, c.folder.as_deref()) {
+        if let Err(e) = start_stack(&app, &c.url, &stack, changed) {
             log(&e);
+            let after = match stack {
+                Stack::Checkout(_) => "Start it with <code>make up</code> in Marumado’s folder: this window opens it as soon as it answers.",
+                Stack::Hosted { .. } => "Check that Docker runs, then open the app again. This window opens Marumado as soon as it answers.",
+            };
             if let Some(w) = app.get_webview_window("main") {
-                let _ = w.eval(format!("window.failed({})", serde_json::to_string(&e).unwrap_or_default()));
+                let arg = |s: &str| serde_json::to_string(s).unwrap_or_default();
+                let _ = w.eval(format!("window.failed({}, {})", arg(&e), arg(after)));
             }
             // Started some other way (`make up`), it is just as good.
             while !docker::answers(&c.url) {
@@ -564,17 +613,50 @@ struct Current {
     url: String,
     connected: bool,
     autostart: bool,
+    /// The app can run Marumado on this machine itself (Linux).
+    can_host: bool,
+    /// It does: with these folders, and the SSH keys or not.
+    hosting: bool,
+    folders: Vec<String>,
+    ssh: bool,
+    /// There is a Marumado checkout to start instead (a developer's machine).
+    checkout: bool,
 }
 
-/// For the first-run page: the address to offer, and whether the app starts with the session.
+/// For the first-run page: what is set up, to offer it again.
 #[tauri::command]
 fn current(app: AppHandle) -> Current {
     let config = config_of(&app);
+    let h = config.as_ref().and_then(|c| c.host.clone());
     Current {
         url: config.as_ref().map_or(config::DEFAULT_URL.into(), |c| c.url.clone()),
         connected: config.is_some(),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
+        can_host: host::SUPPORTED,
+        hosting: h.is_some(),
+        folders: h.as_ref().map(|h| h.folders.clone()).unwrap_or_default(),
+        ssh: h.is_some_and(|h| h.ssh),
+        checkout: docker::folder(config.as_ref().and_then(|c| c.folder.as_deref())).is_some(),
     }
+}
+
+/// Keeps the new settings and opens Marumado with them.
+fn adopt(app: &AppHandle, c: Config, autostart: bool) -> Result<(), String> {
+    config::save(&config_dir(app), &c).map_err(|e| format!("Couldn't save the settings ({e})."))?;
+    allow_remote(app, &c.url);
+    *desk(app).config.lock().unwrap() = Some(c);
+    *desk(app).watch.lock().unwrap() = Watch::default();
+    let auto = app.autolaunch();
+    if let Err(e) = if autostart { auto.enable() } else { auto.disable() } {
+        log(&format!("couldn't change starting with the session: {e}"));
+    }
+    // A card made for the last Marumado would show it still.
+    if let Some(card) = app.get_webview_window("card") {
+        let _ = card.destroy();
+    }
+    poke(app);
+    show_page(app, "#/");
+    Ok(())
 }
 
 /// Checks the address and the token by logging in (POST /api/auth), keeps them, and opens Marumado.
@@ -585,40 +667,100 @@ async fn connect(app: AppHandle, url: String, token: String, autostart: bool) ->
     if token.is_empty() {
         return Err("Enter its access token.".into());
     }
-    let (u, t) = (url.clone(), token.clone());
-    let folder = config_of(&app).and_then(|c| c.folder);
-    let f = folder.clone();
+    let old = config_of(&app);
+    let folder = old.as_ref().and_then(|c| c.folder.clone());
+    let c = Config {
+        url: url.clone(),
+        token: token.clone(),
+        notify: old.as_ref().is_none_or(|c| c.notify),
+        folder,
+        host: None,
+    };
+    let (a, c2) = (app.clone(), c.clone());
     tauri::async_runtime::spawn_blocking(move || {
-        if let Err(e) = docker::ensure(&u, f.as_deref()) {
-            log(&e);
+        // Leaving the Marumado the app ran for another machine's: it stops (its data is kept).
+        if old.as_ref().is_some_and(|o| o.host.is_some()) && !docker::is_local(&url) {
+            if let Err(e) = docker::stop_started() {
+                log(&format!("couldn't stop Marumado's containers: {e}"));
+            }
+        }
+        if let Ok((Some(stack), _)) = stack_for(&a, &c2) {
+            if let Err(e) = docker::ensure(&url, Some(&stack), false) {
+                log(&e);
+            }
         }
         let http = marumado::http();
-        marumado::check_login(&http, &u, &t)?;
+        marumado::check_login(&http, &url, &token)?;
         // The login takes the browser's password too, but the tray reads the API with the access token only.
-        if marumado::read(&http, &u, &t).refused {
+        if marumado::read(&http, &url, &token).refused {
             return Err("That is this Marumado's password: the app needs its access token (`make access-token` prints it).".to_string());
         }
         Ok(())
     })
     .await
     .map_err(|e| e.to_string())??;
-    let notify = config_of(&app).is_none_or(|c| c.notify);
-    let c = Config { url, token, notify, folder };
-    config::save(&config_dir(&app), &c).map_err(|e| format!("Couldn't save the address ({e})."))?;
-    allow_remote(&app, &c.url);
-    *desk(&app).config.lock().unwrap() = Some(c);
-    *desk(&app).watch.lock().unwrap() = Watch::default();
-    let auto = app.autolaunch();
-    if let Err(e) = if autostart { auto.enable() } else { auto.disable() } {
-        log(&format!("couldn't change starting with the session: {e}"));
+    adopt(&app, c, autostart)
+}
+
+/// Runs Marumado on this machine, from the published image, with these folders: Docker must be there. The access
+/// token is made here, so there is nothing to type.
+#[tauri::command]
+async fn host(app: AppHandle, folders: Vec<String>, ssh: bool, autostart: bool) -> Result<(), String> {
+    if !host::SUPPORTED {
+        return Err("Marumado runs on Linux only: connect to one on another machine instead.".into());
     }
-    // A card made for the last Marumado would show it still.
-    if let Some(card) = app.get_webview_window("card") {
-        let _ = card.destroy();
-    }
-    poke(&app);
-    show_page(&app, "#/");
-    Ok(())
+    let old = config_of(&app);
+    let was = old.as_ref().and_then(|c| c.host.clone());
+    let token = match (&was, &old) {
+        (Some(_), Some(o)) => o.token.clone(),
+        _ => host::random(24),
+    };
+    let h = host::Host {
+        folders: folders.iter().map(|f| host::tidy(f)).filter(|f| !f.is_empty()).collect(),
+        ssh,
+        secret_key: was.as_ref().map_or_else(|| host::random(32), |w| w.secret_key.clone()),
+        image: was.as_ref().and_then(|w| w.image.clone()),
+    };
+    let c = Config {
+        url: config::DEFAULT_URL.into(),
+        token,
+        notify: old.as_ref().is_none_or(|c| c.notify),
+        folder: old.as_ref().and_then(|c| c.folder.clone()),
+        host: Some(h),
+    };
+    let a = app.clone();
+    let c2 = c.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        step(&a, "Checking Docker…");
+        docker::check()?;
+        if was.is_none() && docker::answers(&c2.url) {
+            return Err(format!(
+                "Something already answers at {}: a Marumado started another way? Connect to it under “Another machine”, or stop it first.",
+                c2.url
+            ));
+        }
+        let (stack, _) = stack_for(&a, &c2)?;
+        let stack = stack.ok_or("no compose file")?;
+        step(&a, "Starting Marumado…");
+        start_stack(&a, &c2.url, &stack, true)?;
+        step(&a, "Logging in…");
+        marumado::check_login(&marumado::http(), &c2.url, &c2.token)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    adopt(&app, c, autostart)
+}
+
+/// The system's folder picker, for the folders that hold projects.
+#[tauri::command]
+async fn pick_folders(app: AppHandle) -> Vec<String> {
+    let picked = app.dialog().file().set_title("Folders that hold your projects").blocking_pick_folders();
+    picked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| p.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect()
 }
 
 /// The access token, for Marumado's login page to log this window in (POST /api/auth sets its cookie).
@@ -679,6 +821,7 @@ fn main() {
         .plugin(tauri_plugin_autostart::Builder::new().arg(HIDDEN).build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(kept())
@@ -689,6 +832,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             current,
             connect,
+            host,
+            pick_folders,
             login_token,
             open_page,
             hide_card,

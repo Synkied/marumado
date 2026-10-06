@@ -188,6 +188,20 @@
   min-width: 0;
 }
 
+/* Back and forward, before the wordmark. */
+.top__history {
+  flex: none;
+  display: flex;
+  gap: var(--sp-1);
+  margin-right: calc(-1 * var(--sp-2));
+}
+
+.top__history .tool:disabled {
+  color: var(--rule);
+  border-color: transparent;
+  cursor: default;
+}
+
 .picker {
   position: relative;
   display: inline-flex;
@@ -3448,47 +3462,62 @@ details[open] > summary.rstep__line .rstep__title {
   color: var(--ink);
 }
 
-.kadd {
-  flex: none;
-  display: grid;
+/* Adding a task: a dialog over the board (the plans modal's frame, sized to its form). */
+.pmodal.kadd {
+  width: min(720px, calc(100vw - 32px));
+  height: auto;
+  max-height: calc(100dvh - 48px);
+}
+
+.kadd__heading {
+  display: flex;
+  align-items: center;
   gap: var(--sp-3);
-  padding: var(--sp-4);
-  border: 1px solid var(--mod);
-  border-radius: var(--radius-lg);
-  background: var(--ground);
-}
-
-.kadd__title {
-  width: 100%;
-  min-height: 0;
-  padding: var(--sp-3) var(--sp-4);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--radius-control);
-  background: var(--ground-raised);
-  color: var(--ink);
-  font: inherit;
+  margin: 0;
+  font-size: var(--text-lg);
   font-weight: var(--weight-strong);
-  resize: none;
 }
 
-.kadd__title:focus {
-  outline: none;
-  border-color: var(--ink);
+.kadd__form {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.kadd select {
-  width: 100%;
-  font-size: var(--text-md);
+.kadd__body {
+  display: grid;
+  align-content: start;
+  gap: var(--sp-6);
+  padding: var(--sp-6);
+}
+
+.kadd__prompt {
+  min-height: 180px;
+  resize: vertical;
+}
+
+.kadd__agent {
+  display: grid;
+  gap: var(--sp-4);
+  padding-top: var(--sp-6);
+  border-top: 1px solid var(--rule-soft);
 }
 
 .kadd__bar {
+  flex: none;
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--sp-3);
+  padding: var(--sp-5) var(--sp-6);
+  border-top: 1px solid var(--rule-soft);
 }
 
-.kadd__bar .btn {
-  min-height: 36px;
+@media (max-width: 640px) {
+  .pmodal.kadd {
+    max-height: none;
+  }
 }
 
 /* Desktop: the board takes the page's leftover height; the page scrolls only if the plans above leave it too little. */

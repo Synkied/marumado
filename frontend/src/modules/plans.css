@@ -881,6 +881,13 @@
 
 .pmodal__tabs {
   min-width: 0;
+  margin-right: auto;
+}
+
+.pmodal__back {
+  flex: none;
+  margin: 0;
+  cursor: pointer;
 }
 
 .pmodal__tabs .seg__btn {

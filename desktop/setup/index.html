@@ -4,7 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Connect · Marumado</title>
-    <!-- The one page the desktop app bundles: everything else is Marumado's own, loaded from its address. -->
+    <!-- The first-run page, bundled with the app (with starting.html): everything else is Marumado's own, loaded from its
+         address. It runs Marumado on this machine (the `host` command) or connects to one elsewhere (`connect`). -->
     <style>
       :root {
         --ground: #ecebe4;
@@ -70,6 +71,9 @@
         color: var(--ink-2);
         font-size: 14px;
       }
+      a {
+        color: inherit;
+      }
       code {
         font-family: var(--f-mono);
         font-size: 0.92em;
@@ -120,6 +124,86 @@
         opacity: 0.6;
         cursor: progress;
       }
+      .seg {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        border: 1px solid var(--rule);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .seg button {
+        height: 36px;
+        border-radius: 0;
+        background: none;
+        color: var(--ink-2);
+        font-weight: 400;
+      }
+      .seg button[aria-pressed='true'] {
+        background: var(--solid);
+        color: var(--on-solid);
+      }
+      .pane {
+        display: grid;
+        gap: 18px;
+      }
+      .pane[hidden] {
+        display: none;
+      }
+      .folders {
+        display: grid;
+        gap: 6px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .folders li {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 36px;
+        padding: 0 4px 0 12px;
+        border: 1px solid var(--rule);
+        border-radius: 4px;
+        background: var(--raised);
+        font: 400 14px var(--f-mono);
+      }
+      .folders li span {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .quiet {
+        height: 32px;
+        padding: 0 12px;
+        border: 1px solid var(--rule);
+        background: none;
+        color: var(--ink);
+        font-weight: 400;
+        justify-self: start;
+      }
+      .folders .quiet {
+        height: 28px;
+        width: 28px;
+        padding: 0;
+        border: 0;
+        color: var(--ink-2);
+      }
+      .group {
+        display: grid;
+        gap: 8px;
+      }
+      .group > span {
+        font-size: 14px;
+        color: var(--ink-2);
+      }
+      #status {
+        color: var(--ink);
+      }
+      #status:empty {
+        display: none;
+      }
       [role='alert'] {
         color: var(--signal-text);
       }
@@ -138,46 +222,136 @@
         </svg>
         Marumado
       </h1>
-      <p>
-        Which Marumado should this app open? The one on this machine answers at <code>http://127.0.0.1:7878</code>;
-        for another machine, use its address on your network or an SSH tunnel to it.
-      </p>
-      <label>
-        Address
-        <input id="url" type="text" name="url" required autocomplete="url" spellcheck="false" />
-      </label>
-      <label>
-        Access token
-        <input id="token" type="password" name="token" required autocomplete="current-password" aria-describedby="token-hint" />
-      </label>
-      <p id="token-hint"><code>make access-token</code> prints it on the machine Marumado runs on.</p>
+      <div class="seg" role="group" aria-label="Which Marumado" id="modes" hidden>
+        <button type="button" id="mode-here" aria-pressed="true">On this computer</button>
+        <button type="button" id="mode-there" aria-pressed="false">Another machine</button>
+      </div>
+
+      <div class="pane" id="here" hidden>
+        <p>
+          Marumado runs on this computer, in Docker, started and stopped by this app. You need
+          <a href="https://docs.docker.com/engine/install/">Docker</a> installed and running; the app does the rest,
+          and updates Marumado when the app is updated.
+        </p>
+        <div class="group">
+          <span id="folders-label">Folders that hold your projects</span>
+          <ul class="folders" id="folders" aria-labelledby="folders-label"></ul>
+          <button class="quiet" type="button" id="add-folder">Add a folder…</button>
+          <p>Each folder inside one is a project. Marumado only reads them. None is fine too, for a machine without projects.</p>
+        </div>
+        <label class="check">
+          <input id="ssh" type="checkbox" name="ssh" />
+          Let it use my SSH keys, to watch my other machines
+        </label>
+      </div>
+
+      <div class="pane" id="there">
+        <p>
+          Which Marumado should this app open? The one on this machine answers at <code>http://127.0.0.1:7878</code>;
+          for another machine, use its address on your network or an SSH tunnel to it.
+        </p>
+        <label>
+          Address
+          <input id="url" type="text" name="url" autocomplete="url" spellcheck="false" />
+        </label>
+        <label>
+          Access token
+          <input id="token" type="password" name="token" autocomplete="current-password" aria-describedby="token-hint" />
+        </label>
+        <p id="token-hint"><code>make access-token</code> prints it on the machine Marumado runs on.</p>
+      </div>
       <label class="check">
         <input id="autostart" type="checkbox" name="autostart" checked />
         Start with the session, in the tray
       </label>
+      <p id="status" role="status"></p>
       <p id="problem" role="alert"></p>
       <button id="go" type="submit">Connect</button>
     </form>
     <script>
       const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args)
       const $ = (id) => document.getElementById(id)
+      let here = false
+      let folders = []
+
+      const setMode = (h) => {
+        here = h
+        $('mode-here').setAttribute('aria-pressed', String(h))
+        $('mode-there').setAttribute('aria-pressed', String(!h))
+        $('here').hidden = !h
+        $('there').hidden = h
+        $('problem').textContent = ''
+        label()
+      }
+      const label = () => {
+        $('go').textContent = here ? 'Start Marumado' : 'Connect'
+      }
+      $('mode-here').addEventListener('click', () => setMode(true))
+      $('mode-there').addEventListener('click', () => setMode(false))
+
+      const showFolders = () => {
+        const list = $('folders')
+        list.replaceChildren(
+          ...folders.map((f) => {
+            const li = document.createElement('li')
+            const name = document.createElement('span')
+            name.textContent = f
+            name.title = f
+            const remove = document.createElement('button')
+            remove.type = 'button'
+            remove.className = 'quiet'
+            remove.textContent = '×'
+            remove.setAttribute('aria-label', `Remove ${f}`)
+            remove.addEventListener('click', () => {
+              folders = folders.filter((x) => x !== f)
+              showFolders()
+            })
+            li.append(name, remove)
+            return li
+          }),
+        )
+      }
+      $('add-folder').addEventListener('click', async () => {
+        const picked = await invoke('pick_folders')
+        folders = [...new Set([...folders, ...picked])]
+        showFolders()
+      })
+
+      // What the app is doing while Marumado starts (it can take minutes the first time: the download).
+      window.step = (text) => {
+        $('status').textContent = text
+      }
+
       invoke('current').then((c) => {
         $('url').value = c.url
         if (c.connected) $('autostart').checked = c.autostart
-        ;(c.connected ? $('token') : $('url')).focus()
+        folders = c.folders
+        $('ssh').checked = c.ssh
+        showFolders()
+        $('modes').hidden = !c.can_host
+        // Running it here is the first offer, unless a checkout (a developer's) or another machine is set up.
+        setMode(c.can_host && (c.hosting || (!c.connected && !c.checkout)))
+        if (!here) (c.connected ? $('token') : $('url')).focus()
       })
       $('connect').addEventListener('submit', async (e) => {
         e.preventDefault()
         $('go').disabled = true
-        $('go').textContent = 'Connecting…'
+        $('go').textContent = here ? 'Starting…' : 'Connecting…'
         $('problem').textContent = ''
         try {
-          // Checks the token by logging in (POST /api/auth), then opens Marumado in this window.
-          await invoke('connect', { url: $('url').value, token: $('token').value, autostart: $('autostart').checked })
+          if (here) {
+            // Checks Docker, starts Marumado (downloading it the first time), logs in, then opens it in this window.
+            await invoke('host', { folders, ssh: $('ssh').checked, autostart: $('autostart').checked })
+          } else {
+            // Checks the token by logging in (POST /api/auth), then opens Marumado in this window.
+            await invoke('connect', { url: $('url').value, token: $('token').value, autostart: $('autostart').checked })
+          }
         } catch (err) {
-          $('problem').textContent = String(err)
+          const text = String(err)
+          $('problem').textContent = text.charAt(0).toUpperCase() + text.slice(1) + (/[.?!]$/.test(text) ? '' : '.')
+          $('status').textContent = ''
           $('go').disabled = false
-          $('go').textContent = 'Connect'
+          label()
         }
       })
     </script>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { CountBadge } from './components/CountBadge'
 import { Dial } from './components/Dial'
+import { HistoryArrows } from './components/HistoryArrows'
 import { Icon } from './components/Icon'
 import { Palette } from './components/Palette'
 import { TokenGate } from './components/TokenGate'
@@ -241,6 +242,7 @@ export default function App() {
       <div className={`app${narrow ? (home ? ' app--home' : ' app--sheet-only') : ''}`}>
         <header className="top">
           <div className="top__brand">
+            {!narrow && <HistoryArrows />}
             <Wordmark />
             {activeModule && isMachineModule(activeModule) && <MachinePicker />}
             <StreamingToggle />

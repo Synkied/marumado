@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { Icon } from '../components/Icon'
 import { agentHref, agentKey, parseAgentRef, sourceLabel } from '../lib/agents'
@@ -119,15 +119,33 @@ function rememberedProject(): number | null {
   }
 }
 
-/** The add form at the bottom of a column, as on a GitHub project board: a task made there lands in that column
-    (Working: made, then handed to the agent you choose). It stays open for the next one. */
+/** The add button at the foot of a column, as on a GitHub project board: a task made there lands in that column
+    (Working: made, then handed to the agent you choose in the same dialog). */
 function AddToColumn({ col, onError }: { col: Column; onError: (text: string) => void }) {
-  const { refreshTasks } = useHub()
   const [open, setOpen] = useState(false)
-  const [title, setTitle] = useState('')
+  if (!col.adds) return null
+  return (
+    <>
+      <button className="kcol__add" type="button" onClick={() => setOpen(true)}>
+        <Icon name="plus" size={16} /> {col.adds}
+      </button>
+      {open && <AddTaskModal col={col} onClose={() => setOpen(false)} onError={onError} />}
+    </>
+  )
+}
+
+function AddTaskModal({ col, onClose, onError }: { col: Column; onClose: () => void; onError: (text: string) => void }) {
+  const { projects, refreshTasks, refreshAgents } = useHub()
+  const dialog = useRef<HTMLDialogElement>(null)
+  const [text, setText] = useState('')
   const [project, setProject] = useState<number | null>(rememberedProject)
   const [busy, setBusy] = useState(false)
-  if (!col.adds) return null
+  const [error, setError] = useState('')
+  const handOver = col.id === 'working'
+  const pick = useAgentPick((projects ?? []).find((p) => p.id === project))
+  useEffect(() => {
+    dialog.current?.showModal()
+  }, [])
 
   const chooseProject = (v: number | null) => {
     setProject(v)
@@ -137,68 +155,112 @@ function AddToColumn({ col, onError }: { col: Column; onError: (text: string) =>
       // private mode: for this visit only
     }
   }
-  const add = async (e?: FormEvent) => {
-    e?.preventDefault()
-    if (!title.trim() || busy) return
+  /** `another`: clear the prompt and stay open for the next one. */
+  const add = async (another = false) => {
+    if (!text.trim() || busy || (handOver && !pick.ready)) return
     setBusy(true)
+    setError('')
     onError('')
+    let made: Task | null = null
     try {
-      const made = await api<Task>('tasks', { method: 'POST', json: { prompt: title.trim(), project } })
-      if (col.id === 'working') return go(`#/m/tasks/${made.id}/assign`) // it needs an agent: choose one
-      if (col.id === 'review' || col.id === 'done') await api(`tasks/${made.id}/${col.id}`, { method: 'POST' })
+      made = await api<Task>('tasks', { method: 'POST', json: { prompt: text.trim(), project } })
+      if (handOver) {
+        await api(`tasks/${made.id}/assign`, { method: 'POST', json: pick.body() })
+        refreshAgents()
+      } else if (col.id === 'review' || col.id === 'done') await api(`tasks/${made.id}/${col.id}`, { method: 'POST' })
       refreshTasks()
-      setTitle('')
+      if (another) setText('')
+      else onClose()
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Couldn't add it.")
+      const why = err instanceof Error ? err.message : "Couldn't add it."
+      if (!made) return setError(why)
+      // Made, but not moved or handed over: it waits under To do.
+      refreshTasks()
+      onError(`Added “${made.title}” to To do, but ${handOver ? "couldn't hand it over" : "couldn't move it"}: ${why}`)
+      onClose()
     } finally {
       setBusy(false)
     }
   }
 
-  if (!open)
-    return (
-      <button className="kcol__add" type="button" onClick={() => setOpen(true)}>
-        <Icon name="plus" size={16} /> {col.adds}
-      </button>
-    )
   return (
-    <form className="kadd" onSubmit={add}>
-      <textarea
-        className="kadd__title"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        onKeyDown={(e) => {
-          // Enter adds it; Shift+Enter starts a new line of the prompt.
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            add()
-          } else if (e.key === 'Escape') {
-            setOpen(false)
-            setTitle('')
-          }
+    <dialog
+      ref={dialog}
+      className="pmodal kadd"
+      aria-labelledby="kadd-title"
+      onCancel={(e) => {
+        e.preventDefault()
+        onClose()
+      }}
+      onClick={(e) => e.target === dialog.current && onClose()}
+    >
+      <header className="pmodal__head">
+        <h2 className="kadd__heading" id="kadd-title">
+          <span className={`kcol__lamp kcol__lamp--${col.id}`} aria-hidden="true" />
+          {col.adds}
+        </h2>
+        <button className="tool" type="button" onClick={onClose} aria-label="Close">
+          <Icon name="close" size={18} />
+        </button>
+      </header>
+      <form
+        className="kadd__form"
+        onSubmit={(e) => {
+          e.preventDefault()
+          add()
         }}
-        placeholder={col.id === 'working' ? 'What the agent should do…' : 'Fix the login redirect… The first line names it.'}
-        aria-label={`New task: ${col.title}`}
-        rows={3}
-        autoFocus
-      />
-      <ProjectSelect value={project} onChange={chooseProject} />
-      <span className="kadd__bar">
-        <button className="btn" type="submit" disabled={!title.trim() || busy}>
-          {col.id === 'working' ? 'Add, then choose the agent' : 'Add'}
-        </button>
-        <button
-          className="btn btn--quiet"
-          type="button"
-          onClick={() => {
-            setOpen(false)
-            setTitle('')
-          }}
-        >
-          Cancel
-        </button>
-      </span>
-    </form>
+      >
+        <div className="pmodal__body kadd__body">
+          <label className="field">
+            {handOver ? 'What the agent should do' : 'Task'}
+            <textarea
+              className="kadd__prompt"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                // Ctrl/⌘+Enter adds it; Enter starts a new line of the prompt.
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  add()
+                }
+              }}
+              placeholder={handOver ? 'Write it as you’d tell the agent…' : 'Fix the login redirect…'}
+              rows={8}
+              maxLength={8000}
+              autoFocus
+            />
+            <span className="field__hint">The first line names it; all of it is what the agent is told. Ctrl+Enter adds it.</span>
+          </label>
+          <label className="field">
+            Project
+            <ProjectSelect value={project} onChange={chooseProject} />
+          </label>
+          {handOver && <section className="kadd__agent">{pick.fields}</section>}
+          {error && <p className="notice signal-text">{error}</p>}
+        </div>
+        <footer className="kadd__bar">
+          <button className="btn btn--quiet" type="button" onClick={onClose}>
+            Cancel
+          </button>
+          {!handOver && (
+            <button className="btn btn--quiet" type="button" disabled={!text.trim() || busy} onClick={() => add(true)}>
+              Add another
+            </button>
+          )}
+          <button className="btn" type="submit" disabled={!text.trim() || busy || (handOver && !pick.ready)}>
+            {handOver ? (
+              <>
+                <Icon name="agent" size={16} /> {busy ? 'Handing over…' : 'Add and hand over'}
+              </>
+            ) : busy ? (
+              'Adding…'
+            ) : (
+              'Add'
+            )}
+          </button>
+        </footer>
+      </form>
+    </dialog>
   )
 }
 
@@ -786,62 +848,38 @@ function TaskFields({ task, draft, onChange }: { task: TaskDetail; draft: Draft;
   )
 }
 
-/** Give the task to an agent already open in Herdr, or start a new one in the project's folder. */
-function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => void }) {
-  const { agents, projects, refreshTasks, refreshAgents } = useHub()
+/** Which agent gets a task: a new one started in the project's folder, or one already open in Herdr.
+    `ready`: something can be handed over; `body()`: what tasks/<id>/assign takes. */
+function useAgentPick(project: Project | undefined) {
+  const { agents } = useHub()
   const open = (agents?.agents ?? []).filter((a) => a.kind !== 'terminal')
   const ready = open.filter((a) => a.status === 'idle' || a.status === 'done')
-  const project = (projects ?? []).find((p) => p.id === task.project)
   const places = startPlaces(project, agents)
   const [how, setHow] = useState<'new' | 'open'>('new')
   const [kind, setKind] = useState(agents?.kinds?.[0] ?? 'claude')
   const [place, setPlace] = useState<number | null>(null)
   const [pane, setPane] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
   // `pane` is `<source>/<pane id>`: the same pane id can be open in two sources.
   const chosenPane = pane || (ready[0] ? agentKey(ready[0]) : '')
-  const chosenPlace = place ?? places[0]?.id ?? 0
+  const chosenPlace = place != null && places.some((s) => s.id === place) ? place : places[0]?.id ?? 0
   const chosen = places.find((s) => s.id === chosenPlace)
   const placeName = places.length > 1 ? chosen?.name : ''
   const startsIn = chosen ? folderIn(project, chosen) : project?.path ?? ''
+  const usable = !!agents?.available && agents.terminal === 'control'
 
-  if (!agents) return null
-  if (!agents.available || agents.terminal !== 'control')
-    return (
-      <section className="sheet__section">
-        <h3>Give it to an agent</h3>
-        <p className="notice">
-          {!agents.available
-            ? 'Herdr isn’t reachable, so no agent can take it. See Agents for why.'
-            : 'Giving tasks to agents is turned off here (MARUMADO_HERDR_TERMINAL is not control).'}
-        </p>
-      </section>
-    )
-
-  const assign = async () => {
-    setBusy(true)
-    setError('')
-    try {
-      const picked = parseAgentRef(chosenPane)
-      await api(`tasks/${task.id}/assign`, {
-        method: 'POST',
-        json: how === 'new' ? { kind, source: chosenPlace } : { pane_id: picked?.pane ?? '', source: picked?.source ?? 0 },
-      })
-      onAssigned()
-      refreshTasks()
-      refreshAgents()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't hand it over.")
-    } finally {
-      setBusy(false)
-    }
+  const body = () => {
+    const picked = parseAgentRef(chosenPane)
+    return how === 'new' ? { kind, source: chosenPlace } : { pane_id: picked?.pane ?? '', source: picked?.source ?? 0 }
   }
-  const prompt = task.prompt.trim() || task.title
 
-  return (
-    <section className="sheet__section">
-      <h3>Give it to an agent</h3>
+  const fields: ReactNode = !agents ? null : !usable ? (
+    <p className="notice">
+      {!agents.available
+        ? 'Herdr isn’t reachable, so no agent can take it. See Agents for why.'
+        : 'Giving tasks to agents is turned off here (MARUMADO_HERDR_TERMINAL is not control).'}
+    </p>
+  ) : (
+    <>
       <div className="seg seg--mod mod-tasks" role="group" aria-label="Which agent">
         <button type="button" className="seg__btn" aria-pressed={how === 'new'} onClick={() => setHow('new')}>
           Start a new agent
@@ -907,13 +945,54 @@ function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => 
       ) : (
         <p className="sheet__lede">{open.length ? 'Every open agent is busy or waiting on you.' : 'No agent is open in Herdr.'} Start a new one instead.</p>
       )}
+    </>
+  )
+  return { fields, body, ready: usable && (how === 'new' || !!chosenPane) }
+}
+
+/** Give the task to an agent already open in Herdr, or start a new one in the project's folder. */
+function AssignForm({ task, onAssigned }: { task: TaskDetail; onAssigned: () => void }) {
+  const { agents, projects, refreshTasks, refreshAgents } = useHub()
+  const pick = useAgentPick((projects ?? []).find((p) => p.id === task.project))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  if (!agents) return null
+  if (!agents.available || agents.terminal !== 'control')
+    return (
+      <section className="sheet__section">
+        <h3>Give it to an agent</h3>
+        {pick.fields}
+      </section>
+    )
+
+  const assign = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      await api(`tasks/${task.id}/assign`, { method: 'POST', json: pick.body() })
+      onAssigned()
+      refreshTasks()
+      refreshAgents()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't hand it over.")
+    } finally {
+      setBusy(false)
+    }
+  }
+  const prompt = task.prompt.trim() || task.title
+
+  return (
+    <section className="sheet__section">
+      <h3>Give it to an agent</h3>
+      {pick.fields}
       <details className="task__prompt">
         <summary>What the agent will be told</summary>
         <pre className="logs">{prompt}</pre>
       </details>
       {error && <p className="notice signal-text">{error}</p>}
       <div className="sheet__actions" style={{ justifyContent: 'start' }}>
-        <button className="btn" type="button" disabled={busy || (how === 'open' && !chosenPane)} onClick={assign}>
+        <button className="btn" type="button" disabled={busy || !pick.ready} onClick={assign}>
           <Icon name="agent" size={16} /> {busy ? 'Handing over…' : task.state === 'failed' ? 'Try again' : 'Give it to the agent'}
         </button>
       </div>

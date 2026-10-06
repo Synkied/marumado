@@ -35,9 +35,14 @@ and notifications:
   what each is doing, where, what a plan has queued for it, and the last line of its screen.
 - **Notifications** when an agent starts waiting on you or finishes its turn, whether the window is open or not.
 
-On first run it asks for Marumado's address (`http://127.0.0.1:7878`, or another machine's) and its access token
-(`make access-token`), and can start with your session. It loads Marumado from that address rather than bundling the
-web app, so one build works with any Marumado. Builds for each system come from GitHub Actions (`.github/workflows/desktop.yml`);
+On first run it offers two ways, and can start with your session:
+
+- **On this computer** (Linux, with Docker installed): pick the folders that hold your projects, and the app runs
+  Marumado itself, from the published image (`ghcr.io/synkied/marumado`, the version that goes with the app). No
+  checkout, no command, no token to copy: an updated app brings its updated Marumado.
+- **Another machine**: its address and access token (`make access-token` there).
+
+It loads Marumado from its address rather than bundling the web app, so one build works with any Marumado. Builds for each system come from GitHub Actions (`.github/workflows/desktop.yml`);
 see [desktop/README.md](desktop/README.md) to build it yourself and for Linux's tray.
 
 ## Run it with Docker (recommended)

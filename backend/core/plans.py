@@ -16,13 +16,16 @@ A plan given a start time (start_at) starts by itself when that time comes, as i
 A step marked `ask` doesn't start by itself: when its turn comes it waits for the owner's go (go()), so they can
 check the steps above it first.
 An agent's own queue is a plan too (queue_for): steps queued from the agent's page, one row each, all on that agent.
+A plan whose steps are all done puts itself away (archive_done) once nothing has happened to them for AUTO_ARCHIVE.
 """
 import logging
 import re
+from datetime import timedelta
 from itertools import groupby
 from pathlib import Path
 
 from django.db import transaction
+from django.db.models import Max
 
 from . import herdr, tasks
 from .models import Plan, Task
@@ -286,6 +289,19 @@ def archive(plan: Plan) -> None:
                 t.archived_at = now
                 t.save(update_fields=['archived_at', 'updated_at'])
                 tasks.event(t, 'archived', f'Archived with “{plan.title}”')
+
+
+AUTO_ARCHIVE = timedelta(days=2)
+
+
+def archive_done() -> None:
+    """Archive the plans done for AUTO_ARCHIVE: every step done (not just to review) and nothing new on any of them
+    since, so one restored from the archive, or a step reopened then done again, gets its time again."""
+    due = (Plan.objects.filter(archived_at__isnull=True, steps__isnull=False)
+           .exclude(steps__state__in=[s for s, _ in Task.STATES if s != Task.DONE])
+           .annotate(last=Max('steps__events__at')).filter(last__lte=tasks._now() - AUTO_ARCHIVE))
+    for plan in due:
+        archive(plan)
 
 
 def restore(plan: Plan) -> None:

@@ -1,6 +1,8 @@
 //! What the app remembers: Marumado's address, its access token (for the tray, which reads the API on its own), and
-//! whether to notify, and where Marumado's checkout is if not where the app was built. Kept in the app's config folder, readable by its owner only.
+//! whether to notify; where Marumado's checkout is if not where the app was built, or the settings of the Marumado
+//! the app runs itself (host.rs). Kept in the app's config folder, readable by its owner only.
 
+use crate::host::Host;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -21,6 +23,9 @@ pub struct Config {
     /// one the app was built from).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
+    /// The app runs Marumado on this machine itself, from the published image: with these settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<Host>,
 }
 
 pub fn path(dir: &Path) -> PathBuf {

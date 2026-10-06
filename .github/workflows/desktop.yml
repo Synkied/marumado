@@ -5,6 +5,8 @@ name: Desktop app
 on:
   push:
     branches: [main]
+    # A release tag too: the bundles of the version the image of the same tag goes with (image.yml).
+    tags: ['v*']
     paths: ['desktop/**', '.github/workflows/desktop.yml']
   pull_request:
     paths: ['desktop/**', '.github/workflows/desktop.yml']

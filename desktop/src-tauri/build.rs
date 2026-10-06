@@ -1,9 +1,11 @@
 fn main() {
-    // The app's own commands, each with an allow-<command> permission: the first-run page gets connect and current
+    // The app's own commands, each with an allow-<command> permission: the first-run page gets current, connect, host and pick_folders
     // (capabilities/setup.json); Marumado's pages get the rest, granted at run time for its address (main.rs).
     let commands = &[
         "current",
         "connect",
+        "host",
+        "pick_folders",
         "login_token",
         "open_page",
         "hide_card",

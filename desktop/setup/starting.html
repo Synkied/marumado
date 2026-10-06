@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Starting · Marumado</title>
     <!-- Shown while the app starts the Marumado on this machine (docker compose up -d); the app then loads Marumado
-         in its place. window.failed(message), called by the app, says why it couldn't. -->
+         in its place. window.step(text) says what it is doing (downloading Marumado); window.failed(message, after) says why it
+         couldn't, and what to do (HTML). Both are called by the app. -->
     <style>
       :root {
         --ground: #ecebe4;
@@ -105,12 +106,16 @@
         <circle cx="16" cy="16" r="7.5" fill="currentColor" />
       </svg>
       <h1 id="title" role="status">Starting Marumado…</h1>
-      <p id="wait">Its containers are coming up. This window opens Marumado as soon as it answers.</p>
+      <p id="wait">Its container is coming up. This window opens Marumado as soon as it answers.</p>
       <p id="problem" role="alert"></p>
       <p id="after">Start it with <code>make up</code> in Marumado’s folder: this window opens it as soon as it answers.</p>
     </main>
     <script>
-      window.failed = (message) => {
+      window.step = (text) => {
+        document.getElementById('wait').textContent = text
+      }
+      window.failed = (message, after) => {
+        if (after) document.getElementById('after').innerHTML = after
         document.body.classList.add('failed')
         document.getElementById('title').textContent = 'Marumado didn’t start'
         document.getElementById('problem').textContent = message.charAt(0).toUpperCase() + message.slice(1) + (/[.?!]$/.test(message) ? '' : '.')

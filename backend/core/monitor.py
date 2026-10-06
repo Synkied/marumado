@@ -408,6 +408,7 @@ def _tasks_step(now: float):
     # Then the plans: those whose start time has come, and a step whose agent just finished can go now.
     plans.start_due()
     plans.advance()
+    plans.archive_done()
 
 
 def ensure_started():

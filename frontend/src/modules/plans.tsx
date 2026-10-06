@@ -49,7 +49,9 @@ function PlanLink({ to, className, children }: { to: PlanPlace; className?: stri
   )
 }
 
+/** Under Tasks; the plans modal has its own, in its header. */
 function Back() {
+  if (useContext(PlanNav)) return null
   return (
     <PlanLink to="list" className="side__back">
       <Icon name="back" size={18} /> All plans
