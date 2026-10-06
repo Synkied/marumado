@@ -274,21 +274,32 @@ def dissolve(plan: Plan) -> None:
 FINISHED = (Task.REVIEW, Task.DONE)
 
 
+AT_WORK = (Task.STARTING, Task.WORKING, Task.BLOCKED)
+
+
 def archive(plan: Plan) -> None:
-    """Put a finished plan away, its steps with it: out of the plans list and off the board until restored."""
+    """Put a plan away, its steps with it: out of the plans list and off the board until restored. Finished, or
+    stopped with no step at work; what was queued goes back to to do, so a restored plan starts again by hand."""
     steps = list(plan.steps.all())
-    if not steps or any(t.state not in FINISHED for t in steps):
-        raise ValueError('Only a finished plan can be archived: every step to review or done.')
+    if not steps or not all(t.state in FINISHED for t in steps):
+        if plan.running:
+            raise ValueError('Pause the plan before archiving it.')
+        if any(t.state in AT_WORK for t in steps):
+            raise ValueError('A step is still at work: let it finish before archiving the plan.')
     if plan.archived_at:
         return
     now = tasks._now()
     with transaction.atomic():
-        plan.archived_at, plan.running = now, False
-        plan.save(update_fields=['archived_at', 'running', 'updated_at'])
+        plan.archived_at, plan.running, plan.start_at = now, False, None
+        plan.save(update_fields=['archived_at', 'running', 'start_at', 'updated_at'])
         for t in steps:
             if not t.archived_at:
+                fields = ['archived_at', 'updated_at']
+                if t.state == Task.QUEUED:
+                    t.state = Task.TODO
+                    fields.append('state')
                 t.archived_at = now
-                t.save(update_fields=['archived_at', 'updated_at'])
+                t.save(update_fields=fields)
                 tasks.event(t, 'archived', f'Archived with “{plan.title}”')
 
 

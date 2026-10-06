@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { Icon } from '../components/Icon'
 import { UsageLine } from '../components/UsageLine'
@@ -94,6 +94,7 @@ export function GoButton({ step, title, onDone, className = 'btn' }: { step: num
 
 const NOT_STARTED: TaskState[] = ['todo', 'queued']
 const FINISHED: TaskState[] = ['review', 'done']
+const AT_WORK: TaskState[] = ['starting', 'working', 'blocked']
 const movable = (t: Task) => NOT_STARTED.includes(t.state)
 
 /** The steps, row by row (the API sends them in order). */
@@ -125,44 +126,69 @@ const STATE_WORDS: Record<PlanState, string> = { draft: 'Draft', scheduled: 'Sch
 const when = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
-/** An ISO time as the value of a datetime-local input, in local time. */
-function localInput(iso: string | null): string {
-  if (!iso) return ''
+/** An ISO time as the values of a date and a time input, in local time. */
+function localInput(iso: string | null): { date: string; time: string } {
+  if (!iso) return { date: '', time: '' }
   const d = new Date(iso)
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString()
+  return { date: local.slice(0, 10), time: local.slice(11, 16) }
 }
 
-/** When the plan starts by itself: a date and time, kept on leaving the field (not on every keystroke); emptied, it
-    starts only by hand. */
+/** When the plan starts by itself: a date and a time, kept on leaving either field (not on every keystroke); a date
+    with no time yet starts at 09:00. Two fields rather than one datetime-local: some webviews (WebKitGTK, the Linux
+    desktop app) give that one a date picker only. Emptied, it starts only by hand. */
 function StartAt({ plan, disabled, patch }: { plan: Plan; disabled: boolean; patch: (json: object) => void }) {
   const saved = localInput(plan.start_at)
-  const [draft, setDraft] = useState(saved)
-  useEffect(() => setDraft(saved), [saved])
+  const [date, setDate] = useState(saved.date)
+  const [time, setTime] = useState(saved.time)
+  useEffect(() => {
+    setDate(saved.date)
+    setTime(saved.time)
+  }, [saved.date, saved.time])
   const commit = () => {
-    if (draft === saved) return
-    patch({ start_at: draft ? new Date(draft).toISOString() : null })
+    const at = date ? new Date(`${date}T${time || '09:00'}`).toISOString() : null
+    const same = at && plan.start_at ? new Date(at).getTime() === new Date(plan.start_at).getTime() : at === plan.start_at
+    if (same) return
+    if (date && !time) setTime('09:00')
+    patch({ start_at: at })
   }
+  const keys = (e: KeyboardEvent) => e.key === 'Enter' && commit()
   return (
-    <label title="It starts by itself then, as if you pressed Start">
+    <span className="plan__when" title="It starts by itself then, as if you pressed Start">
       starts{' '}
       <input
         className="plan__inline"
-        type="datetime-local"
-        value={draft}
-        min={localInput(new Date().toISOString())}
+        type="date"
+        value={date}
+        min={localInput(new Date().toISOString()).date}
         disabled={disabled}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => setDate(e.target.value)}
         onBlur={commit}
-        onKeyDown={(e) => e.key === 'Enter' && commit()}
-        aria-label="Start time"
-      />
-      {!plan.start_at && !draft && <span className="plan__hint"> by hand</span>}
+        onKeyDown={keys}
+        aria-label="Start date"
+      />{' '}
+      {date && (
+        <>
+          at{' '}
+          <input
+            className="plan__inline"
+            type="time"
+            value={time}
+            disabled={disabled}
+            onChange={(e) => setTime(e.target.value)}
+            onBlur={commit}
+            onKeyDown={keys}
+            aria-label="Start time"
+          />
+        </>
+      )}
+      {!plan.start_at && !date && <span className="plan__hint"> by hand</span>}
       {plan.start_at && (
         <button className="btn btn--quiet plan__clear" type="button" disabled={disabled} onClick={() => patch({ start_at: null })} title="Start it only by hand">
           Clear
         </button>
       )}
-    </label>
+    </span>
   )
 }
 
@@ -452,6 +478,8 @@ function PlanView({ plan, refresh, back }: { plan: Plan; refresh: () => void; ba
   const control = (agents?.terminal ?? 'control') === 'control'
   const needsYou = plan.steps.filter((t) => t.state === 'blocked' || t.state === 'failed')
   const asking = plan.steps.filter((t) => plan.asking.includes(t.id))
+  // Finished, or stopped with no agent at work on it (paused, a draft): the server says the same.
+  const archivable = !plan.archived_at && (state === 'finished' || (!plan.running && !plan.steps.some((t) => AT_WORK.includes(t.state))))
   const nav = useNav()
 
   const run = async (work: () => Promise<unknown>, failed: string) => {
@@ -517,8 +545,14 @@ function PlanView({ plan, refresh, back }: { plan: Plan; refresh: () => void; ba
                     <Icon name="agent" size={16} /> {state === 'paused' ? 'Resume' : 'Start'}
                   </button>
                 ))}
-              {state === 'finished' && !plan.archived_at && (
-                <button className="btn" type="button" disabled={busy} onClick={archive} title="Out of the plans list and off the board, its steps with it; kept under Archived">
+              {archivable && (
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={busy}
+                  onClick={archive}
+                  title={`Out of the plans list and off the board, its steps with it; kept under Archived${state === 'finished' ? '' : '. Queued steps go back to To do'}`}
+                >
                   <Icon name="archive" size={16} /> Archive
                 </button>
               )}

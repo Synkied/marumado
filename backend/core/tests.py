@@ -466,7 +466,6 @@ class PlanTests(TestCase):
 
     def test_archiving_a_finished_plan_takes_its_steps(self):
         pid, ids = self.plan(['One'], ['Two'])
-        self.assertEqual(self.api.post(f'/api/plans/{pid}/archive').status_code, 400)  # not finished
         self.api.post(f'/api/tasks/{ids["One"]}/done')
         self.api.post(f'/api/tasks/{ids["Two"]}/review')
         plan = self.api.post(f'/api/plans/{pid}/archive').json()
@@ -480,6 +479,19 @@ class PlanTests(TestCase):
         listed = [t['id'] for t in self.api.get('/api/tasks').json()]
         self.assertIn(ids['One'], listed)
         self.assertEqual(self.step(ids, 'Two').state, 'review')
+
+    def test_a_paused_plan_can_be_archived_once_nothing_is_at_work(self):
+        pid, ids = self.plan(['One'], ['Two'])
+        plan = Plan.objects.get(pk=pid)
+        plans.start(plan)
+        self.assertEqual(self.api.post(f'/api/plans/{pid}/archive').status_code, 400)  # running
+        plans.pause(plan)
+        Task.objects.filter(pk=ids['One']).update(state=Task.WORKING)
+        self.assertEqual(self.api.post(f'/api/plans/{pid}/archive').status_code, 400)  # a step at work
+        Task.objects.filter(pk=ids['One']).update(state=Task.DONE)
+        self.assertTrue(self.api.post(f'/api/plans/{pid}/archive').json()['archived_at'])
+        self.assertEqual(self.step(ids, 'Two').state, 'todo', 'queued goes back to to do')
+        self.assertTrue(self.step(ids, 'Two').archived_at)
 
     def test_a_done_plan_archives_itself_two_days_on(self):
         pid, ids = self.plan(['One'], ['Two'])
