@@ -90,6 +90,14 @@ textarea::placeholder {
   border: 0;
 }
 
+/* Looping animations (critters, pulses) repaint every frame, at the display's refresh rate: they rest while
+   Marumado isn't the window you are using (lib/away.ts), so it costs nothing in the background. */
+:root[data-away] *,
+:root[data-away] *::before,
+:root[data-away] *::after {
+  animation-play-state: paused !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

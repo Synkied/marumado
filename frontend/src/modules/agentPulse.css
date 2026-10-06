@@ -208,15 +208,31 @@
   background: var(--mod);
 }
 
+/* A halo that grows and fades: scale and opacity only, which the GPU composites without repainting the page. */
+.ribbon__tip::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--mod) 25%, transparent);
+  opacity: 0;
+}
+
 @media (prefers-reduced-motion: no-preference) {
-  .ribbon.is-busy .ribbon__tip {
+  .ribbon.is-busy .ribbon__tip::after {
     animation: pulse-tip 1.6s var(--ease) infinite;
   }
 }
 
 @keyframes pulse-tip {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
   50% {
-    box-shadow: 0 0 0 4px color-mix(in oklab, var(--mod) 25%, transparent);
+    opacity: 1;
+    transform: scale(1);
   }
 }
 

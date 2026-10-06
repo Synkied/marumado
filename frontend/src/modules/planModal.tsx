@@ -150,9 +150,6 @@ function AgentQueue({ agent, open }: { agent: Agent; open: (plan: number) => voi
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) queue()
-            }}
             placeholder={'Write it as you’d tell the agent. Its first line names the step; all of it goes to the agent.'}
             rows={4}
             maxLength={8000}

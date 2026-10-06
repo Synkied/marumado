@@ -213,7 +213,7 @@ export function TaskWorkView({ task, refresh }: { task: TaskDetail; refresh: () 
             <textarea rows={4} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Rename the endpoint, and add a test for the empty case." disabled={busy || !control} />
           </label>
           <div className="sheet__actions" style={{ justifyContent: 'start' }}>
-            <button className="btn" type="button" disabled={busy || !note.trim() || !control} onClick={sendBack}>
+            <button className="btn" type="button" data-submit disabled={busy || !note.trim() || !control} onClick={sendBack}>
               Send back
             </button>
           </div>

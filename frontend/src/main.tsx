@@ -1,12 +1,15 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { restWhenAway } from './lib/away'
 import { inDesktop } from './lib/desktop'
 import { HubProvider } from './lib/hub'
 import { MachinesProvider } from './lib/machines'
 import { StreamingProvider } from './lib/streaming'
 import { AgentCard } from './modules/agentCard'
 import './index.css'
+
+restWhenAway()
 
 createRoot(document.getElementById('root')!).render(
   // The desktop app's card window shows the agents' card alone.

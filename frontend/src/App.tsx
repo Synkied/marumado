@@ -226,6 +226,17 @@ export default function App() {
       const typing = e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)
       // Keys typed into a live terminal belong to the agent.
       if (e.target instanceof HTMLElement && e.target.closest('.xterm')) return
+      // Ctrl/⌘+Enter sends any text box, as in chat apps: its form's submit button, unless the box handled it itself.
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.defaultPrevented && e.target instanceof HTMLTextAreaElement) {
+        const form = e.target.closest('form')
+        const button = form?.querySelector<HTMLButtonElement>('button[type="submit"]') ?? e.target.closest('label')?.parentElement?.querySelector<HTMLButtonElement>('[data-submit]')
+        if (button && !button.disabled) {
+          e.preventDefault()
+          if (form) form.requestSubmit(button)
+          else button.click()
+        }
+        return
+      }
       if ((e.key === '/' && !typing) || (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey))) {
         e.preventDefault()
         setPaletteOpen(true)

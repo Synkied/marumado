@@ -120,6 +120,17 @@ pub fn compose(host: &Host, token: &str, image: &str) -> String {
         volumes.push(q(format!("{f}:{f}:ro")));
     }
     env.push(("MARUMADO_PROJECT_DIRS", folders.join(",")));
+    // Your home folder too, read-only, so any folder in it can be added from the app (Projects → Folders). Not
+    // root's: the container's own home is /root, and it writes there (ssh keys).
+    let mut visible = folders.clone();
+    let home_dir = path_str(&home());
+    if home_dir != "/root" && home_dir != "/" && home().is_dir() {
+        volumes.push(q(format!("{home_dir}:{home_dir}:ro")));
+        visible.push(home_dir.clone());
+    }
+    // What the app can see, for its "can't see that folder" message, and what ~ means there.
+    env.push(("MARUMADO_VISIBLE_DIRS", visible.join(",")));
+    env.push(("MARUMADO_HOST_HOME", home_dir));
 
     let ssh = home().join(".ssh");
     if host.ssh && ssh.is_dir() {
@@ -227,6 +238,19 @@ mod tests {
         assert!(!text.contains("relative"));
         assert!(text.contains("MARUMADO_TOKEN: \"tok\\\"en\""), "quoted for YAML");
         assert!(text.contains("image: \"img:1\""));
+    }
+
+    #[test]
+    fn the_home_folder_is_visible() {
+        let h = path_str(&home());
+        let text = compose(&host(), "t", "img:1");
+        if h != "/root" && home().is_dir() {
+            assert!(text.contains(&format!("- \"{h}:{h}:ro\"")));
+            assert!(text.contains(&format!("MARUMADO_VISIBLE_DIRS: \"/tmp,{h}\"")));
+        } else {
+            assert!(text.contains("MARUMADO_VISIBLE_DIRS: \"/tmp\""));
+        }
+        assert!(text.contains(&format!("MARUMADO_HOST_HOME: \"{h}\"")));
     }
 
     #[test]
