@@ -33,13 +33,15 @@ class ConversationTests(TestCase):
         self.records.mkdir(parents=True)
         self.source = herdr.Source(0, 'Local', 'env')
         self.started = None  # when the pane's agent started (unix seconds), None: can't be told
+        self.pid = None  # the pane's agent's process, None: can't be told
         self.panes = [{'pane_id': 'w1:p1', 'kind': 'claude', 'cwd': self.cwd}]
         run = lambda src, script, timeout=0: subprocess.run(['sh', '-c', script], env={'HOME': str(self.home), 'PATH': '/usr/bin:/bin'},
                                                              capture_output=True).stdout
         for patch in (mock.patch.object(herdr, 'shell', side_effect=run),
                       mock.patch.object(herdr, '_list', side_effect=lambda src: {'available': True, 'agents': self.panes}),
                       mock.patch.object(herdr, 'get_source', return_value=self.source),
-                      mock.patch.object(conversation, '_started', side_effect=lambda src, pane: self.started)):
+                      mock.patch.object(conversation, '_started', side_effect=lambda src, pane: self.started),
+                      mock.patch.object(conversation, '_pid', side_effect=lambda src, pane: self.pid)):
             patch.start()
             self.addCleanup(patch.stop)
         for cache in (conversation._panes, conversation._titles, transcripts._parsers, transcripts._newest_seen, transcripts._images_read):
@@ -162,6 +164,48 @@ class ConversationTests(TestCase):
         path = self.write('s1.jsonl', line('user', [image_block(kind='text/html')]))
         with self.assertRaises(ValueError):
             conversation.image('w1:p1', 0, path, '0.0')
+
+    def test_codex_after_clear(self):
+        """A /clear starts a thread Codex writes only with the next prompt: an empty conversation, not the last one."""
+        self.panes = [{'pane_id': 'w1:p1', 'kind': 'codex', 'cwd': self.cwd}]
+        day = self.home / '.codex' / 'sessions' / '2026' / '10' / '08'
+        day.mkdir(parents=True)
+        meta = json.dumps({'type': 'session_meta', 'timestamp': '2026-10-08T10:00:00Z', 'payload': {'id': 'old', 'cwd': self.cwd}})
+        (day / 'rollout-2026-10-08T10-00-00-0000aaaa-old.jsonl').write_text(meta + '\n')
+        locks = self.home / '.codex' / 'thread-writer-locks'
+        locks.mkdir(parents=True)
+        lock = locks / '0000bbbb-0000-7000-8000-000000000001.lock'
+        lock.touch()
+        child = subprocess.Popen(['sh', '-c', f'exec 9<"{lock}"; exec sleep 30'])
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+        for _ in range(50):  # until it holds the lock
+            if any(os.path.realpath(f'/proc/{child.pid}/fd/{fd}') == str(lock) for fd in os.listdir(f'/proc/{child.pid}/fd')):
+                break
+            time.sleep(0.02)
+        self.pid = child.pid
+        data = conversation.trace('w1:p1', 0)
+        self.assertEqual((data['found'], data['path'], data['steps'], data['sure']), (True, '', [], True))
+        # Its first prompt writes the thread's record, which it then shows.
+        new = day / 'rollout-2026-10-08T10-05-00-0000bbbb-0000-7000-8000-000000000001.jsonl'
+        new.write_text(meta + '\n')
+        self.assertEqual(conversation.trace('w1:p1', 0)['path'], str(new))
+
+    def test_claude_after_clear(self):
+        """Claude Code names its session in ~/.claude/sessions/<pid>.json, a new one at once after /clear."""
+        self.write('s1.jsonl', line('user', 'An old conversation'))
+        sessions = self.home / '.claude' / 'sessions'
+        sessions.mkdir(parents=True)
+        pid = os.getpid()
+        start = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
+        mine = {'pid': pid, 'sessionId': '0d9da46f-33e1-412f-9eb9-f509c4c43d7f', 'cwd': self.cwd, 'procStart': start}
+        (sessions / f'{pid}.json').write_text(json.dumps(mine))
+        self.pid = pid
+        data = conversation.trace('w1:p1', 0)
+        self.assertEqual((data['path'], data['steps']), (str(self.records / f"{mine['sessionId']}.jsonl"), []))
+        # One left by an earlier process of that id is not its own.
+        (sessions / f'{pid}.json').write_text(json.dumps({**mine, 'procStart': '1'}))
+        self.assertEqual(conversation.trace('w1:p1', 0)['path'], str(self.records / 's1.jsonl'))
 
     def test_two_agents_in_one_folder(self):
         old = self.write('old.jsonl', line('user', 'task prompt'))

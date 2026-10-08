@@ -1,8 +1,9 @@
 """An agent's conversation, for the Agents module's Conversation view: the steps of its session record
 (core/transcripts.py), found from its Herdr pane rather than from a task, and the images in them.
 
-A pane's record is the one Herdr says its agent is in (Pi reports it, a new session's too, before its file exists).
-Otherwise it is the newest one in its folder written since the agent started: none yet is a new session, not the
+A pane's record is the one Herdr says its agent is in (Pi reports it, a new session's too, before its file exists),
+or the one its process says it is writing (Claude Code's and Codex's, _own): so a /clear or /new shows the new
+session at once, not the last one until the next prompt writes its record. Otherwise it is the newest one in its folder written since the agent started: none yet is a new session, not the
 folder's last one (a new agent showed an old conversation). Two agents of one kind in one folder can't be told apart that way
 (core/pulse.py), so then: one given a task has the record its task found; Claude Code names its session (`ai-title`
 in the record) and shows that name as the terminal's title, which Herdr reports, so a pane gets the record of its
@@ -68,13 +69,51 @@ def _names(src: herdr.Source, paths: list[str]) -> dict[str, str]:
     return names
 
 
-def _started(src: herdr.Source, pane_id: str) -> float | None:
-    """When the pane's agent started (unix seconds), from its process: None when that can't be told."""
+def _pid(src: herdr.Source, pane_id: str) -> int | None:
+    """The pane's agent's process id: None when that can't be told."""
     try:
         procs = (herdr._run(src, 'pane', 'process-info', '--pane', pane_id).get('process_info') or {}).get('foreground_processes') or []
     except (RuntimeError, ValueError, AttributeError):
         return None
-    pid = next((p.get('pid') for p in procs if isinstance(p.get('pid'), int)), None)
+    return next((p.get('pid') for p in procs if isinstance(p.get('pid'), int)), None)
+
+
+def _own(src: herdr.Source, kind: str, pid: int | None) -> str | None:
+    """The record the agent's process says it is writing, even before it exists: Claude Code names its session in
+    ~/.claude/sessions/<pid>.json, Codex holds ~/.codex/thread-writer-locks/<thread>.lock open. A /clear or /new
+    changes it at once, while the new record is only written with the next prompt. '' when that thread has no record
+    yet (a new session), None when the process doesn't say (another agent, an older version, no /proc)."""
+    if pid is None or kind not in ('claude', 'codex'):
+        return None
+    if kind == 'claude':
+        # Its start (/proc/<pid>/stat, field 22) tells this process's file from one left by an earlier process of that id.
+        script = (f'echo "$HOME"; awk \'{{print $22}}\' /proc/{pid}/stat 2>/dev/null; echo; '
+                  f'head -c 20000 "$HOME/.claude/sessions/{pid}.json" 2>/dev/null')
+        lines = herdr.shell(src, script).decode(errors='replace').split('\n', 2)
+        if len(lines) < 3:
+            return None
+        try:
+            mine = json.loads(lines[2])
+        except ValueError:
+            return None
+        session, cwd = mine.get('sessionId'), mine.get('cwd')
+        if not (isinstance(session, str) and re.fullmatch(r'[0-9a-f-]{8,64}', session) and isinstance(cwd, str) and cwd):
+            return None
+        if str(mine.get('procStart', '')) != lines[1].strip() or mine.get('pid') != pid:
+            return None
+        return f'{lines[0].strip()}/.claude/projects/{transcripts.claude_folder(cwd)}/{session}.jsonl'
+    # Its subagents' threads are locked too: they were spawned after it, and thread ids (UUIDv7) sort by time.
+    script = (f'id=$(ls -l /proc/{pid}/fd 2>/dev/null | sed -n "s|.*/thread-writer-locks/\\([0-9a-f-]*\\)\\.lock$|\\1|p" | sort | head -n 1); '
+              f'[ -n "$id" ] && echo "$id" && find "$HOME/.codex/sessions" -name "rollout-*-$id.jsonl" 2>/dev/null | head -n 1')
+    lines = herdr.shell(src, script).decode(errors='replace').splitlines()
+    if not lines:
+        return None
+    return lines[1].strip() if len(lines) > 1 and transcripts.RECORD.match(lines[1].strip()) else ''
+
+
+def _started(src: herdr.Source, pane_id: str) -> float | None:
+    """When the pane's agent started (unix seconds), from its process: None when that can't be told."""
+    pid = _pid(src, pane_id)
     if pid is None:
         return None
     key = (src.id, pane_id, pid)
@@ -112,6 +151,9 @@ def _record(src: herdr.Source, pane: dict, peers: list[dict]) -> tuple[str, bool
     named = _named(pane)
     if named:
         return named, True
+    own = _own(src, pane['kind'], _pid(src, pane['pane_id']))
+    if own is not None:
+        return own, True
     theirs |= {_named(a) for a in peers} - {''}
     started = _started(src, pane['pane_id'])
     since = lambda found: [p for t, p in found if p not in theirs and (started is None or t >= started - SLACK)]
