@@ -1011,6 +1011,42 @@ def agent_output(request, pane_id: str):
 
 
 @api_view(['GET'])
+def agent_conversation(request, pane_id: str):
+    """What the pane's agent thought, said and did, from its session record, from step `from` on (negative: the last
+    -from steps), for the Conversation view (core/conversation.py)."""
+    from . import conversation
+    try:
+        start = int(request.query_params.get('from', 0))
+    except ValueError:
+        start = 0
+    try:
+        return Response(conversation.trace(pane_id, _agent_source(request), start))
+    except ValueError as exc:
+        return Response({'found': False, 'reason': str(exc), 'steps': [], 'total': 0})
+    except RuntimeError as exc:
+        return Response({'detail': str(exc)}, status=502)
+
+
+@api_view(['GET'])
+def agent_image(request, pane_id: str):
+    """One image of the pane's session record: ?path=<the record>&id=<offset>.<n> (a step's `images`)."""
+    from . import conversation
+    q = request.query_params
+    try:
+        kind, data = conversation.image(pane_id, _agent_source(request), q.get('path', ''), q.get('id', ''))
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=404)
+    except RuntimeError as exc:
+        return Response({'detail': str(exc)}, status=502)
+    res = HttpResponse(data, content_type=kind)
+    # A record only grows: an image at an offset never changes.
+    res['Cache-Control'] = 'private, max-age=31536000, immutable'
+    res['X-Content-Type-Options'] = 'nosniff'
+    res['Content-Security-Policy'] = "default-src 'none'"
+    return res
+
+
+@api_view(['GET'])
 def agent_changes(request, pane_id: str):
     from . import changes
     try:

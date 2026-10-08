@@ -486,6 +486,9 @@ def _list(src: Source) -> dict:
             'workspace': workspaces.get(a.get('workspace_id'), ''),
             'workspace_id': a.get('workspace_id') or '',
             'focused': bool(a.get('focused')),
+            # The session Herdr knows the agent is in ({kind: path|id, value}), when its integration reports it.
+            **({'session': {'kind': a['agent_session'].get('kind'), 'value': a['agent_session'].get('value')}}
+               if isinstance(a.get('agent_session'), dict) and a['agent_session'].get('value') else {}),
         })
     _settle_watching(src)
     return {'available': True, 'error': '', 'agents': rows, 'workspaces': spaces}

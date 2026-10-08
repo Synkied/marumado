@@ -1,8 +1,8 @@
 """What a coding agent thought and did, read from the record it keeps of its session.
 
-Claude Code writes every session to ~/.claude/projects/<its folder, dashed>/<session>.jsonl, and Codex to
-~/.codex/sessions/<date>/rollout-*.jsonl: one JSON object per line, with its thinking, what it said, every tool it
-called and what came back. The terminal only shows the end of that; this reads all of it.
+Claude Code writes every session to ~/.claude/projects/<its folder, dashed>/<session>.jsonl, Codex to
+~/.codex/sessions/<date>/rollout-*.jsonl, and Pi to ~/.pi/agent/sessions/--<its folder, dashed>--/<time>_<id>.jsonl:
+one JSON object per line, with its thinking, what it said, every tool it called and what came back. The terminal only shows the end of that; this reads all of it.
 
 The files are where the agent runs, so they are read with a small shell script through the agent's source (this
 machine, a VM or an SSH host: herdr.shell). An agent on a machine in Machines is read by that machine's Marumado
@@ -15,7 +15,13 @@ A trace is a list of steps, oldest first. Each step is one thing the agent did, 
   edit    changing files                           run     running a command
   agent   handing part of the work to a sub-agent  tool    any other tool
   you     what it was told (your prompts)          ask     a question it asked you
+  compact the conversation compacted into a summary (Claude Code writes it as your prompt; it is not yours)
+
+A step may carry `images`: the screenshots and pictures in it (a tool's result, a prompt you pasted one into), as
+ids `<offset>.<n>`, the n-th image of the line at that byte offset of the record. They stay in the record and are
+read one at a time when shown (image()).
 """
+import base64
 import json
 import re
 import shlex
@@ -26,9 +32,10 @@ from datetime import datetime
 
 from . import herdr, usage
 
-KINDS = ('claude', 'codex')
+KINDS = ('claude', 'codex', 'pi')
 MAX_READ = 8 * 1024 * 1024  # read at most this much of a record per poll
 TEXT = 6000  # how much of a thought, a message or a command's output a step keeps
+SAY = 24000  # how much of what it told you, or you told it, a step keeps
 DIFF_LINES = 400
 SLACK = 120  # seconds: clocks on another machine may be a little off
 FIND_EVERY = 5  # seconds between two looks for a record not found yet
@@ -54,6 +61,41 @@ def first_line(text: str, n: int = 140) -> str:
     line = next((x.strip() for x in (text or '').splitlines() if x.strip()), '')
     line = re.sub(r'^[#>*\s-]+', '', line).replace('**', '').replace('`', '')
     return line if len(line) <= n else line[: n - 1].rstrip() + '…'
+
+
+def _images(node):
+    """The images in a piece of a record, in order: (media type, base64 data)."""
+    if isinstance(node, dict):
+        source = node.get('source')
+        if node.get('type') == 'image' and isinstance(source, dict) and source.get('type') == 'base64':
+            yield source.get('media_type') or 'image/png', source.get('data') or ''
+            return
+        if node.get('type') == 'image' and isinstance(node.get('data'), str):  # Pi
+            yield node.get('mimeType') or 'image/png', node['data']
+            return
+        url = node.get('image_url')
+        if node.get('type') == 'input_image' and isinstance(url, str) and url.startswith('data:'):
+            head, _, data = url.partition(',')
+            yield head[5:].split(';')[0] or 'image/png', data
+            return
+        for value in node.values():
+            yield from _images(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _images(value)
+
+
+def _image_blocks(kind: str, r: dict) -> list:
+    """Where a record's images are, block by block: Claude Code's and Pi's message content, or Codex's payload."""
+    if kind == 'pi':
+        content = (r.get('message') or {}).get('content') if r.get('type') == 'message' else None
+        return content if isinstance(content, list) else []
+    if kind == 'claude':
+        if r.get('type') not in ('user', 'assistant') or r.get('isSidechain'):
+            return []
+        content = (r.get('message') or {}).get('content')
+        return content if isinstance(content, list) else []
+    return [r.get('payload')] if r.get('type') == 'response_item' else []
 
 
 def needle(title: str) -> str:
@@ -139,7 +181,9 @@ class Parser:
         self.buf = b''
         self.steps: list[dict] = []
         self.open: dict[str, dict] = {}  # tool calls waiting for their result, by call id
+        self.called: dict[str, dict] = {}  # every tool call's step, by call id (for the images in its result)
         self.prev = 0  # when the last record was written
+        self.compacted: dict | None = None  # Claude Code: how its last compaction went, until its summary comes
         # What each model call used (usage.py), by message id, in the order they came; and how full the agent's
         # context was at its last call of its own (not a sub-agent's): {t, tokens, window}.
         self.calls: dict[str, list] = {}
@@ -153,10 +197,12 @@ class Parser:
         return min((s['i'] for s in self.open.values()), default=len(self.steps))
 
     def feed(self, data: bytes) -> None:
+        at = self.offset - len(self.buf)  # where the first line starts in the record
         self.offset += len(data)
         lines = (self.buf + data).split(b'\n')
         self.buf = lines.pop()
         for raw in lines:
+            line_at, at = at, at + len(raw) + 1
             if not raw.strip():
                 continue
             try:
@@ -164,14 +210,44 @@ class Parser:
             except ValueError:
                 continue
             if isinstance(record, dict):
+                before = len(self.steps)
+                usage_of, steps_of = {'claude': (self._claude_usage, self._claude), 'pi': (self._pi_usage, self._pi)}.get(
+                    self.kind, (self._codex_usage, self._codex))
                 try:
-                    (self._claude_usage if self.kind == 'claude' else self._codex_usage)(record)
+                    usage_of(record)
                 except (KeyError, TypeError, AttributeError, ValueError):
                     pass
                 try:
-                    (self._claude if self.kind == 'claude' else self._codex)(record)
+                    steps_of(record)
                 except (KeyError, TypeError, AttributeError, ValueError):
                     continue  # a record of a shape this doesn't know: skip it, keep the rest
+                if b'"image' in raw or b'input_image' in raw:
+                    try:
+                        self._attach_images(record, line_at, before)
+                    except (KeyError, TypeError, AttributeError, ValueError):
+                        pass
+
+    def _attach_images(self, r: dict, at: int, before: int) -> None:
+        """Give the record's images to their steps: a tool's result to its call, the rest to what this record added
+        (your prompt), or else to the step before (Codex shows an image it was asked to look at as a message)."""
+        n = 0
+        for block in _image_blocks(self.kind, r):
+            found = sum(1 for _ in _images(block))
+            if not found:
+                continue
+            ids = [f'{at}.{n + k}' for k in range(found)]
+            n += found
+            step = None
+            if isinstance(block, dict) and block.get('type') == 'tool_result':
+                step = self.called.get(block.get('tool_use_id', ''))
+            if step is None and len(self.steps) > before:
+                step = self.steps[-1]
+            if step is None and self.steps and self.steps[-1]['kind'] not in ('say', 'think', 'you', 'compact'):
+                step = self.steps[-1]
+            if step is None:
+                t = _ms(r.get('timestamp', ''))
+                step = self.add('you', t, 'Sent an image' if found == 1 else f'Sent {found} images', end=t)
+            step.setdefault('images', []).extend(ids)
 
     def rel(self, path: str) -> str:
         path = path or ''
@@ -188,7 +264,7 @@ class Parser:
             step['sub'] = sub
         self.steps.append(step)
         if call:
-            self.open[call] = step
+            self.open[call] = self.called[call] = step
         return step
 
     def close(self, call: str, t: int, ok: bool | None, detail: str = '') -> dict | None:
@@ -198,17 +274,32 @@ class Parser:
         step['end'] = max(t, step['t'])
         step['ok'] = ok
         if detail:
+            # Where what came back begins (`cut`), so a command and its output can be shown apart.
+            step['cut'] = len(step['detail']) if step['detail'] else 0
             step['detail'] = f"{step['detail']}\n\n{detail}".strip() if step['detail'] else detail
         return step
 
     def prompt(self, t: int, text: str) -> None:
         text = (text or '').strip()
-        if not text or text.startswith('<') or text.startswith('Caveat:'):
-            return  # what the agent's own tooling adds: reminders, command output, environment notes
+        if not text or text.startswith(('<', 'Caveat:', '# AGENTS.md instructions')):
+            return  # what the agent's own tooling adds: reminders, command output, environment notes, AGENTS.md
         if text.startswith('[Request interrupted'):
             self.add('you', t, 'Interrupted', end=t)
             return
-        self.add('you', t, first_line(text), clip(text), end=t)
+        self.add('you', t, first_line(text), clip(text, SAY), end=t)
+
+    def compact(self, t: int, text: str, meta: dict) -> None:
+        """The conversation compacted into a summary: how (auto or by /compact) and how many tokens it went from and to."""
+        how = [meta.get('trigger') or '']
+        before, after = meta.get('preTokens'), meta.get('postTokens')
+        if isinstance(before, int) and isinstance(after, int):
+            how.append(f'{round(before / 1000)}k → {round(after / 1000)}k tokens')
+        elif isinstance(before, int):
+            how.append(f'from {round(before / 1000)}k tokens')
+        how = ', '.join(h for h in how if h)
+        title = f'Compacted the conversation ({how})' if how else 'Compacted the conversation'
+        text = (text or '').strip()
+        self.add('compact', t, title, clip(text, SAY), end=t)
 
     def usage(self, since: int | None = None) -> dict:
         """What the session used from `since` (ms) on: usage.total of its model calls."""
@@ -236,12 +327,21 @@ class Parser:
             self.context = {'t': entry[0], 'tokens': entry[2] + entry[3] + entry[4] + entry[5], 'window': None}
 
     def _claude(self, r: dict) -> None:
+        if r.get('type') == 'system' and r.get('subtype') == 'compact_boundary':
+            self.compacted = r.get('compactMetadata') or {}
+            return
         if r.get('type') not in ('user', 'assistant') or r.get('isSidechain') or r.get('isMeta'):
             return
         t = _ms(r.get('timestamp', ''))
         prev, self.prev = self.prev or t, t
         content = (r.get('message') or {}).get('content')
         if r['type'] == 'user':
+            if r.get('isCompactSummary'):
+                # Written as if you sent it, but it is Claude Code's summary of the conversation so far.
+                text = content if isinstance(content, str) else '\n'.join(b.get('text', '') for b in content or [] if b.get('type') == 'text')
+                self.compact(t, text, self.compacted or {})
+                self.compacted = None
+                return
             if isinstance(content, str):
                 self.prompt(t, content)
                 return
@@ -260,7 +360,7 @@ class Parser:
                 self.add('think', start, first_line(text) or 'Thought', clip(text), end=t)
             elif kind == 'text' and (block.get('text') or '').strip():
                 text = block['text']
-                self.add('say', prev, first_line(text), clip(text), end=t)
+                self.add('say', prev, first_line(text), clip(text, SAY), end=t)
             elif kind == 'tool_use':
                 self._claude_tool(block, t)
 
@@ -383,6 +483,9 @@ class Parser:
         if r.get('type') == 'session_meta':
             self.cwd = (p.get('cwd') or self.cwd).rstrip('/')
             return
+        if r.get('type') == 'compacted':
+            self.compact(t, p.get('message') or '', {})
+            return
         if r.get('type') != 'response_item':
             return  # event_msg and turn_context repeat what the response items say
         prev, self.prev = self.prev or t, t
@@ -392,7 +495,7 @@ class Parser:
             if p.get('role') == 'user':
                 self.prompt(t, text)
             elif p.get('role') == 'assistant' and text.strip():
-                self.add('say', prev, first_line(text), clip(text), end=t)
+                self.add('say', prev, first_line(text), clip(text, SAY), end=t)
         elif kind == 'reasoning':
             text = '\n\n'.join(s.get('text', '') for s in p.get('summary') or [] if isinstance(s, dict))
             self.add('think', prev, first_line(text) or 'Thought', clip(text), end=t)
@@ -469,6 +572,135 @@ class Parser:
         self.close(call, t, ok, clip(out) if step['kind'] != 'edit' or not ok else '')
 
 
+    # ---- Pi
+
+    def _pi_usage(self, r: dict) -> None:
+        """Pi writes each model call's usage on its reply (and some on `usage` entries, cache warming, say)."""
+        m = r.get('message') or {}
+        if r.get('type') == 'usage':
+            u, model = r.get('usage') or {}, r.get('model') or ''
+        elif r.get('type') == 'message' and m.get('role') == 'assistant':
+            u, model = m.get('usage') or {}, m.get('model') or ''
+        else:
+            return
+        if not isinstance(u, dict) or not u.get('totalTokens'):
+            return
+        t = _ms(r.get('timestamp', ''))
+        write_1h = int(u.get('cacheWrite1h') or 0)
+        entry = [t, model, int(u.get('input') or 0), max(int(u.get('cacheWrite') or 0) - write_1h, 0), write_1h,
+                 int(u.get('cacheRead') or 0), int(u.get('output') or 0), False]
+        self.calls[r.get('id') or str(len(self.calls))] = entry
+        if r.get('type') == 'message':
+            self.context = {'t': t, 'tokens': entry[2] + entry[3] + entry[4] + entry[5], 'window': None}
+
+    def _pi(self, r: dict) -> None:
+        kind = r.get('type')
+        t = _ms(r.get('timestamp', ''))
+        if kind == 'session':
+            self.cwd = (r.get('cwd') or self.cwd).rstrip('/')
+            return
+        if kind == 'compaction':
+            self.compact(t, r.get('summary') or '', {'preTokens': r.get('tokensBefore')})
+            return
+        if kind != 'message':
+            return  # model and thinking changes, labels, extensions' state
+        m = r.get('message') or {}
+        role, content = m.get('role'), m.get('content')
+        prev, self.prev = self.prev or t, t
+        if role == 'user':
+            text = content if isinstance(content, str) else '\n'.join(b.get('text', '') for b in content or [] if b.get('type') == 'text')
+            self.prompt(t, text)
+        elif role == 'assistant':
+            for block in content or []:
+                b = block.get('type')
+                if b == 'thinking' and (block.get('thinking') or '').strip():
+                    self.add('think', prev, first_line(block['thinking']) or 'Thought', clip(block['thinking']), end=t)
+                elif b == 'text' and (block.get('text') or '').strip():
+                    self.add('say', prev, first_line(block['text']), clip(block['text'], SAY), end=t)
+                elif b == 'toolCall':
+                    self._pi_tool(block, t)
+            if m.get('stopReason') == 'error' and m.get('errorMessage'):
+                self.add('say', t, f"Stopped: {first_line(m['errorMessage'])}", clip(m['errorMessage'], 1500), end=t, ok=False)
+        elif role == 'toolResult':
+            self._pi_result(m, t)
+        elif role == 'bashExecution':
+            # A command you ran yourself (`!ls`), not one it called.
+            command = m.get('command') or ''
+            step = self.add(command_kind(command), t, first_line(command), f'$ {command}', end=t,
+                            ok=not m.get('cancelled') and m.get('exitCode') in (0, None))
+            step['cut'] = len(step['detail'])
+            if (m.get('output') or '').strip():
+                step['detail'] += f"\n\n{clip(m['output'])}"
+
+    def _pi_tool(self, b: dict, t: int) -> None:
+        name, x, call = b.get('name', ''), b.get('arguments') or {}, b.get('id', '')
+        path = self.rel(x.get('path') or x.get('file_path') or '')
+        if name == 'read':
+            self.add('read', t, f'Read {path}', call=call, files=[{'path': path}])
+        elif name == 'ls':
+            self.add('read', t, f'Listed {path or "the folder"}', call=call)
+        elif name in ('grep', 'find'):
+            what = x.get('pattern') or x.get('query') or ''
+            where = f' in {path}' if path else ''
+            self.add('search', t, f'Searched for “{what}”{where}' if name == 'grep' else f'Looked for {what}{where}', call=call)
+        elif name in ('edit', 'write'):
+            if name == 'write':
+                lines = [f'+{line}' for line in (x.get('content') or '').splitlines()]
+            else:
+                lines = []
+                for e in x.get('edits') or [x]:
+                    lines += [f'-{line}' for line in (e.get('oldText') or '').splitlines()]
+                    lines += [f'+{line}' for line in (e.get('newText') or '').splitlines()]
+            a, d = _patch_counts(lines)
+            self.add('edit', t, f"{'Wrote' if name == 'write' else 'Edited'} {path}", _clip_lines(lines), call=call,
+                     files=[{'path': path, 'add': a, 'del': d}])
+        elif name == 'bash':
+            command = x.get('command', '')
+            self.add(command_kind(command), t, first_line(command), f'$ {command}', call=call)
+        else:
+            self.add('tool', t, f'Used {name}', clip(json.dumps(x, ensure_ascii=False, indent=1), 1500), call=call)
+
+    def _pi_result(self, m: dict, t: int) -> None:
+        call = m.get('toolCallId', '')
+        step = self.open.get(call)
+        if step is None:
+            return
+        text = '\n'.join(c.get('text', '') for c in m.get('content') or [] if isinstance(c, dict) and c.get('type') == 'text')
+        error = bool(m.get('isError'))
+        if step['kind'] == 'edit':
+            diff = (m.get('details') or {}).get('diff') if isinstance(m.get('details'), dict) else None
+            if isinstance(diff, str) and diff.strip() and not error:
+                lines = _pi_diff(diff)
+                step['files'][0]['add'], step['files'][0]['del'] = _patch_counts(lines)
+                step['detail'] = _clip_lines(lines)
+            self.close(call, t, not error, clip(text, 1500) if error else '')
+            return
+        if step['kind'] == 'read' and step.get('files'):
+            self.close(call, t, not error, clip(text, 1500) if error else '')
+            return
+        if step['kind'] == 'run' and not error:
+            m2 = re.search(r'(?:exit code|exited with code)[: ]+(\d+)', text[-400:], re.I)
+            error = bool(m2 and m2.group(1) != '0')
+        self.close(call, t, not error, clip(text) if text.strip() else '')
+
+
+def _pi_diff(diff: str) -> list[str]:
+    """Pi's diff of an edit, a line number after each line's mark ("+  34 text"), as unified diff lines."""
+    lines = []
+    for line in diff.splitlines():
+        m = re.match(r'^([+\- ])\s*\d+ ?(.*)$', line)
+        if m:
+            lines.append(m.group(1) + m.group(2))
+        elif line.strip() == '...':
+            lines.append('@@ … @@')
+    return lines
+
+
+def pi_folder(cwd: str) -> str:
+    """Pi's folder for a working folder: the path without its leading /, every / \\ and : a -, between --."""
+    return '--' + re.sub(r'[/\\:]', '-', (cwd.rstrip('/') or '/').removeprefix('/')) + '--'
+
+
 # ---------------------------------------------------------------- finding and reading the record
 
 _lock = threading.Lock()
@@ -484,8 +716,9 @@ def claude_folder(cwd: str) -> str:
 def _find_script(kind: str, cwd: str, piece: str) -> str:
     """Lists the agent's records modified lately, newest first: `mtime<TAB>has the prompt<TAB>path` per line."""
     q = shlex.quote
-    if kind == 'claude':
-        listing = f'cd "$HOME/.claude/projects/"{q(claude_folder(cwd))} 2>/dev/null && ls -t -- *.jsonl 2>/dev/null | head -n 12 | sed "s|^|$PWD/|"'
+    if kind in ('claude', 'pi'):
+        folder = f'"$HOME/.claude/projects/"{q(claude_folder(cwd))}' if kind == 'claude' else f'"$HOME/.pi/agent/sessions/"{q(pi_folder(cwd))}'
+        listing = f'cd {folder} 2>/dev/null && ls -t -- *.jsonl 2>/dev/null | head -n 12 | sed "s|^|$PWD/|"'
         wanted = ''
     else:
         listing = 'ls -t $(find "$HOME/.codex/sessions" -name "rollout-*.jsonl" -mtime -14 2>/dev/null) 2>/dev/null | head -n 40'
@@ -520,7 +753,7 @@ def trace(src, kind: str, cwd: str, since: float | None, title: str, path: str =
     """The steps of the agent's session, from step `start` on (the client has those before it). `path`: the record
     found last time. Reads only what was written since the last call."""
     if kind not in KINDS:
-        return {'found': False, 'reason': f"Marumado can't read {kind or 'this agent'}'s record yet: only Claude Code's and Codex's.", 'steps': [], 'total': 0}
+        return {'found': False, 'reason': f"Marumado can't read {kind or 'this agent'}'s record yet: only Claude Code's, Codex's and Pi's.", 'steps': [], 'total': 0}
     piece = needle(title)
     if not path:
         key = (getattr(src, 'id', src), kind, cwd, since, piece)
@@ -538,11 +771,54 @@ def trace(src, kind: str, cwd: str, since: float | None, title: str, path: str =
         steps = parser.steps
         first = _first(steps, since, piece)
         settled = parser.settled()
+        if start < 0:  # the last -start steps only (a long session's end)
+            start = max(0, len(steps) + start)
         start = max(first, min(start, settled))
         # What the task used: from the prompt that gave it (or from when it was given, before that is written).
         begin = steps[first]['t'] if first < len(steps) else (since - SLACK) * 1000 if since is not None else None
         return {'found': True, 'path': path, 'first': first, 'from': start, 'total': len(steps), 'steps': steps[start:],
                 'usage': parser.usage(None if since is None else begin)}
+
+
+# A session record's path, as find() and _newest() give them: nothing else is read for an image.
+RECORD = re.compile(r'^/(?:[^/\0]+/)*(?:\.claude/projects/[^/\0]+/[^/\0]+|\.codex/sessions/(?:[^/\0]+/)*rollout-[^/\0]+|\.pi/agent/sessions/[^/\0]+/[^/\0]+)\.jsonl$')
+IMAGE_ID = re.compile(r'^(\d{1,12})\.(\d{1,4})$')
+IMAGE_TYPES = ('image/png', 'image/jpeg', 'image/gif', 'image/webp')
+MAX_LINE = 48 * 1024 * 1024  # a record line holding images is read whole, up to this much
+_images_read: 'OrderedDict[tuple, tuple[str, bytes]]' = OrderedDict()
+KEEP_IMAGES = 64
+
+
+def image(src, path: str, image_id: str) -> tuple[str, bytes]:
+    """One image of a step (its id, `<offset>.<n>`, from Parser._attach_images): (media type, bytes). The record only
+    grows, so what was read is kept. ValueError when it isn't there."""
+    m = IMAGE_ID.match(image_id or '')
+    if not m or not RECORD.match(path or '') or '/../' in path:
+        raise ValueError('Not an image of a session record.')
+    key = (getattr(src, 'id', src), path, image_id)
+    with _lock:
+        if key in _images_read:
+            _images_read.move_to_end(key)
+            return _images_read[key]
+    offset, n = int(m.group(1)), int(m.group(2))
+    raw = herdr.shell(src, f'tail -c +{offset + 1} -- {shlex.quote(path)} 2>/dev/null | head -n 1 | head -c {MAX_LINE}', timeout=60)
+    try:
+        record = json.loads(raw)
+    except ValueError:
+        raise ValueError('That image is no longer in the record.')
+    kind = 'codex' if '/.codex/' in path else 'pi' if '/.pi/agent/' in path else 'claude'
+    found = [img for block in _image_blocks(kind, record if isinstance(record, dict) else {}) for img in _images(block)]
+    if n >= len(found) or found[n][0] not in IMAGE_TYPES:
+        raise ValueError('That image is no longer in the record.')
+    try:
+        data = base64.b64decode(found[n][1], validate=False)
+    except ValueError:
+        raise ValueError('That image could not be read.')
+    with _lock:
+        _images_read[key] = (found[n][0], data)
+        while len(_images_read) > KEEP_IMAGES:
+            _images_read.popitem(last=False)
+    return found[n][0], data
 
 
 def _parser(key: tuple, kind: str, cwd: str) -> Parser:
@@ -579,9 +855,15 @@ _newest_seen: dict[tuple, tuple[float, list[str]]] = {}
 
 def _newest(src, kind: str, cwd: str) -> list[str]:
     """The folder's session records written in the last PULSE_HOURS, newest first. Looked for again every PULSE_FIND."""
+    return [p for _, p in newest(src, kind, cwd)]
+
+
+def newest(src, kind: str, cwd: str, every: float = PULSE_FIND) -> list[tuple[int, str]]:
+    """The folder's session records written in the last PULSE_HOURS, newest first, with when each was last written
+    (unix seconds). Looked for again after `every` seconds."""
     key = (getattr(src, 'id', src), kind, cwd)
     seen = _newest_seen.get(key)
-    if seen and time.monotonic() - seen[0] < PULSE_FIND:
+    if seen and time.monotonic() - seen[0] < every:
         return seen[1]
     out = herdr.shell(src, _find_script(kind, cwd, '')).decode(errors='replace')
     floor = time.time() - PULSE_HOURS * 3600
@@ -590,9 +872,9 @@ def _newest(src, kind: str, cwd: str) -> list[str]:
         parts = line.split('\t', 2)
         if len(parts) == 3 and parts[0].isdigit() and int(parts[0]) >= floor:
             found.append((int(parts[0]), parts[2]))
-    paths = [p for _, p in sorted(found, reverse=True)]
-    _newest_seen[key] = (time.monotonic(), paths)
-    return paths
+    found.sort(reverse=True)
+    _newest_seen[key] = (time.monotonic(), found)
+    return found
 
 
 def pulse(src, kind: str, cwd: str, n: int = 1) -> dict:
