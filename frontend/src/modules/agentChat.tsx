@@ -184,6 +184,22 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 type Shown = { src: string; caption: string }
+/** A / command the agent takes (GET agents/<pane>/commands): its own, or one its owner added. */
+type Command = { name: string; description: string; kind: 'built-in' | 'custom' | 'skill' }
+
+function useCommands(paneId: string, source: number, kind: string) {
+  const [commands, setCommands] = useState<Command[]>([])
+  useEffect(() => {
+    let on = true
+    api<{ commands: Command[] }>(`agents/${encodeURIComponent(paneId)}/commands?${sourceQuery(source)}`)
+      .then((r) => on && setCommands(r.commands || []))
+      .catch(() => on && setCommands([])) // no suggestions: a / command still goes as typed
+    return () => {
+      on = false
+    }
+  }, [paneId, source, kind])
+  return commands
+}
 type Pending = { text: string; at: number }
 
 export function AgentConversation({ agent, control }: { agent: Agent; control: boolean }) {
@@ -194,6 +210,7 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
   const { trace, steps, error, earlier, refresh } = useConversation(paneId, source, working ? 1500 : 4000)
   const { screen, read } = useScreen(paneId, source, working ? 1200 : asking ? 2000 : 6000)
   const [display, setDisplay] = useDisplay()
+  const commands = useCommands(paneId, source, agent.kind)
   const shownSteps = useMemo(() => (display.thinking === 'hidden' ? steps.filter((s) => s.kind !== 'think' || /^Updated its plan|^Wrote a plan/.test(s.title)) : steps), [steps, display.thinking])
   const items = useMemo(() => itemsOf(shownSteps), [shownSteps])
   const footer = readFooter(screen, agent.kind)
@@ -327,7 +344,7 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
       {asking && <Prompt screen={screen} control={control} send={send} />}
       {!control && <StatusLine footer={footer} control={false} send={send} />}
       {control ? (
-        <ChatBox key={paneId} draftKey={`marumado.chat-draft.${source}.${paneId}`} working={working} asking={asking} locked={asking && picks.length > 0} send={send} footer={<StatusLine footer={footer} control={control} send={send} />} />
+        <ChatBox key={paneId} draftKey={`marumado.chat-draft.${source}.${paneId}`} working={working} asking={asking} locked={asking && picks.length > 0} commands={commands} send={send} footer={<StatusLine footer={footer} control={control} send={send} />} />
       ) : (
         <p className="chat__note">Watching only (MARUMADO_HERDR_TERMINAL=observe): write to it in its terminal.</p>
       )}
@@ -501,7 +518,16 @@ function StatusLine({ footer, control, send }: { footer: { parts: string[]; mode
 }
 
 /** Write to it: Enter sends, Shift+Enter starts a new line. While it works, Stop interrupts it (Esc). */
-function ChatBox({ draftKey, working, asking, locked, send, footer }: { draftKey: string; working: boolean; asking: boolean; locked: boolean; send: (json: { text?: string; keys?: string[] }) => Promise<void>; footer: ReactNode }) {
+/** The / commands that fit what is typed (`/` and no space yet), those starting with it first. */
+function suggest(commands: Command[], text: string): Command[] {
+  if (!/^\/\S*$/.test(text)) return []
+  const typed = text.slice(1).toLowerCase()
+  const starts = commands.filter((c) => c.name.toLowerCase().startsWith(typed))
+  const within = commands.filter((c) => !c.name.toLowerCase().startsWith(typed) && c.name.toLowerCase().includes(typed))
+  return [...starts, ...within].slice(0, 8)
+}
+
+function ChatBox({ draftKey, working, asking, locked, commands, send, footer }: { draftKey: string; working: boolean; asking: boolean; locked: boolean; commands: Command[]; send: (json: { text?: string; keys?: string[] }) => Promise<void>; footer: ReactNode }) {
   // What you were writing stays, per agent, when you leave the page and come back (until it is sent).
   const [text, setTextState] = useState(() => {
     try {
@@ -542,7 +568,18 @@ function ChatBox({ draftKey, working, asking, locked, send, footer }: { draftKey
     }
   }
   // While a menu is up, what you type would go into it (a digit picks a choice): answer it first.
-  const submit = () => text.trim() && !busy && !locked && go({ text })
+  const submit = (value = text) => value.trim() && !busy && !locked && go({ text: value })
+  // The / commands as you type one: Enter runs the one picked (as the agent's own menu does), Tab or a click puts
+  // it in the box to add what it takes, Escape puts the menu away.
+  const [pick, setPick] = useState(0)
+  const [dismissed, setDismissed] = useState('')
+  const matches = text === dismissed ? [] : suggest(commands, text)
+  const picked = matches[Math.min(pick, matches.length - 1)]
+  useEffect(() => setPick(0), [text])
+  const complete = (c: Command) => {
+    setText(`/${c.name} `)
+    box.current?.focus()
+  }
   return (
     <form
       className="chat__box"
@@ -554,15 +591,66 @@ function ChatBox({ draftKey, working, asking, locked, send, footer }: { draftKey
       <label className="sr-only" htmlFor="chat-text">
         Write to the agent
       </label>
+      {matches.length > 0 && (
+        <ul id="chat-commands" className="chat__commands" role="listbox" aria-label="Commands">
+          {matches.map((c) => (
+            <li
+              key={c.name}
+              id={`chat-command-${c.name}`}
+              role="option"
+              aria-selected={c === picked}
+              className="chat__command"
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setPick(matches.indexOf(c))}
+              onClick={() => complete(c)}
+            >
+              <span className="chat__command-name">/{c.name}</span>
+              {c.kind !== 'built-in' && <span className="chat__command-kind">{c.kind === 'skill' ? 'skill' : 'yours'}</span>}
+              <span className="chat__command-about">{c.description}</span>
+            </li>
+          ))}
+          <li className="chat__commands-keys" aria-hidden="true">
+            Enter runs it · Tab to add arguments · Esc
+          </li>
+        </ul>
+      )}
       <textarea
         id="chat-text"
         ref={box}
         className="chat__input"
         rows={1}
         value={text}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={matches.length > 0}
+        aria-controls="chat-commands"
+        aria-activedescendant={picked ? `chat-command-${picked.name}` : undefined}
         placeholder={locked ? 'Answer its question above first; you can write here meanwhile' : asking ? 'It waits on you: answer above, or write here' : working ? 'Write to it: it reads this once it is done' : 'Write to the agent… (Enter sends, Shift+Enter for a new line)'}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
+          if (picked && !e.nativeEvent.isComposing) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault()
+              setPick((pick + (e.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length)
+              return
+            }
+            if (e.key === 'Tab') {
+              e.preventDefault()
+              complete(picked)
+              return
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              e.stopPropagation() // the menu, not the sheet around it
+              setDismissed(text)
+              return
+            }
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              submit(`/${picked.name}`)
+              return
+            }
+          }
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault()
             submit()

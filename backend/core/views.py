@@ -1055,6 +1055,18 @@ def agent_image(request, pane_id: str):
 
 
 @api_view(['GET'])
+def agent_commands(request, pane_id: str):
+    """The / commands the pane's agent takes, for the chat box to suggest (core/slash.py)."""
+    from . import slash
+    try:
+        return Response(slash.commands(pane_id, _agent_source(request)))
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=404)
+    except RuntimeError as exc:
+        return Response({'detail': str(exc)}, status=502)
+
+
+@api_view(['GET'])
 def agent_changes(request, pane_id: str):
     from . import changes
     try:

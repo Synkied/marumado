@@ -44,6 +44,7 @@ urlpatterns = [
     path('agents/<str:pane_id>/changes', views.agent_changes),
     path('agents/<str:pane_id>/trace', views.agent_conversation),
     path('agents/<str:pane_id>/image', views.agent_image),
+    path('agents/<str:pane_id>/commands', views.agent_commands),
     path('agents/<str:pane_id>/input', views.agent_input),
     path('agents/<str:pane_id>/close', views.agent_close),
     path('machines/<int:pk>/retry', views.machine_retry),  # before the proxy, which takes every other path

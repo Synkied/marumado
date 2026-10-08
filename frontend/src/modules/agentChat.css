@@ -662,6 +662,70 @@ details.tool-call > .tool-call__out {
   background: var(--ground-raised);
 }
 
+/* The / commands as you type one: over the conversation, just above the box. */
+.chat__box {
+  position: relative;
+}
+
+.chat__commands {
+  position: absolute;
+  bottom: calc(100% + var(--sp-2));
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: min(360px, 50vh);
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--sp-2);
+  list-style: none;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-xl);
+  background: var(--ground-raised);
+  box-shadow: var(--shadow-float);
+}
+
+.chat__command {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.chat__command[aria-selected='true'] {
+  background: var(--ground);
+}
+
+.chat__command-name {
+  color: var(--ink);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.chat__command-kind {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.chat__command-about {
+  grid-column: 3;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat__commands-keys {
+  padding: var(--sp-2) var(--sp-3) var(--sp-1);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
 .chat__box:focus-within {
   border-color: var(--ink);
 }
