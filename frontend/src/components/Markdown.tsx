@@ -1,10 +1,11 @@
-import { Fragment, type ReactNode } from 'react'
+import { Fragment, memo, type ReactNode } from 'react'
 
 /** What an agent writes, set as text: paragraphs, headings, lists, quotes, tables, code blocks, inline code, bold,
-    italics and links. Built as elements (never as HTML), so nothing it says can run in the page. */
-export function Markdown({ text }: { text: string }) {
+    italics and links. Built as elements (never as HTML), so nothing it says can run in the page. Set again only when
+    the text changes: a conversation re-renders on every poll. */
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
   return <div className="md">{blocks(text)}</div>
-}
+})
 
 const FENCE = /^\s*(```|~~~)\s*([\w+-]*)\s*$/
 const HEADING = /^(#{1,6})\s+(.*)$/

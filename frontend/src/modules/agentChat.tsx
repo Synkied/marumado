@@ -38,8 +38,10 @@ function useConversation(paneId: string, source: number, every: number) {
             have.current = { path: '', steps: [] }
             return load()
           }
-          // The steps that may still change (a tool still running) come again: those replace ours.
-          have.current = { path: t.path, steps: [...mine.steps.filter((x) => x.i < t.from), ...t.steps] }
+          // The steps that may still change (a tool still running) come again: those replace ours. Nothing new keeps
+          // the same list, so the conversation isn't set again on every poll.
+          const kept = mine.steps.filter((x) => x.i < t.from)
+          have.current = { path: t.path, steps: t.steps.length || kept.length < mine.steps.length ? [...kept, ...t.steps] : mine.steps }
         }
         setState({ trace: t, steps: have.current.steps, error: '' })
       } catch (err) {
