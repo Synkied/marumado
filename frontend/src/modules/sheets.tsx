@@ -4,6 +4,7 @@ import { Terminal } from '../components/Terminal'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { DotChart } from '../components/DotChart'
 import { CountBadge } from '../components/CountBadge'
+import { Critter } from '../components/Critter'
 import { Icon } from '../components/Icon'
 import { Meter } from '../components/Meter'
 import { agentHref, agentKey, CHAT_KINDS, findWorkspace, parseAgentRef, sourceLabel, sourceOf, sourceQuery, sourcesOf, STATE_WORDS, useWorkspace, workspaceLabel } from '../lib/agents'
@@ -875,6 +876,16 @@ const lately = (ms: number) => {
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
 
+/** Which agent it is and how it is: its critter, the same as in the top bar and the dock (a plain terminal, its lamp). */
+function AgentMark({ agent: a, label, size }: { agent: Agent; label: string; size: number }) {
+  if (a.kind === 'terminal') return <span className={`row__lamp${lampOf(a)}`} role="img" aria-label={label} />
+  return (
+    <span className="agent-mark" role="img" aria-label={label}>
+      <Critter seed={agentKey(a)} status={a.status} size={size} />
+    </span>
+  )
+}
+
 /** An agent in the side list, as a conversation in a chat app, in two lines: its name and how long since its last
     step, then where it works and what it is on. What it is (claude, codex…) is in its tooltip. The whole row opens it. */
 function AgentRow({ agent: a, active, place, doing }: { agent: Agent; active: boolean; place: string; doing?: Doing }) {
@@ -883,7 +894,7 @@ function AgentRow({ agent: a, active, place, doing }: { agent: Agent; active: bo
   const state = capital(STATE_WORDS[a.status])
   return (
     <a className={`thread${active ? ' is-active' : ''}${fault ? ' is-fault' : ''}`} href={agentHref(a)} aria-current={active ? 'page' : undefined} title={`${agentLabel(a)} · ${a.kind}`}>
-      <span className={`row__lamp${lampOf(a)}`} role="img" aria-label={state} />
+      <AgentMark agent={a} label={state} size={30} />
       <span className="thread__main">
         <span className="thread__top">
           <span className="thread__name">{agentLabel(a)}</span>
@@ -1202,7 +1213,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
                   <span className="sr-only">All agents{elsewhere ? `, ${elsewhere} more need you` : ''}</span>
                 </a>
               )}
-              <span className={`row__lamp${lampOf(current)}`} role="img" aria-label={current.status} />
+              <AgentMark agent={current} label={current.status} size={30} />
               <h3
                 className="agent-head__title"
                 title={`${agentLabel(current)}: ${current.name ? `${current.name} · ` : ''}${current.kind}${current.workspace ? ` · ${current.workspace}` : ''} · ${current.pane_id}`}

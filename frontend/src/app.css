@@ -844,6 +844,17 @@
   margin-top: 0.5em;
 }
 
+/* An agent's critter, beside its name in the list and in its heading: which one it is at a glance. */
+.agent-mark {
+  flex: none;
+  display: block;
+  line-height: 0;
+}
+
+.thread > .agent-mark {
+  margin-block: -2px;
+}
+
 .thread:hover {
   background: var(--track);
 }

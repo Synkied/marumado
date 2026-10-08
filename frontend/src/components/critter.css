@@ -1,4 +1,4 @@
-/* An agent as a small ink critter: drawn in the agents' pen on a fresh sheet, persimmon only when it needs you. */
+/* Status inks use the same theme-aware pens as the rest of the app. */
 
 .critter {
   --critter-pen: var(--c-agents);
@@ -46,6 +46,14 @@
 
 .critter--blocked {
   --critter-pen: var(--signal);
+}
+
+.critter--done {
+  --critter-pen: var(--done);
+}
+
+.critter--idle {
+  --critter-pen: var(--c-machines);
 }
 
 .critter--unknown {
