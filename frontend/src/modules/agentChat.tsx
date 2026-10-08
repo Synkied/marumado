@@ -229,6 +229,9 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
   const live = working ? readLive(screen, agent.kind) : { status: '', text: '' }
   const sinceYou = lastYou ? steps.filter((s) => s.i > lastYou.i && s.kind === 'say') : steps.filter((s) => s.kind === 'say').slice(-3)
   const liveText = live.text && !sinceYou.some((s) => bare(s.detail).includes(bare(live.text).slice(0, 60))) ? live.text : ''
+  // What you wrote to it, oldest first, for Up and Down in the box: the record's messages, then those it hasn't yet.
+  const wrote = [...steps.filter((s) => s.kind === 'you' && s.detail).map((s) => s.detail), ...waiting.map((p) => p.text)]
+  const sent = wrote.filter((t, i) => t.trim() && t !== wrote[i - 1])
 
   const toEnd = useCallback(() => {
     const el = scroller.current
@@ -346,7 +349,7 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
       {asking && <Prompt screen={screen} control={control} send={send} />}
       {!control && <StatusLine footer={footer} control={false} send={send} />}
       {control ? (
-        <ChatBox key={paneId} draftKey={`marumado.chat-draft.${source}.${paneId}`} working={working} asking={asking} locked={asking && picks.length > 0} commands={commands} send={send} footer={<StatusLine footer={footer} control={control} send={send} />} />
+        <ChatBox key={paneId} draftKey={`marumado.chat-draft.${source}.${paneId}`} working={working} asking={asking} locked={asking && picks.length > 0} commands={commands} sent={sent} send={send} footer={<StatusLine footer={footer} control={control} send={send} />} />
       ) : (
         <p className="chat__note">Watching only (MARUMADO_HERDR_TERMINAL=observe): write to it in its terminal.</p>
       )}
@@ -529,7 +532,7 @@ function suggest(commands: Command[], text: string): Command[] {
   return [...starts, ...within].slice(0, 8)
 }
 
-function ChatBox({ draftKey, working, asking, locked, commands, send, footer }: { draftKey: string; working: boolean; asking: boolean; locked: boolean; commands: Command[]; send: (json: { text?: string; keys?: string[] }) => Promise<void>; footer: ReactNode }) {
+function ChatBox({ draftKey, working, asking, locked, commands, sent, send, footer }: { draftKey: string; working: boolean; asking: boolean; locked: boolean; commands: Command[]; sent: string[]; send: (json: { text?: string; keys?: string[] }) => Promise<void>; footer: ReactNode }) {
   // What you were writing stays, per agent, when you leave the page and come back (until it is sent).
   const [text, setTextState] = useState(() => {
     try {
@@ -556,12 +559,24 @@ function ChatBox({ draftKey, working, asking, locked, commands, send, footer }: 
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`
   }, [text])
+  // Up and Down walk what you sent, as a shell does: `back` is how far from the newest (null: your own draft, kept
+  // aside meanwhile). Typing makes the message on show your draft.
+  const [back, setBack] = useState<number | null>(null)
+  const draft = useRef('')
+  const recall = (to: number | null) => {
+    if (back === null) draft.current = text
+    setBack(to)
+    setTextState(to === null ? draft.current : sent[sent.length - 1 - to])
+  }
   const go = async (json: { text?: string; keys?: string[] }) => {
     setBusy(true)
     setError('')
     try {
       await send(json)
-      if (json.text) setText('')
+      if (json.text) {
+        setText('')
+        setBack(null)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't reach the agent.")
     } finally {
@@ -575,7 +590,7 @@ function ChatBox({ draftKey, working, asking, locked, commands, send, footer }: 
   // it in the box to add what it takes, Escape puts the menu away.
   const [pick, setPick] = useState(0)
   const [dismissed, setDismissed] = useState('')
-  const matches = text === dismissed ? [] : suggest(commands, text)
+  const matches = text === dismissed || back !== null ? [] : suggest(commands, text)
   const picked = matches[Math.min(pick, matches.length - 1)]
   useEffect(() => setPick(0), [text])
   const complete = (c: Command) => {
@@ -628,7 +643,10 @@ function ChatBox({ draftKey, working, asking, locked, commands, send, footer }: 
         aria-controls="chat-commands"
         aria-activedescendant={picked ? `chat-command-${picked.name}` : undefined}
         placeholder={locked ? 'Answer its question above first; you can write here meanwhile' : asking ? 'It waits on you: answer above, or write here' : working ? 'Write to it: it reads this once it is done' : 'Write to the agent… (Enter sends, Shift+Enter for a new line)'}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value)
+          setBack(null)
+        }}
         onKeyDown={(e) => {
           if (picked && !e.nativeEvent.isComposing) {
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -656,6 +674,17 @@ function ChatBox({ draftKey, working, asking, locked, commands, send, footer }: 
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault()
             submit()
+            return
+          }
+          // Only from the first line going up, or the last going down, so moving within a long message still works.
+          const el = e.currentTarget
+          const plain = !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.nativeEvent.isComposing && el.selectionStart === el.selectionEnd
+          if (plain && e.key === 'ArrowUp' && !text.slice(0, el.selectionStart).includes('\n') && (back ?? -1) + 1 < sent.length) {
+            e.preventDefault()
+            recall((back ?? -1) + 1)
+          } else if (plain && e.key === 'ArrowDown' && back !== null && !text.slice(el.selectionEnd).includes('\n')) {
+            e.preventDefault()
+            recall(back ? back - 1 : null)
           }
         }}
       />
