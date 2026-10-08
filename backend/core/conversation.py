@@ -183,6 +183,7 @@ def trace(pane_id: str, source, start: int = 0) -> dict:
     if src.kind == 'machine':
         return herdr._remote(src, 'GET', f'agents/{pane_id}/trace', query=urlencode({'from': start}), timeout=40)
     pane, peers = _pane(src, pane_id)
+    herdr.looked(src.id, pane_id)  # its conversation is open: a turn it finished is seen, as in its terminal
     if pane['kind'] not in transcripts.KINDS:
         name = 'a plain terminal' if pane['kind'] == 'terminal' else pane['kind']
         return {'found': False, 'reason': f"Marumado can't read {name}'s record: only Claude Code's, Codex's and Pi's.", 'steps': [], 'total': 0}

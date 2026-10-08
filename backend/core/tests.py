@@ -590,6 +590,15 @@ class SeenTests(SimpleTestCase):
         self.assertEqual(self.listing([done]), ['idle'])
         self.assertEqual(self.listing([{**done, 'completion_seq': 10}]), ['done'])
 
+    def test_a_turn_read_in_its_conversation_is_seen(self):
+        done = {'pane_id': 'w1:p3', 'terminal_id': 't1', 'agent': 'claude', 'agent_status': 'done', 'completion_seq': 3}
+        self.assertEqual(self.listing([done]), ['done'])
+        herdr.looked(77, 'w1:p3')
+        self.assertEqual(self.listing([done]), ['idle'])
+        # Once the conversation is no longer read, a turn it finishes is new.
+        with mock.patch.object(herdr.time, 'monotonic', return_value=herdr.time.monotonic() + herdr.LOOK_SECONDS + 1):
+            self.assertEqual(self.listing([{**done, 'completion_seq': 4}]), ['done'])
+
 
 @override_settings(MARUMADO_TOKEN='test-token')
 @mock.patch.object(monitor, 'ensure_started', lambda: None)

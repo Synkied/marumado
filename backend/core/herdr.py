@@ -410,9 +410,12 @@ _failed: dict[Source, tuple[float, str]] = {}
 
 # Herdr reports a finished turn as `done` until a focus command marks it seen; reads and attaches don't count, and
 # focusing would move the Herdr TUI under the user. So Marumado keeps its own: a pane open in a Marumado terminal is
-# being looked at, and the turns it finished by then (Herdr's completion_seq) read as `idle` from then on.
+# being looked at, and the turns it finished by then (Herdr's completion_seq) read as `idle` from then on. So is one
+# whose conversation is open (it reads the session record every few seconds while the page is in view: looked()).
 _seen_lock = threading.Lock()
 _watching: dict[tuple[int, str], int] = {}
+_looked: dict[tuple[int, str], float] = {}
+LOOK_SECONDS = 10  # how long a read of its conversation counts as looking at the pane: more than its polls apart
 _closed: set[tuple[int, str]] = set()  # closed since the last listing: counted once more
 _seen: dict[tuple[int, str, str], int] = {}
 
@@ -421,6 +424,14 @@ def watch(source_id: int, pane_id: str) -> None:
     """A Marumado terminal opened on the pane."""
     with _seen_lock:
         _watching[(source_id, pane_id)] = _watching.get((source_id, pane_id), 0) + 1
+
+
+def looked(source_id: int, pane_id: str) -> None:
+    """Its conversation was read, for a page showing it: looked at for LOOK_SECONDS."""
+    with _seen_lock:
+        if len(_looked) > 500:
+            _looked.clear()
+        _looked[(source_id, pane_id)] = time.monotonic()
 
 
 def unwatch(source_id: int, pane_id: str) -> None:
@@ -439,7 +450,7 @@ def _status(src: Source, pane: dict) -> str:
         return status
     key = (src.id, pane['pane_id'], pane.get('terminal_id') or '')
     with _seen_lock:
-        if key[:2] in _watching or key[:2] in _closed:
+        if key[:2] in _watching or key[:2] in _closed or time.monotonic() - _looked.get(key[:2], -LOOK_SECONDS) < LOOK_SECONDS:
             _seen[key] = max(done, _seen.get(key, 0))
         seen = _seen.get(key, -1)
     return 'idle' if status == 'done' and done <= seen else status
