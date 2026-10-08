@@ -116,87 +116,178 @@ function AlertsSheet() {
   )
 }
 
+/** Interfaces Docker makes for each container (veth…) and its bridges: counted, not listed, unless they carry traffic. */
+const VIRTUAL_NIC = /^(veth|br-|docker|virbr|cni|flannel|cali)/
+
 function MachineSheet() {
   const { system: s, history } = useHub()
   if (!s) return <div className="sheet__empty">Reading the machine…</div>
   const span = history.length > 1 ? `${Math.max(1, Math.round((history[history.length - 1].t - history[0].t) / 60))} min` : undefined
+  const over = span ?? 'moment'
+  const nics = s.net.interfaces.filter((n) => n.up && (!VIRTUAL_NIC.test(n.name) || n.rx_rate + n.tx_rate > 1024)).sort((a, b) => b.rx_rate + b.tx_rate - (a.rx_rate + a.tx_rate))
+  const quietNics = s.net.interfaces.filter((n) => n.up).length - nics.length
+  const disks = [...s.disks].sort((a, b) => b.percent - a.percent)
+  const physical = s.host.cores_physical && s.host.cores_physical !== s.host.cores_logical ? ` (${s.host.cores_physical} physical)` : ''
   return (
     <div className="sheet">
       <SheetHead id="machine" />
       <ViewTabs at="machine" />
-      <p className="sheet__lede">
-        <Secret label="Host name">{s.host.hostname}</Secret> · {s.host.os} · {s.host.cpu_model || s.host.arch} · {s.host.cores_logical} cores · up {duration(s.time - s.host.boot_time)}
-      </p>
-
-      <section className="sheet__section">
-        <h3>
-          CPU {Math.round(s.cpu.percent)}% · load {s.cpu.load.join(' ')}
-        </h3>
-        <DotChart values={history.map((h) => h.cpu)} max={100} label={`CPU over the last ${span ?? 'moment'}`} unit="%" span={span} />
-        <div className="cores" aria-label="Per-core load">
-          {s.cpu.per_core.map((c, i) => (
-            <span key={i} className="core" title={`core ${i}: ${Math.round(c)}%`} style={{ background: `color-mix(in srgb, var(--ink) ${Math.round(c)}%, transparent)` }} />
-          ))}
+      <dl className="specs">
+        <div>
+          <dt>Host</dt>
+          <dd>
+            <Secret label="Host name">{s.host.hostname}</Secret>
+          </dd>
         </div>
-      </section>
+        <div>
+          <dt>System</dt>
+          <dd>{s.host.os}</dd>
+        </div>
+        <div>
+          <dt>Processor</dt>
+          <dd>
+            {s.host.cpu_model || s.host.arch} · {s.host.cores_logical} cores{physical}
+            {s.cpu.freq_mhz ? ` · ${(s.cpu.freq_mhz / 1000).toFixed(1)} GHz` : ''}
+          </dd>
+        </div>
+        <div>
+          <dt>Up</dt>
+          <dd>{duration(s.time - s.host.boot_time)}</dd>
+        </div>
+        {s.process_count != null && (
+          <div>
+            <dt>Processes</dt>
+            <dd>{s.process_count}</dd>
+          </div>
+        )}
+      </dl>
 
-      <section className="sheet__section">
-        <h3>
-          Memory {bytes(s.memory.used)} of {bytes(s.memory.total)}
-        </h3>
-        <Meter percent={s.memory.percent} budget={92} />
-        <DotChart values={history.map((h) => h.mem)} max={100} label={`Memory over the last ${span ?? 'moment'}`} unit="%" span={span} />
-        {s.memory.swap_total > 0 && <span className="row__sub">Swap {bytes(s.memory.swap_used)} of {bytes(s.memory.swap_total)}</span>}
-      </section>
-
-      <section className="sheet__section">
-        <h3>
-          Network ↓ {rate(s.net.rx_rate)} · ↑ {rate(s.net.tx_rate)}
-        </h3>
-        <DotChart values={history.map((h) => h.rx + h.tx)} label="Network throughput" unit=" B/s" span={span} />
-      </section>
-
-      <section className="sheet__section">
-        <h3>Disks</h3>
-        <ul className="list">
-          {s.disks.map((d) => (
-            <li className="block" key={d.device + d.mount}>
-              <div className="row">
-                <span className="row__main">
-                  {d.mount}
-                  <span className="row__sub">
-                    {bytes(d.used)} of {bytes(d.total)} · {d.fstype || d.device}
-                  </span>
-                </span>
-                <span className={`row__meta${d.percent >= 90 ? ' signal-text' : ''}`}>{Math.round(d.percent)}%</span>
-              </div>
-              <Meter percent={d.percent} budget={90} />
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {(s.temperatures.length > 0 || s.battery) && (
-        <section className="sheet__section">
-          <h3>Sensors</h3>
-          <dl className="facts">
-            {s.temperatures.map((t, i) => (
-              <div key={i} style={{ display: 'contents' }}>
-                <dt>{t.label}</dt>
-                <dd>{Math.round(t.current)}°C</dd>
-              </div>
+      <div className="chans">
+        <section className="chan">
+          <header className="chan__head">
+            <h3>CPU</h3>
+            <span className="chan__value">{Math.round(s.cpu.percent)}%</span>
+            <span className="chan__aside">load {s.cpu.load.map((l) => l.toFixed(2)).join(' ')}</span>
+          </header>
+          <DotChart values={history.map((h) => h.cpu)} max={100} height={56} label={`CPU over the last ${over}`} unit="%" span={span} />
+          <div className="cores" role="img" aria-label={`Per-core load: ${s.cpu.per_core.map((c) => Math.round(c)).join(', ')}%`}>
+            {s.cpu.per_core.map((c, i) => (
+              <span key={i} className="core" title={`Core ${i}: ${Math.round(c)}%`}>
+                <span className="core__fill" style={{ height: `${Math.min(100, c)}%` }} />
+              </span>
             ))}
-            {s.battery && (
-              <>
-                <dt>Battery</dt>
-                <dd>
-                  {Math.round(s.battery.percent)}% {s.battery.plugged ? '· charging' : ''}
-                </dd>
-              </>
-            )}
-          </dl>
+          </div>
         </section>
-      )}
+
+        <section className="chan">
+          <header className="chan__head">
+            <h3>Memory</h3>
+            <span className={`chan__value${s.memory.percent >= 92 ? ' signal-text' : ''}`}>{Math.round(s.memory.percent)}%</span>
+            <span className="chan__aside">
+              {bytes(s.memory.used)} of {bytes(s.memory.total)} · {bytes(s.memory.available)} free
+            </span>
+          </header>
+          <DotChart values={history.map((h) => h.mem)} max={100} height={56} label={`Memory over the last ${over}`} unit="%" span={span} />
+          {s.memory.swap_total > 0 && (
+            <div className="gauge">
+              <span className="gauge__name">Swap</span>
+              <Meter percent={s.memory.swap_percent} label="Swap in use" />
+              <span className="gauge__value">
+                {bytes(s.memory.swap_used)} of {bytes(s.memory.swap_total)}
+              </span>
+            </div>
+          )}
+        </section>
+
+        <section className="chan">
+          <header className="chan__head">
+            <h3>Network</h3>
+            <span className="chan__value">
+              ↓ {rate(s.net.rx_rate)} <span className="chan__sep">↑</span> {rate(s.net.tx_rate)}
+            </span>
+          </header>
+          <DotChart values={history.map((h) => h.rx + h.tx)} height={56} label={`Network throughput over the last ${over}`} unit=" B/s" span={span} />
+          {nics.length > 0 && (
+            <table className="mini">
+              <tbody>
+                {nics.map((n) => (
+                  <tr key={n.name}>
+                    <th scope="row">{n.name}</th>
+                    <td className="mini__dim">{n.speed_mbps ? (n.speed_mbps >= 1000 ? `${n.speed_mbps / 1000} Gb/s` : `${n.speed_mbps} Mb/s`) : ''}</td>
+                    <td>↓ {rate(n.rx_rate)}</td>
+                    <td>↑ {rate(n.tx_rate)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <span className="chan__foot">
+            {bytes(s.net.rx_total)} in · {bytes(s.net.tx_total)} out since boot
+            {quietNics > 0 && ` · ${quietNics} quiet virtual interface${quietNics === 1 ? '' : 's'}`}
+          </span>
+        </section>
+
+        <section className="chan">
+          <header className="chan__head">
+            <h3>Disk activity</h3>
+            <span className="chan__value">
+              {rate(s.disk_io.read_rate)} <span className="chan__unit">read</span>
+              <span className="chan__sep">{rate(s.disk_io.write_rate)}</span> <span className="chan__unit">written</span>
+            </span>
+          </header>
+          <DotChart values={history.map((h) => h.dr + h.dw)} height={56} label={`Disk reads and writes over the last ${over}`} unit=" B/s" span={span} />
+        </section>
+
+        <section className="chan chan--wide">
+          <header className="chan__head">
+            <h3>Disks</h3>
+            <span className="chan__aside">
+              {disks.length} mounted, fullest first
+            </span>
+          </header>
+          <ul className="disks">
+            {disks.map((d) => (
+              <li className="disk" key={d.device + d.mount}>
+                <span className="disk__mount" title={d.mount}>
+                  {d.mount}
+                </span>
+                <span className={`disk__pct${d.percent >= 90 ? ' signal-text' : ''}`}>{Math.round(d.percent)}%</span>
+                <Meter percent={d.percent} budget={90} label={`${d.mount} in use`} />
+                <span className="disk__sub">
+                  {bytes(d.used)} of {bytes(d.total)} · {d.fstype || d.device}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {(s.temperatures.length > 0 || s.battery) && (
+          <section className="chan chan--wide">
+            <header className="chan__head">
+              <h3>Sensors</h3>
+            </header>
+            <dl className="sensors">
+              {s.temperatures.map((t, i) => {
+                const hot = t.high != null && t.current >= t.high
+                return (
+                  <div key={i}>
+                    <dt title={t.chip}>{t.label || t.chip}</dt>
+                    <dd className={hot ? 'signal-text' : undefined}>{Math.round(t.current)}°C</dd>
+                  </div>
+                )
+              })}
+              {s.battery && (
+                <div>
+                  <dt>Battery</dt>
+                  <dd>
+                    {Math.round(s.battery.percent)}%{s.battery.plugged ? ' · charging' : s.battery.secs_left ? ` · ${duration(s.battery.secs_left)} left` : ''}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </section>
+        )}
+      </div>
     </div>
   )
 }

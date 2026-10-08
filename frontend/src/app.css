@@ -2064,17 +2064,217 @@ button.chip:hover {
   background: var(--ink);
 }
 
-.cores {
+/* ---------- machine overview: channels side by side, each a strip with its readings ---------- */
+
+.specs {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--sp-3);
+  gap: var(--sp-4) var(--sp-14);
+  margin: 0;
+}
+
+.specs > div {
+  min-width: 0;
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.specs dt,
+.chan__head h3,
+.gauge__name {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.specs dd {
+  margin: 0;
+  font-family: var(--f-mono);
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+
+.chans {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr));
+  gap: var(--sp-14) var(--sp-16);
+  align-items: start;
+}
+
+.chan {
+  min-width: 0;
+  display: grid;
+  gap: var(--sp-5);
+  padding-top: var(--sp-6);
+  border-top: 1px solid var(--rule-soft);
+}
+
+.chan--wide {
+  grid-column: 1 / -1;
+}
+
+.chan__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2) var(--sp-6);
+}
+
+.chan__head h3 {
+  margin: 0;
+}
+
+.chan__value {
+  font-family: var(--f-mono);
+  font-size: var(--text-2xl);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.chan__sep {
+  margin-left: var(--sp-3);
+}
+
+.chan__unit {
+  font-family: var(--f-sans);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.chan__aside,
+.chan__foot,
+.gauge__value,
+.mini__dim {
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.chan__aside {
+  margin-left: auto;
+}
+
+/* Per-core load: one small bar per core, filled from the bottom, read together like a bar chart. */
+.cores {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--sp-1);
+  height: 22px;
 }
 
 .core {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 1.5px solid var(--ink-3);
+  position: relative;
+  min-width: 0;
+  background: var(--track);
+}
+
+.core__fill {
+  position: absolute;
+  inset: auto 0 0;
+  background: var(--mod, var(--ink));
+}
+
+.gauge {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-6);
+}
+
+.mini {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.mini th,
+.mini td {
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--rule-soft);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mini th {
+  text-align: left;
+  font-weight: var(--weight-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 14ch;
+}
+
+.mini td + td {
+  padding-left: var(--sp-6);
+}
+
+/* Mounts in as many columns as fit, fullest first: the path and its share on one line, the meter, then sizes. */
+.disks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: var(--sp-8) var(--sp-16);
+}
+
+.disk {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--sp-3) var(--sp-5);
+}
+
+.disk .meter {
+  grid-column: 1 / -1;
+}
+
+.disk__mount,
+.disk__pct {
+  font-family: var(--f-mono);
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.disk__mount {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.disk__sub {
+  grid-column: 1 / -1;
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.sensors {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+  gap: var(--sp-5) var(--sp-12);
+  margin: 0;
+}
+
+.sensors dt {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sensors dd {
+  margin: 0;
+  font-family: var(--f-mono);
+  font-size: var(--text-lg);
+  font-variant-numeric: tabular-nums;
 }
 
 .logs {
