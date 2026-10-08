@@ -376,24 +376,29 @@ function useBoardDrag(onDrop: (id: number, column: string) => void) {
   return { drag, grab, dragged }
 }
 
-function BoardColumn({ col, tasks, count, drag, grab, dragged, more, onError }: {
+function BoardColumn({ col, tasks, count, drag, grab, dragged, actions, more, onError }: {
   col: Column
   tasks: Task[]
   count?: number
   drag: Drag | null
   grab: (e: ReactPointerEvent, t: Task) => void
   dragged: () => boolean
+  /** Actions on the whole column, in its header, so they stay in view however many cards it holds. */
+  actions?: ReactNode
   more?: ReactNode
   onError: (text: string) => void
 }) {
   const over = drag?.active && drag.over === col.id
   return (
     <section className={`kcol kcol--${col.id}${over ? (col.takes ? ' kcol--over' : ' kcol--refuse') : ''}`} aria-label={col.title} data-column={col.id}>
-      <h3 className="kcol__head">
-        <span className={`kcol__lamp kcol__lamp--${col.id}`} aria-hidden="true" />
-        <span className="kcol__name">{col.title}</span>
-        <span className="kcol__count">{count ?? tasks.length}</span>
-      </h3>
+      <header className="kcol__head">
+        <h3 className="kcol__title">
+          <span className={`kcol__lamp kcol__lamp--${col.id}`} aria-hidden="true" />
+          <span className="kcol__name">{col.title}</span>
+          <span className="kcol__count">{count ?? tasks.length}</span>
+        </h3>
+        {actions}
+      </header>
       <div className="kcol__body">
         {tasks.length ? (
           <ul className="kcol__cards">
@@ -431,7 +436,7 @@ function ProjectSelect({ value, onChange, id }: { value: number | null; onChange
 const DONE_SHOWN = 20
 
 export function TasksSheet({ sub }: { sub?: string }) {
-  const { tasks, refreshTasks } = useHub()
+  const { tasks, plans: allPlans, refreshTasks } = useHub()
   const [error, setError] = useState('')
   const [allDone, setAllDone] = useState(false)
 
@@ -475,6 +480,16 @@ export function TasksSheet({ sub }: { sub?: string }) {
       setError(err instanceof Error ? err.message : "Couldn't archive them.")
     }
   }
+  const review = of(['review'])
+  const doneReviewed = async () => {
+    setError('')
+    try {
+      await api('tasks/done-reviewed', { method: 'POST' })
+      refreshTasks()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't mark them done.")
+    }
+  }
   const plans = sub === 'plans'
   // Plans and the board each get the whole page: the board fits the window, its columns scrolling their own cards.
   const head = (
@@ -489,7 +504,7 @@ export function TasksSheet({ sub }: { sub?: string }) {
           Tasks · {tasks.filter((t) => t.state !== 'done').length}
         </button>
         <button type="button" className="seg__btn" aria-pressed={plans} onClick={() => go('#/m/tasks/plans')}>
-          Plans
+          Plans{allPlans ? ` · ${allPlans.length}` : ''}
         </button>
       </div>
     </>
@@ -528,6 +543,21 @@ export function TasksSheet({ sub }: { sub?: string }) {
                       <Icon name="archive" size={16} /> Archive all
                     </ConfirmButton>
                   </div>
+                )
+              }
+            />
+          ) : col.id === 'review' ? (
+            <BoardColumn
+              key={col.id}
+              col={col}
+              tasks={review}
+              onError={setError}
+              {...board}
+              actions={
+                review.length > 0 && (
+                  <ConfirmButton className="btn btn--quiet kcol__action" onConfirm={doneReviewed} confirmLabel={`Mark ${review.length} done`} title="Move every task to review to Done">
+                    Mark all done
+                  </ConfirmButton>
                 )
               }
             />

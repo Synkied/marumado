@@ -252,6 +252,14 @@ class TaskFlowTests(TestCase):
         self.assertEqual(ids('?archived=1'), [])
         self.assertEqual(Task.objects.get(pk=other).state, 'todo')
 
+    def test_marking_every_reviewed_task_done(self):
+        one, two, open_ = self.create(), self.create(), self.create()
+        self.api.post(f'/api/tasks/{one}/review')
+        self.api.post(f'/api/tasks/{two}/review')
+        self.assertEqual(self.api.post('/api/tasks/done-reviewed').json(), {'done': 2})
+        states = {t.pk: t.state for t in Task.objects.all()}
+        self.assertEqual((states[one], states[two], states[open_]), ('done', 'done', 'todo'))
+
     def test_agents_in_other_sources_are_told_apart(self):
         # The same pane id in two sources: the task follows the one in the source it was given to.
         tid = self.create()

@@ -247,6 +247,14 @@ class TaskViewSet(viewsets.ModelViewSet):
             tasks.archive(task)
         return Response({'archived': len(done)})
 
+    @action(detail=False, methods=['post'], url_path='done-reviewed')
+    def done_reviewed(self, request):
+        """Mark every task to review done at once."""
+        review = list(Task.objects.filter(state=Task.REVIEW, archived_at__isnull=True))
+        for task in review:
+            tasks.mark_done(task)
+        return Response({'done': len(review)})
+
     @action(detail=True, methods=['post'])
     def go(self, request, pk=None):
         """The owner's go for a plan's step that asks for it before starting."""
