@@ -14,7 +14,7 @@ import { useHub } from '../lib/hub'
 import { useMachines } from '../lib/machines'
 import { Redacted, Secret, useRedact } from '../lib/streaming'
 import { go, type Route } from '../lib/route'
-import type { Agent, AgentSource, AgentStatus, Container, Proc, ProjectRef, Pulse } from '../lib/types'
+import type { Agent, Agents, AgentSource, AgentStatus, Container, Proc, ProjectRef, Pulse } from '../lib/types'
 import { useIsNarrow } from '../lib/useIsNarrow'
 import { usePoll } from '../lib/usePoll'
 import { MomentumSheet, SkillsSheet, useView, ViewSwitch } from './growth'
@@ -886,6 +886,9 @@ function AgentMark({ agent: a, label, size }: { agent: Agent; label: string; siz
   )
 }
 
+/** How each agent quits, typed at its prompt. */
+const QUIT: Record<string, string> = { claude: '/exit', codex: '/quit', pi: '/quit', gemini: '/quit', opencode: '/exit' }
+
 /** What runs in the pane (claude, codex, pi…), as a small tag beside its name; nothing for a plain terminal. */
 function AgentKind({ agent: a }: { agent: Agent }) {
   return a.kind === 'terminal' ? null : <span className="agent-kind">{a.kind}</span>
@@ -1117,6 +1120,40 @@ function AgentsSheet({ sub }: { sub?: string }) {
       setCloseError(err instanceof Error ? `Couldn't close it: ${err.message}` : "Couldn't close it.")
     }
   }
+  // Quit the agent, keeping its pane: its shell is back, and the page shows the terminal. Busy or asking, Esc first,
+  // which may be all it takes (a question asked as it starts quits it); a question can also hold the command back until
+  // its screen says it is gone, so that is tried again a moment later. Ctrl+C empties its input box before the command
+  // is typed: what was there (a draft, or the prompt an interrupt gives back) would go with it.
+  const quitWith = QUIT[current.kind]
+  const quitAgent = async () => {
+    setCloseError('')
+    const input = (json: { text?: string; keys?: string[] }) => api(`agents/${encodeURIComponent(current.pane_id)}/input?${sourceQuery(currentSource)}`, { method: 'POST', json })
+    const pause = (ms: number) => new Promise((r) => window.setTimeout(r, ms))
+    // Typed with no agent there, the command would go to its shell.
+    const still = async () => (await api<Agents>('agents')).agents.some((a) => agentKey(a) === agentKey(current) && a.kind !== 'terminal')
+    try {
+      let interrupt = current.status === 'working' || current.status === 'blocked'
+      for (let tries = 1; ; tries++) {
+        if (interrupt) {
+          await input({ keys: ['esc'] })
+          await pause(1000)
+          if (!(await still())) break
+        }
+        try {
+          await input({ keys: ['ctrl+c'] })
+          await pause(300)
+          await input({ text: quitWith })
+          break
+        } catch (err) {
+          if (tries === 3 || !(err instanceof Error && /question/.test(err.message))) throw err
+          interrupt = true
+        }
+      }
+      for (const ms of [800, 2500, 5000]) window.setTimeout(refreshAgents, ms)
+    } catch (err) {
+      setCloseError(err instanceof Error ? `Couldn't quit it: ${err.message}` : "Couldn't quit it.")
+    }
+  }
   const queued = current.queued ?? []
   const currentAsks = queued.filter((q) => q.asking).length
   // Phones show one thing at a time, like a chat app: the list, or the agent opened from it.
@@ -1277,6 +1314,12 @@ function AgentsSheet({ sub }: { sub?: string }) {
                     <Icon name={full ? 'collapse' : 'expand'} size={18} />
                     <span className="sr-only">Full screen</span>
                   </button>
+                )}
+                {mode === 'control' && quitWith && (
+                  <ConfirmButton className="tool" confirmLabel={`Quit ${current.kind}`} onConfirm={quitAgent} title={`Quit ${current.kind} and keep this pane as a terminal (${quitWith})`}>
+                    <Icon name="stop" size={18} />
+                    <span className="sr-only">Quit {current.kind}</span>
+                  </ConfirmButton>
                 )}
                 {mode === 'control' && (
                   <ConfirmButton
