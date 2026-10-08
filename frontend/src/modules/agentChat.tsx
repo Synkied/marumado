@@ -55,7 +55,9 @@ function useConversation(paneId: string, source: number, every: number) {
     const id = window.setInterval(() => document.visibilityState === 'visible' && load(), every)
     return () => window.clearInterval(id)
   }, [load, every])
-  return { ...state, refresh: () => load(), earlier: () => load(true) }
+  const refresh = useCallback(() => load(), [load])
+  const earlier = useCallback(() => load(true), [load])
+  return { ...state, refresh, earlier }
 }
 
 /** How the conversation is set, remembered per browser. */
@@ -202,7 +204,8 @@ function useCommands(paneId: string, source: number, kind: string) {
   }, [paneId, source, kind])
   return commands
 }
-type Pending = { text: string; at: number }
+/** A message you sent that its record doesn't have yet: when, and the last step there was then. */
+type Pending = { text: string; at: number; after: number }
 
 export function AgentConversation({ agent, control }: { agent: Agent; control: boolean }) {
   const source = sourceOf(agent)
@@ -222,13 +225,32 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
   const [shown, setShown] = useState<Shown | null>(null)
   const [pending, setPending] = useState<Pending[]>([])
 
-  // What you sent shows at once, until the record has it.
+  // What you sent shows at once, until the record has it: any message of yours written since, whichever comes first
+  // (sent while it works, it is taken in later, maybe along with others). Kept a good while, as it may be busy long.
   const lastYou = [...steps].reverse().find((s) => s.kind === 'you')
-  const waiting = pending.filter((p) => !(lastYou && lastYou.t >= p.at - 30000 && bare(lastYou.detail).startsWith(bare(p.text).slice(0, 40))) && Date.now() - p.at < 120000)
-  // The reply it is still writing, unless the record has it already.
-  const live = working ? readLive(screen, agent.kind) : { status: '', text: '' }
+  const waiting = pending.filter(
+    (p) => Date.now() - p.at < 600000 && !steps.some((s) => s.kind === 'you' && (s.i > p.after || s.t >= p.at - 30000) && bare(s.detail || s.title).includes(bare(p.text).slice(0, 40))),
+  )
+  // The reply it is still writing, unless the record has it already. Kept a little after it leaves its screen (it
+  // stops working, or goes on to a tool), as its record may not have it yet.
+  const onScreen = working ? readLive(screen, agent.kind) : { status: '', text: '' }
+  const [held, setHeld] = useState<{ text: string; at: number } | null>(null)
+  useEffect(() => {
+    if (onScreen.text) setHeld({ text: onScreen.text, at: Date.now() })
+  }, [onScreen.text])
+  const live = { ...onScreen, text: onScreen.text || (held && Date.now() - held.at < 20000 ? held.text : '') }
   const sinceYou = lastYou ? steps.filter((s) => s.i > lastYou.i && s.kind === 'say') : steps.filter((s) => s.kind === 'say').slice(-3)
   const liveText = live.text && !sinceYou.some((s) => bare(s.detail).includes(bare(live.text).slice(0, 60))) ? live.text : ''
+  // Once it is done, read its record again soon rather than at the slower pace, so its last words come quickly.
+  const wasWorking = useRef(working)
+  useEffect(() => {
+    if (wasWorking.current && !working) {
+      const id = window.setTimeout(refresh, 1200)
+      wasWorking.current = working
+      return () => window.clearTimeout(id)
+    }
+    wasWorking.current = working
+  }, [working, refresh])
   // What you wrote to it, oldest first, for Up and Down in the box: the record's messages, then those it hasn't yet.
   const wrote = [...steps.filter((s) => s.kind === 'you' && s.detail).map((s) => s.detail), ...waiting.map((p) => p.text)]
   const sent = wrote.filter((t, i) => t.trim() && t !== wrote[i - 1])
@@ -247,7 +269,8 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
     await api(`agents/${encodeURIComponent(paneId)}/input?${sourceQuery(source)}`, { method: 'POST', json })
     if (json.text) {
       follow.current = true
-      setPending((p) => [...p, { text: json.text!, at: Date.now() }])
+      setHeld(null)
+      setPending((p) => [...p, { text: json.text!, at: Date.now(), after: steps.length ? steps[steps.length - 1].i : -1 }])
     }
     window.setTimeout(() => {
       refresh()
@@ -553,6 +576,10 @@ function ChatBox({ draftKey, working, asking, locked, commands, sent, send, foot
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const box = useRef<HTMLTextAreaElement>(null)
+  // Ready to write to as it opens, with a mouse and keyboard at least (on a phone, the keyboard would cover it).
+  useEffect(() => {
+    if (window.matchMedia('(pointer: fine)').matches && !editable(document.activeElement)) box.current?.focus({ preventScroll: true })
+  }, [])
   useLayoutEffect(() => {
     const el = box.current
     if (!el) return

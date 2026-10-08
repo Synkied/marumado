@@ -330,6 +330,13 @@ class Parser:
         if r.get('type') == 'system' and r.get('subtype') == 'compact_boundary':
             self.compacted = r.get('compactMetadata') or {}
             return
+        attached = r.get('attachment') if r.get('type') == 'attachment' and not r.get('isSidechain') else None
+        if isinstance(attached, dict) and attached.get('type') == 'queued_command' and attached.get('commandMode') == 'prompt':
+            # What you sent while it worked, taken in mid-turn: written as an attachment, not as a message of yours.
+            t = _ms(r.get('timestamp', ''))
+            self.prev = t
+            self.prompt(t, attached.get('prompt') if isinstance(attached.get('prompt'), str) else '')
+            return
         if r.get('type') not in ('user', 'assistant') or r.get('isSidechain') or r.get('isMeta'):
             return
         t = _ms(r.get('timestamp', ''))

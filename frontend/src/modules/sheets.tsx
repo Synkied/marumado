@@ -886,8 +886,13 @@ function AgentMark({ agent: a, label, size }: { agent: Agent; label: string; siz
   )
 }
 
-/** An agent in the side list, as a conversation in a chat app, in two lines: its name and how long since its last
-    step, then where it works and what it is on. What it is (claude, codex…) is in its tooltip. The whole row opens it. */
+/** What runs in the pane (claude, codex, pi…), as a small tag beside its name; nothing for a plain terminal. */
+function AgentKind({ agent: a }: { agent: Agent }) {
+  return a.kind === 'terminal' ? null : <span className="agent-kind">{a.kind}</span>
+}
+
+/** An agent in the side list, as a conversation in a chat app, in two lines: its name, how long since its last step and
+    what it is (claude, codex…), at the row's end, then where it works and what it is on. The whole row opens it. */
 function AgentRow({ agent: a, active, place, doing }: { agent: Agent; active: boolean; place: string; doing?: Doing }) {
   const queued = a.queued?.length ?? 0
   const fault = a.status === 'blocked'
@@ -903,6 +908,7 @@ function AgentRow({ agent: a, active, place, doing }: { agent: Agent; active: bo
               {lately(doing.t)}
             </time>
           )}
+          <AgentKind agent={a} />
         </span>
         <span className="thread__doing">
           <span className="thread__where">{a.project ? a.project.name : <Secret label="Folder">{place}</Secret>}</span>
@@ -1220,6 +1226,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
               >
                 {agentLabel(current)}
               </h3>
+              <AgentKind agent={current} />
               <span className={`agent-head__state${current.status === 'blocked' ? ' signal-text' : ''}`}>{AGENT_STATE[current.status]}</span>
               {!narrow && where}
               <div className="agent-tools" role="toolbar" aria-label="Agent">

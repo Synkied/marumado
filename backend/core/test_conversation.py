@@ -115,6 +115,20 @@ class ConversationTests(TestCase):
         self.assertEqual(steps[1]['title'], 'Compacted the conversation (manual, 363k → 13k tokens)')
         self.assertIn('Summary', steps[1]['detail'])
 
+    def test_message_taken_in_mid_turn_is_yours(self):
+        queued = lambda prompt, mode='prompt': json.dumps({'type': 'attachment', 'timestamp': '2026-10-08T10:00:05Z', 'attachment': {
+            'type': 'queued_command', 'prompt': prompt, 'commandMode': mode, 'origin': {'kind': 'human'}}})
+        self.write(
+            's1.jsonl',
+            line('user', 'Fix the build'),
+            line('assistant', [{'type': 'tool_use', 'id': 'c1', 'name': 'Bash', 'input': {'command': 'make'}}]),
+            queued('and the tests too'),
+            queued('<task-notification>done</task-notification>', 'task-notification'),
+            line('user', [{'type': 'tool_result', 'tool_use_id': 'c1', 'content': 'ok'}]),
+        )
+        steps = conversation.trace('w1:p1', 0)['steps']
+        self.assertEqual([(s['kind'], s['title']) for s in steps if s['kind'] == 'you'], [('you', 'Fix the build'), ('you', 'and the tests too')])
+
     def test_screenshot_in_a_tool_result_goes_to_its_call(self):
         path = self.write(
             's1.jsonl',

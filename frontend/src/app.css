@@ -892,6 +892,17 @@
   white-space: nowrap;
 }
 
+.agent-kind {
+  flex: none;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  font-family: var(--f-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
 .thread__ago {
   flex: none;
   font-family: var(--f-mono);
