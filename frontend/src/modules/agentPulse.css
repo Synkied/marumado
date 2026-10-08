@@ -121,9 +121,14 @@
   white-space: nowrap;
 }
 
+/* A tally may be longer than its column (tokens, cost and context): it wraps between its parts, never past the lane. */
 .lane__tally {
+  max-width: 100%;
   font-size: var(--text-sm);
   color: var(--ink-2);
+}
+
+.lane__tally > span {
   white-space: nowrap;
 }
 

@@ -232,6 +232,7 @@
   align-items: center;
   column-gap: var(--sp-4);
   min-width: 0;
+  container-type: inline-size;
   padding: var(--sp-5) var(--sp-6) var(--sp-4);
   border: 0;
   background: var(--disc);
@@ -261,12 +262,17 @@
 .readout__value {
   grid-area: value;
   margin-top: var(--sp-1);
+  /* A long value ("10 of 12") shrinks with a narrow cell rather than running out of it. Every cell shares the same
+     columns, so they all stay the same size. */
+  min-width: 0;
+  overflow: hidden;
   font-family: var(--f-mono);
-  font-size: var(--text-3xl);
+  font-size: min(var(--text-3xl), 24cqi);
   line-height: 1.05;
   letter-spacing: var(--track-display);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .readout__detail,

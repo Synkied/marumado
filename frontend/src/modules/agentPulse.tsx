@@ -216,8 +216,9 @@ function LaneRow({ lane: l, peak, pending, now }: { lane: Lane; peak: number; pe
           )}
           {usage && usage.calls > 0 && (
             <span className="lane__tally lane__usage" title="The last day: its tokens and what they cost at API prices, and how full its context is">
-              {tokens(usage.total)} tokens{usage.priced ? ` · ${dollars(usage.cost)}` : ''}
-              {usage.context && usage.context.tokens > 0 ? ` · context ${tokens(usage.context.tokens)}` : ''}
+              <span>{tokens(usage.total)} tokens</span>
+              {usage.priced && <span> · {dollars(usage.cost)}</span>}
+              {usage.context && usage.context.tokens > 0 && <span> · context {tokens(usage.context.tokens)}</span>}
             </span>
           )}
         </span>
