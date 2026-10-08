@@ -439,7 +439,7 @@ export type Overview = {
 
 /** One thing an agent did, from its session record (core/transcripts.py). Times are unix milliseconds;
     `end` is null while a tool it called hasn't answered. `ok` false: the tool or command failed. */
-export type TraceKind = 'think' | 'say' | 'read' | 'search' | 'edit' | 'run' | 'agent' | 'tool' | 'you' | 'ask'
+export type TraceKind = 'think' | 'say' | 'read' | 'search' | 'edit' | 'run' | 'agent' | 'tool' | 'you' | 'ask' | 'compact'
 export type TraceStep = {
   i: number
   kind: TraceKind
@@ -451,12 +451,20 @@ export type TraceStep = {
   detail: string
   ok: boolean | null
   files?: { path: string; add?: number; del?: number }[]
+  /** where what came back begins in `detail` (a command's output, after the command) */
+  cut?: number
+  /** the screenshots and pictures in it, read one at a time (GET agents/<pane>/image?path=&id=) */
+  images?: string[]
 }
 
 /** GET tasks/<id>/trace?from=n: the steps from `from` on (those before are final); `first`, where the task begins. */
 export type Trace =
   | { found: false; reason: string; steps: []; total: number }
   | { found: true; path: string; first: number; from: number; total: number; steps: TraceStep[] }
+
+/** GET agents/<pane>/trace?from=n: an agent's session, found from its pane (negative `from`: the last -n steps).
+    `shared`: how many agents of its kind work in its folder; `sure` false: which record is its own is a guess. */
+export type AgentTrace = Trace & { kind?: string; shared?: number; sure?: boolean }
 
 /** GET agents/pulse: what the agents wrote in the last day, by folder. Agents of one kind in one folder are read
     together (their records can't be told apart), so `panes` may name several. `edits`: [ms, lines added, lines

@@ -6,18 +6,18 @@ import { DotChart } from '../components/DotChart'
 import { CountBadge } from '../components/CountBadge'
 import { Icon } from '../components/Icon'
 import { Meter } from '../components/Meter'
-import { agentHref, agentKey, findWorkspace, parseAgentRef, sourceLabel, sourceOf, sourceQuery, sourcesOf, useWorkspace, workspaceLabel } from '../lib/agents'
+import { agentHref, agentKey, CHAT_KINDS, findWorkspace, parseAgentRef, sourceLabel, sourceOf, sourceQuery, sourcesOf, STATE_WORDS, useWorkspace, workspaceLabel } from '../lib/agents'
 import { api } from '../lib/api'
 import { bytes, duration, rate } from '../lib/format'
 import { useHub } from '../lib/hub'
 import { useMachines } from '../lib/machines'
 import { Redacted, Secret, useRedact } from '../lib/streaming'
 import { go, type Route } from '../lib/route'
-import type { Agent, AgentSource, AgentStatus, Container, Proc, ProjectRef } from '../lib/types'
+import type { Agent, AgentSource, AgentStatus, Container, Proc, ProjectRef, Pulse } from '../lib/types'
 import { useIsNarrow } from '../lib/useIsNarrow'
 import { usePoll } from '../lib/usePoll'
 import { MomentumSheet, SkillsSheet, useView, ViewSwitch } from './growth'
-import { AgentInbox } from './agentInbox'
+import { NotifyToggle } from './agentInbox'
 import { AgentSourcesSheet } from './agentSources'
 import { MachinesSheet } from './machines'
 import { Fleet } from './fleet'
@@ -25,6 +25,7 @@ import { ProjectForm, ProjectsSheet } from './projects'
 import { SheetHead, ViewTabs } from './sheetHead'
 import { TasksSheet } from './tasks'
 import { PlansModal } from './planModal'
+import { AgentConversation } from './agentChat'
 import { WorkspaceBar } from './workspaces'
 
 export function SheetFor({ route }: { route: Route }) {
@@ -684,6 +685,27 @@ function useFitPreference(): [boolean, (on: boolean) => void] {
   return [fit, set]
 }
 
+/** The agent's session as a conversation, or its live terminal instead (remembered per browser): the conversation
+    unless you pick the terminal. */
+function useChatPreference(): [boolean, (on: boolean) => void] {
+  const [chat, setChat] = useState(() => {
+    try {
+      return localStorage.getItem('marumado.agent-terminal') !== 'on'
+    } catch {
+      return true
+    }
+  })
+  const set = (on: boolean) => {
+    setChat(on)
+    try {
+      localStorage.setItem('marumado.agent-terminal', on ? 'off' : 'on')
+    } catch {
+      // private mode: remember for this visit only
+    }
+  }
+  return [chat, set]
+}
+
 /** The + on a source's heading: opens a shell there (in a new tab of `workspace`, or a new Herdr workspace), and switches to it. */
 function NewTerminal({ source, sourceName, workspace }: { source: number; sourceName: string; workspace?: string }) {
   const { refreshAgents } = useHub()
@@ -721,22 +743,6 @@ const agentLabel = (a: Agent) => (a.title && a.title !== a.kind ? a.title : a.na
 const lampOf = (a: Agent) =>
   a.status === 'blocked' ? ' row__lamp--fault' : a.status === 'working' ? ' row__lamp--on' : a.status === 'done' ? ' row__lamp--done' : ''
 
-/** The bell beside the Agents title: how many agents wait on you, and the way to them. */
-function InboxBell({ waiting, asks, active }: { waiting: number; asks: number; active: boolean }) {
-  const what =
-    [waiting ? `${waiting} agent${waiting === 1 ? '' : 's'} need${waiting === 1 ? 's' : ''} you` : '', asks ? `${asks} step${asks === 1 ? '' : 's'} wait${asks === 1 ? 's' : ''} for your go` : '']
-      .filter(Boolean)
-      .join(', ') || 'Nothing needs you'
-  const count = waiting + asks
-  return (
-    <a className={`tool tool--bell${count ? ' is-fault' : ''}`} href="#/m/agents/inbox" aria-current={active ? 'page' : undefined} title={`${what}: answer them here`}>
-      <Icon name="bell" size={18} />
-      {count > 0 && <span className="tool__count">{count}</span>}
-      <span className="sr-only">Needs you: {what}</span>
-    </a>
-  )
-}
-
 /** The plans, over the Agents page: lay out a new one or follow one, even with no agent running. Its badge counts
     the steps of every plan whose turn has come and that wait for your go, those for an agent not started yet too. */
 function PlansButton({ onOpen }: { onOpen: () => void }) {
@@ -767,37 +773,49 @@ function PlansButton({ onOpen }: { onOpen: () => void }) {
   )
 }
 
-/** An agent in the side list. Its + queues a task for it in the plans modal, without leaving the agent on screen. */
-function AgentTab({ agent: a, active, sub, onQueue }: { agent: Agent; active: boolean; sub: string; onQueue: (a: Agent) => void }) {
-  const lamp = lampOf(a)
-  const name = a.name || a.kind
+/** What an agent did last, from its session record (the pulse), and when: only when the record is its own, not one
+    it shares with another agent of its kind in the same folder. */
+type Doing = { title: string; t: number }
+
+const lately = (ms: number) => {
+  const s = Math.max(0, (Date.now() - ms) / 1000)
+  return s < 60 ? 'now' : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`
+}
+
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+
+/** An agent in the side list, as a conversation in a chat app, in two lines: its name and how long since its last
+    step, then where it works and what it is on. What it is (claude, codex…) is in its tooltip. The whole row opens it. */
+function AgentRow({ agent: a, active, place, doing }: { agent: Agent; active: boolean; place: string; doing?: Doing }) {
   const queued = a.queued?.length ?? 0
-  // The whole card is the link (stretched over it), so the + can sit on it without nesting a button in a link.
+  const fault = a.status === 'blocked'
+  const state = capital(STATE_WORDS[a.status])
   return (
-    <div className={`agent-tab${active ? ' is-active' : ''}${a.status === 'blocked' ? ' is-fault' : ''}${a.kind !== 'terminal' ? ' has-queue' : ''}`}>
-      <span className={`row__lamp${lamp}`} role="img" aria-label={a.status} />
-      <span className="agent-tab__main">
-        <a className="agent-tab__title" href={agentHref(a)} aria-current={active ? 'page' : undefined}>
-          {agentLabel(a)}
-        </a>
-        <span className="agent-tab__sub">
-          <span className={`agent-tab__state${a.status === 'blocked' ? ' signal-text' : ''}`}>{AGENT_STATE[a.status]}</span> {a.kind} · {sub}
+    <a className={`thread${active ? ' is-active' : ''}${fault ? ' is-fault' : ''}`} href={agentHref(a)} aria-current={active ? 'page' : undefined} title={`${agentLabel(a)} · ${a.kind}`}>
+      <span className={`row__lamp${lampOf(a)}`} role="img" aria-label={state} />
+      <span className="thread__main">
+        <span className="thread__top">
+          <span className="thread__name">{agentLabel(a)}</span>
+          {doing && (
+            <time className="thread__ago" dateTime={new Date(doing.t).toISOString()} title={`Last step at ${new Date(doing.t).toLocaleString()}`}>
+              {lately(doing.t)}
+            </time>
+          )}
+        </span>
+        <span className="thread__doing">
+          <span className="thread__where">{a.project ? a.project.name : <Secret label="Folder">{place}</Secret>}</span>
+          {' · '}
+          {(fault || !doing || a.status !== 'working') && <span className={fault ? 'signal-text' : undefined}>{fault ? 'Needs you' : state}</span>}
+          {doing && (
+            <>
+              {(fault || a.status !== 'working') && ' · '}
+              <Secret label="Step">{doing.title}</Secret>
+            </>
+          )}
+          {queued > 0 && ` · ${queued} queued`}
         </span>
       </span>
-      {a.kind !== 'terminal' && (
-        <button
-          type="button"
-          className={`tool agent-tab__queue${queued ? ' tool--bell is-queued mod-tasks' : ''}`}
-          aria-haspopup="dialog"
-          onClick={() => onQueue(a)}
-          title={queued ? `${queued} queued for ${name}: queue more, or see them` : `New task: queue what ${name} does next`}
-        >
-          {queued ? <Icon name="queue" size={16} /> : <Icon name="plus" size={16} />}
-          {queued > 0 && <span className="tool__count">{queued}</span>}
-          <span className="sr-only">{queued ? `${queued} queued for ${name}: queue more` : `New task for ${name}`}</span>
-        </button>
-      )}
-    </div>
+    </a>
   )
 }
 
@@ -815,9 +833,9 @@ function SourceHeading({ source: s, agents, control, workspace }: { source: Agen
         <span className="agent-group__name" title={redact(s.where)}>
           {s.name}
         </span>
+        <span className={`agent-group__count${!s.available || waiting ? ' signal-text' : ''}`}>{count}</span>
         {control && s.available && <NewTerminal source={s.id} sourceName={s.name} workspace={workspace} />}
       </div>
-      <span className={`agent-group__count${!s.available || waiting ? ' signal-text' : ''}`}>{count}</span>
       {!s.available && (
         <p className="agent-group__error" title={redact(s.error)}>
           <Redacted text={s.error || 'Herdr is not answering.'} />
@@ -878,6 +896,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
   const [closeError, setCloseError] = useState('')
   const narrow = useIsNarrow()
   const [view, setView] = useState<'text' | 'screen'>('text')
+  const [chat, setChat] = useChatPreference()
   const [fit, setFit] = useFitPreference()
   const [full, setFull] = useState(false)
   // An agent: the modal opens on what that agent does next; 'plans': on the plans alone, whatever is running.
@@ -885,6 +904,8 @@ function AgentsSheet({ sub }: { sub?: string }) {
   const [changesAgent, setChangesAgent] = useState<Agent | null>(null)
   const plansButton = <PlansButton onOpen={() => setPlansOpen('plans')} />
   const [pickedWorkspace, setWorkspace] = useWorkspace()
+  // What each agent did last, for the list.
+  const pulse = usePoll<Pulse>(agents?.available && !sub?.startsWith('sources') ? 'agents/pulse' : null, 15000)
 
   if (sub === 'sources' || sub?.startsWith('sources/')) return <AgentSourcesSheet sub={sub.slice(8)} />
   if (!agents) return <div className="sheet__empty">Loading…</div>
@@ -905,9 +926,15 @@ function AgentsSheet({ sub }: { sub?: string }) {
   const order = (a: Agent) => (grouped ? sources.findIndex((s) => s.id === sourceOf(a)) * 10 : 0) + AGENT_ORDER.indexOf(a.status)
   const everyAgent = [...agents.agents].sort((a, b) => order(a) - order(b))
   const list = everyAgent.filter(inWorkspace)
-  const ref = parseAgentRef(sub)
+  // Needs you counts every workspace: an agent waiting elsewhere still waits on you.
+  const waiting = everyAgent.filter((a) => a.kind !== 'terminal' && a.status === 'blocked')
+  // Plans' steps whose turn has come, waiting for your go: they need you too, those starting a new agent as well.
+  const asks = needsYou.asks
+  // The old inbox's links (#/m/agents/inbox, …/inbox/<agent>) open the agent waiting on you, to answer it there.
+  const inbox = sub === 'inbox' || Boolean(sub?.startsWith('inbox/'))
+  const ref = parseAgentRef(inbox ? sub?.slice(6) : sub)
   // A link to an agent in another workspace still opens it.
-  const current = (ref && everyAgent.find((a) => a.pane_id === ref.pane && sourceOf(a) === ref.source)) || list[0]
+  const current = (ref && everyAgent.find((a) => a.pane_id === ref.pane && sourceOf(a) === ref.source)) || (inbox && waiting[0]) || list[0]
   const mode = agents.terminal ?? 'control'
   const sourcesLabel = `Sources${multi ? ` · ${allSources.length}` : ''}`
   const workspaceBar = <WorkspaceBar agents={agents} chosen={workspace} onChoose={setWorkspace} control={mode === 'control'} />
@@ -968,6 +995,9 @@ function AgentsSheet({ sub }: { sub?: string }) {
 
   const project = projectFor(current)
   const currentSource = sourceOf(current)
+  // Claude Code, Codex and Pi keep a record of their session, which the conversation reads: it opens on that.
+  const canChat = CHAT_KINDS.includes(current.kind)
+  const showChat = chat && canChat
   const currentSourceName = sourceLabel(agents, current)
   const closePane = async () => {
     setCloseError('')
@@ -979,20 +1009,55 @@ function AgentsSheet({ sub }: { sub?: string }) {
       setCloseError(err instanceof Error ? `Couldn't close it: ${err.message}` : "Couldn't close it.")
     }
   }
-  const inbox = sub === 'inbox' || Boolean(sub?.startsWith('inbox/'))
-  // Needs you counts every workspace: an agent waiting elsewhere still waits on you.
-  const waiting = everyAgent.filter((a) => a.kind !== 'terminal' && a.status === 'blocked')
-  // Plans' steps whose turn has come, waiting for your go: they need you too, those starting a new agent as well.
-  const asks = needsYou.asks
   const queued = current.queued ?? []
   const currentAsks = queued.filter((q) => q.asking).length
-  const working = everyAgent.filter((a) => a.kind !== 'terminal' && a.status === 'working').length
-  const tab = (a: Agent) => <AgentTab key={agentKey(a)} agent={a} active={!inbox && a === current} sub={projectFor(a)?.name ?? a.cwd} onQueue={setPlansOpen} />
+  // Phones show one thing at a time, like a chat app: the list, or the agent opened from it.
+  const listOnly = narrow && !ref && !inbox
+  const folderOf = new Map<string, NonNullable<Pulse['folders']>[number]>()
+  for (const f of pulse.data?.folders ?? []) for (const p of f.panes) folderOf.set(`${f.source}/${p}`, f)
+  const doingOf = (a: Agent): Doing | undefined => {
+    const f = folderOf.get(agentKey(a))
+    return f?.now && f.panes.length === 1 ? { title: f.now.title, t: f.now.t } : undefined
+  }
+  const row = (a: Agent) => <AgentRow key={agentKey(a)} agent={a} active={!listOnly && a === current} place={projectFor(a)?.name ?? a.cwd} doing={doingOf(a)} />
+  const calm = (as: Agent[]) => as.filter((a) => !(a.kind !== 'terminal' && a.status === 'blocked'))
+  const elsewhere = waiting.filter((a) => a !== current).length + asks.length
+  const where = (
+    <span className="agent-head__meta">
+      {currentSourceName && (
+        <a className="agent-source" href="#/m/agents/sources" title="Where this agent runs">
+          {currentSourceName}
+        </a>
+      )}
+      <span className="agent-head__item mod-projects">
+        <Icon name="folder" size={15} />
+        {project ? <a href={`#/m/projects/${project.id}`}>{project.name}</a> : <Secret label="Folder">{current.cwd}</Secret>}
+      </span>
+      {current.kind !== 'terminal' && (
+        <span className="agent-head__chain mod-tasks">
+          <AgentTask agent={current} projectId={project?.id ?? null} />
+          {queued.length > 0 && (
+            <span className={`agent-head__next${queued[0].asking ? ' signal-text' : ''}`}>
+              <Icon name="arrow" size={14} />
+              <button
+                className="agent-head__link"
+                type="button"
+                onClick={() => setPlansOpen(current)}
+                title={`Next: ${queued[0].title}${queued[0].asking ? ' (waits for your go)' : ''}${queued.length > 1 ? `, then ${queued.length - 1} more` : ''}`}
+              >
+                {queued[0].title}
+              </button>
+              {queued[0].asking ? <span className="agent-head__pill agent-head__pill--go">go?</span> : queued.length > 1 ? <span className="agent-head__pill">+{queued.length - 1}</span> : null}
+            </span>
+          )}
+        </span>
+      )}
+    </span>
+  )
   return (
-    <div className="sheet sheet--fill agents">
+    <div className={`sheet sheet--fill agents${narrow ? (listOnly ? ' agents--list' : ' agents--thread') : ''}`}>
       <aside className="agents__side">
         <SheetHead id="agents">
-          <InboxBell waiting={waiting.length} asks={asks.length} active={inbox} />
           {plansButton}
           <a className="tool" href="#/m/agents/sources" title="Where your agents run: add, edit or remove sources">
             <Icon name="sliders" size={18} />
@@ -1000,45 +1065,74 @@ function AgentsSheet({ sub }: { sub?: string }) {
           </a>
         </SheetHead>
         {workspaceBar}
-        <nav className="agent-tabs" aria-label={workspace ? `Agents in ${workspaceLabel(workspace)}` : 'Agents'}>
+        <nav className="agent-tabs threads" aria-label={workspace ? `Agents in ${workspaceLabel(workspace)}` : 'Agents'}>
+          {(waiting.length > 0 || asks.length > 0) && (
+            <section className="agent-tabs__group threads__needs" aria-label="Needs you">
+              <h3 className="threads__head">
+                <Icon name="bell" size={14} />
+                Needs you <span className="threads__count">{waiting.length + asks.length}</span>
+              </h3>
+              {waiting.map(row)}
+              {asks.map(({ step, agent: a }) => (
+                <a className="thread is-fault" key={`go${step.id}`} href={`#/m/tasks/plan/${step.plan}`} title="Open its plan to give it the go">
+                  <span className="row__lamp row__lamp--fault" aria-hidden="true" />
+                  <span className="thread__main">
+                    <span className="thread__name">{step.title}</span>
+                    <span className="thread__doing">
+                      <span className="signal-text">Waits for your go</span> · {a ? `next for ${a.name || a.kind}` : 'starts a new agent'}
+                    </span>
+                  </span>
+                </a>
+              ))}
+            </section>
+          )}
           {grouped
             ? sources.map((s) => {
                 const mine = list.filter((a) => sourceOf(a) === s.id)
                 return (
                   <section className="agent-tabs__group" key={s.id}>
                     <SourceHeading source={s} agents={mine} control={mode === 'control'} workspace={workspace?.id} />
-                    {mine.map(tab)}
+                    {calm(mine).map(row)}
                   </section>
                 )
               })
-            : list.map(tab)}
+            : calm(list).map(row)}
         </nav>
-        <p className="agent-hint">{TERMINAL_HINT[mode]}</p>
+        <NotifyToggle />
       </aside>
-      {inbox ? (
-        <div className="agents__stage">
-          <header className="agent-head">
-            <div className="agent-head__line">
-              <span className={`agent-head__bell${waiting.length ? ' signal-text' : ''}`} aria-hidden="true">
-                <Icon name="bell" size={20} />
-              </span>
-              <h3 className="agent-head__title">Needs you</h3>
-              <span className={`agent-head__state${waiting.length + asks.length ? ' signal-text' : ''}`}>{waiting.length + asks.length ? `${waiting.length + asks.length} waiting` : 'none'}</span>
-            </div>
-            <p className="agent-head__meta">Every agent waiting on an answer, from every source, and every step waiting for your go. Answer here, or open its terminal.</p>
-          </header>
-          <AgentInbox target={sub?.startsWith('inbox/') ? sub.slice(6) : undefined} waiting={waiting} asks={asks} working={working} control={mode === 'control'} />
-        </div>
-      ) : (
+      {!listOnly && (
         <div className={`agents__stage${full && !narrow ? ' is-full' : ''}`}>
           <header className="agent-head">
             <div className="agent-head__line">
+              {narrow && (
+                <a className="tool agent-head__back" href="#/m/agents" title={elsewhere ? `All agents: ${elsewhere} more need you` : 'All agents'}>
+                  <Icon name="back" size={18} />
+                  <CountBadge n={elsewhere} />
+                  <span className="sr-only">All agents{elsewhere ? `, ${elsewhere} more need you` : ''}</span>
+                </a>
+              )}
               <span className={`row__lamp${lampOf(current)}`} role="img" aria-label={current.status} />
-              <h3 className="agent-head__title" title={agentLabel(current)}>
+              <h3
+                className="agent-head__title"
+                title={`${agentLabel(current)}: ${current.name ? `${current.name} · ` : ''}${current.kind}${current.workspace ? ` · ${current.workspace}` : ''} · ${current.pane_id}`}
+              >
                 {agentLabel(current)}
               </h3>
               <span className={`agent-head__state${current.status === 'blocked' ? ' signal-text' : ''}`}>{AGENT_STATE[current.status]}</span>
-              <div className="agent-tools" role="toolbar" aria-label="Terminal">
+              {!narrow && where}
+              <div className="agent-tools" role="toolbar" aria-label="Agent">
+                {canChat && (
+                  <button
+                    type="button"
+                    className="agent-fit agent-fit--icon agent-view"
+                    aria-pressed={!showChat}
+                    onClick={() => setChat(!showChat)}
+                    title={showChat ? 'Show its live terminal instead of the conversation' : 'Back to the conversation'}
+                  >
+                    <Icon name="terminal" size={16} />
+                    <span className={narrow ? 'sr-only' : undefined}>Terminal</span>
+                  </button>
+                )}
                 <button type="button" className="tool" aria-haspopup="dialog" onClick={() => setChangesAgent(current)} title="Files changed in this agent’s repository">
                   <Icon name="file" size={18} />
                   <span className="sr-only">Files changed</span>
@@ -1057,7 +1151,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
                     <span className="sr-only">Queue next and plans{currentAsks ? `: ${currentAsks} waiting for your go` : ''}</span>
                   </button>
                 )}
-                {!narrow && mode === 'control' && (
+                {!narrow && mode === 'control' && !showChat && (
                   <button
                     type="button"
                     className="tool"
@@ -1088,50 +1182,10 @@ function AgentsSheet({ sub }: { sub?: string }) {
                 )}
               </div>
             </div>
-            <p className="agent-head__meta">
-              {currentSourceName && (
-                <a className="agent-source" href="#/m/agents/sources" title="Where this agent runs">
-                  {currentSourceName}
-                </a>
-              )}
-              <span className="agent-head__item mod-projects">
-                <Icon name="folder" size={15} />
-                {project ? <a href={`#/m/projects/${project.id}`}>{project.name}</a> : <Secret label="Folder">{current.cwd}</Secret>}
-              </span>
-              <span className="agent-head__item agent-head__mono" title="Herdr workspace and pane">
-                <Icon name="terminal" size={15} />
-                {current.name ? `${current.name} · ` : ''}
-                {current.kind}
-                {current.workspace ? ` · ${current.workspace}` : ''} · {current.pane_id}
-              </span>
-              {current.kind !== 'terminal' && (
-                <span className="agent-head__chain mod-tasks">
-                  <AgentTask agent={current} projectId={project?.id ?? null} />
-                  {queued.length > 0 && (
-                    <span className={`agent-head__next${queued[0].asking ? ' signal-text' : ''}`}>
-                      <Icon name="arrow" size={14} />
-                      <button
-                        className="agent-head__link"
-                        type="button"
-                        onClick={() => setPlansOpen(current)}
-                        title={`Next: ${queued[0].title}${queued[0].asking ? ' (waits for your go)' : ''}${queued.length > 1 ? `, then ${queued.length - 1} more` : ''}`}
-                      >
-                        {queued[0].title}
-                      </button>
-                      {queued[0].asking ? (
-                        <span className="agent-head__pill agent-head__pill--go">go?</span>
-                      ) : queued.length > 1 ? (
-                        <span className="agent-head__pill">+{queued.length - 1}</span>
-                      ) : null}
-                    </span>
-                  )}
-                </span>
-              )}
-            </p>
           </header>
           {closeError && <p className="notice signal-text">{closeError}</p>}
-          {narrow && mode !== 'off' && (
-            <div className="seg" role="group" aria-label="View">
+          {!showChat && narrow && mode !== 'off' && (
+            <div className="seg" role="group" aria-label="Terminal as">
               <button type="button" className="seg__btn" aria-pressed={view === 'text'} onClick={() => setView('text')}>
                 Text
               </button>
@@ -1140,12 +1194,15 @@ function AgentsSheet({ sub }: { sub?: string }) {
               </button>
             </div>
           )}
-          {mode === 'off' || (narrow && view === 'text') ? (
+          {showChat ? (
+            <AgentConversation agent={current} control={mode === 'control'} key={`chat${agentKey(current)}`} />
+          ) : mode === 'off' || (narrow && view === 'text') ? (
             <AgentOutput paneId={current.pane_id} source={currentSource} key={agentKey(current)} />
           ) : (
             <Terminal paneId={current.pane_id} source={currentSource} control={mode === 'control'} phone={narrow} fit={fit} key={agentKey(current)} />
           )}
-          {narrow && mode === 'control' && <AgentComposer paneId={current.pane_id} source={currentSource} key={`c${agentKey(current)}`} />}
+          {!showChat && narrow && mode === 'control' && <AgentComposer paneId={current.pane_id} source={currentSource} key={`c${agentKey(current)}`} />}
+          {!showChat && !narrow && <p className="agent-hint">{TERMINAL_HINT[mode]}</p>}
         </div>
       )}
       {plansOpen && <PlansModal agent={plansOpen !== 'plans' && plansOpen.kind !== 'terminal' ? plansOpen : null} onClose={() => setPlansOpen(false)} key={plansOpen === 'plans' ? 'plans' : agentKey(plansOpen)} />}

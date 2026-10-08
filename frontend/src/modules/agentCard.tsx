@@ -155,7 +155,7 @@ export function AgentCard() {
           const lamp = a.status === 'blocked' ? ' row__lamp--fault' : a.status === 'working' ? ' acard__lamp--working' : a.status === 'done' ? ' row__lamp--done' : ''
           return (
             <li key={k}>
-              <button type="button" className={`acard__agent${a.status === 'blocked' ? ' is-blocked' : ''}`} onClick={() => open(a.status === 'blocked' ? `#/m/agents/inbox/${k}` : agentHref(a))}>
+              <button type="button" className={`acard__agent${a.status === 'blocked' ? ' is-blocked' : ''}`} onClick={() => open(agentHref(a))}>
                 <span className="acard__top">
                   <span className={`row__lamp${lamp}`} aria-hidden="true" />
                   <span className="acard__name">{a.name || a.kind}</span>

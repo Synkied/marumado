@@ -8,6 +8,7 @@ import { TokenGate } from './components/TokenGate'
 import { logOut } from './lib/api'
 import { bytes } from './lib/format'
 import { CPU_BUDGET, isMachineModule, MEM_BUDGET, useHub, type ModuleId } from './lib/hub'
+import { agentHref } from './lib/agents'
 import { useMachines } from './lib/machines'
 import { useAgentCallbacks } from './lib/notify'
 import { useStreaming } from './lib/streaming'
@@ -126,7 +127,7 @@ function Vitals() {
 
 /** Your work, as small dials in the top bar, one click from anywhere: Agents, Tasks, Projects and URLs. The agents'
     dial carries a count of what waits on you there (an agent's question or approval, a plan's step waiting for your
-    go) and opens the Agents inbox, where you answer them; with nothing waiting, it opens the first terminal. */
+    go) and opens the first agent waiting on you, to answer it in its conversation; otherwise the Agents page. */
 const WORK: ModuleId[] = ['agents', 'tasks', 'projects', 'urls']
 
 function WorkDials({ active }: { active?: ModuleId }) {
@@ -152,7 +153,7 @@ function WorkDials({ active }: { active?: ModuleId }) {
           <a
             key={id}
             className={`cell work__cell mod-${id}${active === id ? ' is-active' : ''}${fault ? ' is-fault' : ''}`}
-            href={agents && n.count > 0 ? '#/m/agents/inbox' : `#/m/${id}`}
+            href={agents && n.waiting.length ? agentHref(n.waiting[0]) : `#/m/${id}`}
             aria-current={active === id ? 'page' : undefined}
             title={reading ? `${m.label}: ${reading}` : m.label}
           >

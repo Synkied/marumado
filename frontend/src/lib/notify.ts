@@ -77,7 +77,7 @@ export function useAgentCallbacks() {
       })
       n.onclick = () => {
         window.focus()
-        go(blocked ? '#/m/agents/inbox' : agentHref(a))
+        go(agentHref(a))
         n.close()
       }
     }

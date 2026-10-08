@@ -14,7 +14,7 @@ const LANES: { id: Lane; label: string }[] = [
   { id: 'run', label: 'Running' },
   { id: 'you', label: 'You' },
 ]
-const LANE_OF: Record<TraceKind, Lane> = { think: 'think', say: 'think', read: 'read', search: 'read', edit: 'edit', run: 'run', agent: 'run', tool: 'run', you: 'you', ask: 'you' }
+const LANE_OF: Record<TraceKind, Lane> = { think: 'think', say: 'think', read: 'read', search: 'read', edit: 'edit', run: 'run', agent: 'run', tool: 'run', you: 'you', ask: 'you', compact: 'think' }
 
 /** A wait on you, from the task's state events: `now` while it lasts. */
 export type Wait = { from: number; to: number; now: boolean }
@@ -58,7 +58,7 @@ function useTrace(task: Task): Loaded {
 }
 
 /** A short span: 4s, 12m, 1h 5m. */
-function span(ms: number): string {
+export function span(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000))
   if (s < 60) return `${s}s`
   const m = Math.floor(s / 60)
@@ -358,7 +358,7 @@ function Steps({ steps, start, file, clear, live }: {
 }
 
 const KIND_LABEL: Record<TraceKind, string> = {
-  think: 'thought', say: 'said', read: 'read', search: 'searched', edit: 'edited', run: 'ran', agent: 'sub-agent', tool: 'tool', you: 'you', ask: 'asked you',
+  think: 'thought', say: 'said', read: 'read', search: 'searched', edit: 'edited', run: 'ran', agent: 'sub-agent', tool: 'tool', you: 'you', ask: 'asked you', compact: 'compacted',
 }
 
 function StepRow({ s, start }: { s: TraceStep; start: number }) {

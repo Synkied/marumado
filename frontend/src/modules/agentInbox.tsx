@@ -2,12 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { agentHref, agentKey, sourceLabel, sourceOf, sourceQuery } from '../lib/agents'
 import { Icon } from '../components/Icon'
 import { api } from '../lib/api'
-import { useHub, type Ask } from '../lib/hub'
+import { useHub } from '../lib/hub'
 import { inDesktop } from '../lib/desktop'
 import { canNotify, useNotifyPreference } from '../lib/notify'
 import type { Agent } from '../lib/types'
 import { usePoll } from '../lib/usePoll'
-import { GoButton } from './plans'
 
 /** A numbered choice on an agent's screen ("❯ 1. Yes"): the key that picks it, and what it says. */
 type Choice = { key: string; text: string; current: boolean }
@@ -132,48 +131,8 @@ export function Question({ agent: a, control, head = true, onAnswered, focused =
   )
 }
 
-/** Every agent waiting on you, from every source, answerable from here; every plan's step waiting for your go. And
-    whether this browser calls you back. */
-export function AgentInbox({ waiting, asks, working, control, target }: { waiting: Agent[]; asks: Ask[]; working: number; control: boolean; target?: string }) {
-  const [answered, setAnswered] = useState<Agent[]>([])
-  const remember = (a: Agent) => setAnswered((previous) => previous.some((other) => agentKey(other) === agentKey(a)) ? previous : [...previous, a])
-  const questions = [...waiting, ...answered.filter((a) => !waiting.some((other) => agentKey(other) === agentKey(a)))]
-  questions.sort((a, b) => Number(agentKey(b) === target) - Number(agentKey(a) === target))
-  return (
-    <div className="inbox">
-      {target && !questions.some((a) => agentKey(a) === target) && <p className="question__guidance" role="status">This agent is no longer waiting for an answer. <a href={`#/m/agents/${target}`}>Check its terminal</a> for its latest state.</p>}
-      {asks.map(({ agent: a, step }) => (
-        <article className="question question--ask" key={`go${step.id}`}>
-          <p className="question__ask">
-            <strong>“{step.title}” waits for your go.</strong>{' '}
-            {a ? (
-              <>
-                It is next for <a href={agentHref(a)}>{a.name || a.kind}</a>: check what came before it, then let it start.
-              </>
-            ) : (
-              'It starts a new agent: check what came before it, then let it start.'
-            )}{' '}
-            <a href={`#/m/tasks/plan/${step.plan}`}>Open the plan</a>.
-          </p>
-          <span>
-            <GoButton step={step.id} title={step.title} />
-          </span>
-        </article>
-      ))}
-      {questions.length ? (
-        questions.map((a) => <Question agent={a} control={control} key={agentKey(a)} onAnswered={remember} focused={agentKey(a) === target} />)
-      ) : asks.length ? null : (
-        <p className="sheet__lede">
-          Nothing needs you. {working ? `${working} agent${working === 1 ? ' is' : 's are'} working.` : 'No agent is working.'} Questions and approvals land here as
-          they come up.
-        </p>
-      )}
-      <NotifyToggle />
-    </div>
-  )
-}
-
-function NotifyToggle() {
+/** Whether this browser calls you back when an agent starts waiting on you or finishes. */
+export function NotifyToggle() {
   const [on, set] = useNotifyPreference()
   if (inDesktop)
     return <p className="agent-hint">The desktop app notifies you when an agent starts waiting on you or finishes its turn (<em>Notify me</em> in its tray menu).</p>
