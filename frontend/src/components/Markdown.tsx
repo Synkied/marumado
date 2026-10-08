@@ -92,12 +92,16 @@ function blocks(text: string): ReactNode[] {
       continue
     }
     if (ITEM.test(line)) {
-      const ordered = /\d/.test(line.match(ITEM)![2])
+      const [, indent, marker] = line.match(ITEM)!
+      const ordered = /\d/.test(marker)
+      // The list sits at its first item's indent (an agent may indent a whole list), so that line is always taken:
+      // one left there would come back here forever.
+      const margin = new RegExp(`^ {0,${indent.length}}`)
       const items: string[] = []
       while (i < lines.length) {
         const m = lines[i].match(ITEM)
-        if (m && !m[1]) items.push(m[3])
-        else if (lines[i].trim() && (m || /^\s+/.test(lines[i])) && items.length) items[items.length - 1] += `\n${lines[i].replace(/^\s{1,4}/, '')}`
+        if (m && m[1].length <= indent.length) items.push(m[3])
+        else if (lines[i].trim() && (m || /^\s+/.test(lines[i])) && items.length) items[items.length - 1] += `\n${lines[i].replace(margin, '').replace(/^\s{1,4}/, '')}`
         else break
         i++
       }
