@@ -82,6 +82,11 @@ impl Reading {
     pub fn having(&self, status: &str) -> Vec<&Agent> {
         self.agents.iter().filter(|a| a.status == status).collect()
     }
+
+    /// The agents waiting on you, as the app's icon counts them: who needs you, and who has finished its turn.
+    pub fn waiting(&self) -> usize {
+        self.having("blocked").len() + self.having("done").len()
+    }
 }
 
 pub fn http() -> ureq::Agent {

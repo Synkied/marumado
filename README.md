@@ -34,6 +34,9 @@ and notifications:
   monitor (Linux: *Show agents…*), listing every agent: who needs you first, then who is working and for how long,
   what each is doing, where, what a plan has queued for it, and the last line of its screen.
 - **Notifications** when an agent starts waiting on you or finishes its turn, whether the window is open or not.
+- **A count on the app's icon** in the taskbar or dock: how many agents need you or have finished their turn. macOS
+  (the Dock), Linux docks that read the LauncherEntry signal (KDE, Ubuntu's dock, Dash to Dock; not stock GNOME), and
+  Windows (a small disc over the taskbar button, while the window is open).
 
 On first run it offers two ways, and can start with your session:
 

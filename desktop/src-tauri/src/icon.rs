@@ -159,6 +159,18 @@ pub fn draw(r: &Reading) -> Vec<u8> {
     rgba(&px)
 }
 
+/// The count of agents waiting on you, on a persimmon disc: laid over the app's taskbar button on Windows.
+#[cfg(any(windows, test))]
+pub fn badge(count: usize) -> Vec<u8> {
+    let mut px = Pixmap::new(SIZE, SIZE).expect("a non-empty pixmap");
+    let c = SIZE as f32 / 2.0;
+    disc(&mut px, c, c, SIGNAL);
+    let text = count.min(99).to_string(); // the font has digits only
+    let size = SIZE as f32 * if text.len() == 1 { 0.7 } else { 0.55 };
+    digits(&mut px, &text, c, size, GROUND);
+    rgba(&px)
+}
+
 fn rgba(px: &Pixmap) -> Vec<u8> {
     px.pixels()
         .iter()
@@ -210,6 +222,14 @@ mod tests {
         let wisteria = img.chunks(4).filter(|p| p[3] == 255 && p[..3] == WORKING).count();
         assert!(wisteria > 100, "arcs and the digit: {wisteria}");
         assert_eq!(at(&img, 2, 2)[3], 0, "the corners stay clear");
+    }
+
+    #[test]
+    fn the_badge_is_a_persimmon_disc() {
+        let img = badge(3);
+        assert_eq!(img.len(), (SIZE * SIZE * 4) as usize);
+        assert_eq!(&at(&img, 6, SIZE / 2)[..3], &SIGNAL);
+        assert_eq!(at(&img, 0, 0)[3], 0, "the corners stay clear");
     }
 
     #[test]

@@ -2132,6 +2132,7 @@ version = "0.7.5"
 dependencies = [
  "ab_glyph",
  "getrandom 0.3.4",
+ "notify-rust",
  "serde",
  "serde_json",
  "tauri",
@@ -2146,6 +2147,7 @@ dependencies = [
  "ureq",
  "url",
  "webkit2gtk",
+ "zbus",
 ]
 
 [[package]]

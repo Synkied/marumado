@@ -11,6 +11,7 @@ mod docker;
 mod host;
 mod icon;
 mod marumado;
+mod notice;
 
 use config::Config;
 use docker::Stack;
@@ -27,7 +28,6 @@ use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, RunEvent, State, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_dialog::DialogExt as _;
-use tauri_plugin_notification::NotificationExt as _;
 use tauri_plugin_opener::OpenerExt as _;
 use tauri_plugin_window_state::{AppHandleExt as _, StateFlags};
 
@@ -64,6 +64,8 @@ struct Desk {
     starting: Mutex<Option<String>>,
     /// Why Marumado didn't start, as the starting page's `window.failed(…)` call: made again if the page loads after.
     failed: Mutex<Option<String>>,
+    /// The count last put on the app's icon, and when: it is sent again now and then, for a dock started since.
+    badge: Mutex<(usize, Option<Instant>)>,
     /// Wakes the tray's reader early (after connecting to another Marumado).
     poke: Mutex<Option<mpsc::Sender<()>>>,
 }
@@ -474,6 +476,25 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// How often the count on the app's icon is sent again though it didn't change.
+const BADGE_AGAIN: Duration = Duration::from_secs(60);
+
+/// Puts how many agents wait on you on the app's icon in the taskbar or dock, when it changed (or `again`).
+fn show_badge(app: &AppHandle, count: usize, again: bool) {
+    let d = desk(app);
+    let mut badge = d.badge.lock().unwrap();
+    let stale = badge.1.is_none_or(|at| at.elapsed() >= BADGE_AGAIN);
+    if badge.0 == count && !again && !stale {
+        return;
+    }
+    if let Err(e) = notice::badge(app, count) {
+        if badge.0 != count || badge.1.is_none() {
+            log(&format!("couldn't put {count} on the app's icon: {e}"));
+        }
+    }
+    *badge = (count, Some(Instant::now()));
+}
+
 /// Hands the tray what changed in this reading, and tells the desktop when an agent starts waiting or finishes.
 fn update(app: &AppHandle, r: Reading) {
     let d = desk(app);
@@ -481,16 +502,18 @@ fn update(app: &AppHandle, r: Reading) {
     if config_of(app).is_some_and(|c| c.notify) {
         for (title, body) in news {
             log(&format!("notifying: {title}"));
-            if let Err(e) = app
-                .notification()
-                .builder()
-                .title(title)
-                .body(if body.is_empty() { " ".into() } else { body })
-                .show()
-            {
-                log(&format!("couldn't notify: {e}"));
-            }
+            let app = app.clone();
+            // Off the reader: a notification service that doesn't answer holds the call until D-Bus gives up.
+            std::thread::spawn(move || {
+                if let Err(e) = notice::notify(&app, &title, if body.is_empty() { " " } else { &body }) {
+                    log(&format!("couldn't notify: {e}"));
+                }
+            });
         }
+    }
+    // A reading that failed keeps the count shown: Marumado missing one listing is no news.
+    if r.error.is_empty() {
+        show_badge(app, r.waiting(), false);
     }
     let entries = marumado::menu_model(&r);
     let look = marumado::icon_look(&r);
@@ -908,6 +931,11 @@ fn main() {
                     log(&format!("couldn't keep the window's size: {e}"));
                 }
                 let _ = window.hide();
+            }
+            // Windows: the taskbar button comes and goes with the window, and its overlay with it.
+            ("main", WindowEvent::Focused(true)) => {
+                let count = desk(window.app_handle()).badge.lock().unwrap().0;
+                show_badge(window.app_handle(), count, true);
             }
             ("card", WindowEvent::CloseRequested { api, .. }) => {
                 api.prevent_close();
