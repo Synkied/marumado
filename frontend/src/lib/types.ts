@@ -91,6 +91,8 @@ export type System = {
     total: number
     used: number
     available: number
+    /** Linux page cache and buffers, given back on demand (older Marumados don't say) */
+    cached?: number
     percent: number
     swap_total: number
     swap_used: number
@@ -107,6 +109,8 @@ export type System = {
   disks: { device: string; mount: string; fstype: string; total: number; used: number; free: number; percent: number }[]
   temperatures: { chip: string; label: string; current: number; high: number | null }[]
   process_count?: number
+  /** Processes by state, as htop's "Tasks" line (older Marumados don't say) */
+  tasks?: { total: number; threads: number; kernel: number; states: Record<string, number> }
   battery: { percent: number; plugged: boolean; secs_left: number | null } | null
 }
 
@@ -123,9 +127,50 @@ export type Proc = {
   mem_percent: number
   threads: number
   started: number
+  /** seconds of CPU used since it started (older Marumados don't say) */
+  cpu_time?: number
+  nice?: number | ''
+  /** a Linux kernel thread */
+  kernel?: boolean
   cwd: string
   cmdline: string
   project: ProjectRef
+  /** tree view: how deep it sits, how many children it has, its whole branch's weight, and whether it matched the
+      filter (or is only shown as a parent of what did) */
+  depth?: number
+  children?: number
+  tree_cpu?: number
+  tree_rss?: number
+  match?: boolean
+}
+
+/** One program, its processes added up. `pid` and `cmdline` are its heaviest process's. */
+export type ProcApp = {
+  name: string
+  count: number
+  cpu: number
+  rss: number
+  mem_percent: number
+  threads: number
+  cpu_time: number
+  started: number
+  users: string[]
+  pid: number
+  cmdline: string
+  project: ProjectRef
+}
+
+export type ProcList = { view?: 'list' | 'tree' | 'apps'; total: number; processes?: Proc[]; apps?: ProcApp[] }
+
+/** One process up close (GET processes/<pid>). */
+export type ProcDetail = Omit<Proc, 'cmdline' | 'children'> & {
+  cmdline: string[] | string
+  exe?: string
+  io?: { read: number; write: number } | null
+  fds?: number | null
+  children?: number[]
+  vms?: number | null
+  history: { t: number; cpu: number; rss: number }[]
 }
 
 export type Port = {

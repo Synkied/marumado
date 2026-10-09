@@ -9,6 +9,9 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 import json
+import re
+
+import psutil
 
 from . import auth, checks, discovery, files, herdr, land, machines, monitor, opener, overview, places, plans, pulse, tasks, transcripts
 from .models import AgentSource, Machine, Plan, Project, ScanRoot, Skill, Task, UptimeCheck
@@ -465,7 +468,7 @@ def machine_proxy(request, pk: int, rest: str):
     if res.status_code == 204:
         return HttpResponse(status=204)
     content = res.content
-    if request.method == 'GET' and res.status_code == 200 and rest in ('ports', 'docker', 'processes'):
+    if request.method == 'GET' and res.status_code == 200 and (rest in ('ports', 'docker', 'processes') or re.fullmatch(r'processes/\d+', rest)):
         content = _as_our_projects(rest, content)
     ctype = res.headers.get('content-type', 'application/json')
     if ctype.split(';')[0].strip().lower() != 'application/json':
@@ -491,8 +494,10 @@ def _as_our_projects(rest: str, content: bytes) -> bytes:
     elif rest == 'docker' and isinstance(data, dict):
         for c in data.get('containers') or []:
             c['project'] = ref(discovery.project_by_name(c.get('working_dir') or '', c.get('compose_project') or '', projects))
+    elif rest.startswith('processes/') and isinstance(data, dict):
+        data['project'] = ref(discovery.project_by_name(data.get('cwd') or '', '', projects))
     elif rest == 'processes' and isinstance(data, dict):
-        for r in data.get('processes') or []:
+        for r in (data.get('processes') or []) + (data.get('apps') or []):
             r['project'] = ref(discovery.project_by_name(r.get('cwd') or '', '', projects))
     return json.dumps(data).encode()
 
@@ -509,23 +514,169 @@ def history(request):
     return Response([p for p in points if p['t'] > since])
 
 
+PROC_SORTS = ('cpu', 'rss', 'pid', 'name', 'user', 'threads', 'cpu_time', 'started', 'count')
+# Sorted A to Z (or lowest first) unless asked otherwise; the rest heaviest first.
+PROC_ASCENDING = ('pid', 'name', 'user')
+
+
+def _proc_key(sort: str):
+    if sort in ('name', 'user'):
+        return lambda r: (r.get(sort) or '').lower()
+    return lambda r: r.get(sort) or 0
+
+
 @api_view(['GET'])
 def processes(request):
-    rows = monitor.snapshot('processes')
-    sort = request.query_params.get('sort', 'cpu')
-    if sort not in ('cpu', 'rss', 'pid', 'name', 'threads'):
+    """The machine's processes, as htop shows them: a flat list, a tree by parent, or one row per program.
+
+    ?view=list|tree|apps  ?sort=<column>&order=asc|desc  ?q=<name, command, user or pid>  ?name=<exact program>
+    ?kernel=1 includes Linux kernel threads  ?limit=<rows> (list and apps)
+    """
+    params = request.query_params
+    view = params.get('view', 'list')
+    if view not in ('list', 'tree', 'apps'):
+        view = 'list'
+    sort = params.get('sort', 'cpu')
+    if sort not in PROC_SORTS or (sort == 'count' and view != 'apps'):
         sort = 'cpu'
-    q = request.query_params.get('q', '').lower()
-    if q:
-        rows = [r for r in rows if q in r['name'].lower() or q in r['cmdline'].lower() or q == str(r['pid'])]
-    rows = sorted(rows, key=lambda r: r[sort], reverse=sort not in ('pid', 'name'))
-    limit = min(int(request.query_params.get('limit', 100)), 1000)
+    desc = params.get('order', 'asc' if sort in PROC_ASCENDING else 'desc') != 'asc'
+    try:
+        limit = max(1, min(int(params.get('limit', 100)), 1000))
+    except ValueError:
+        limit = 100
+
+    rows = monitor.snapshot('processes')
+    if params.get('kernel') != '1':
+        rows = [r for r in rows if not r.get('kernel')]
+    q = params.get('q', '').strip().lower()
+    name = params.get('name')
+
+    def matches(r):
+        if name is not None and r['name'] != name:
+            return False
+        return not q or q in r['name'].lower() or q in r['cmdline'].lower() or q in (r['user'] or '').lower() or q == str(r['pid'])
+
     projects = list(Project.objects.exclude(path=''))
+    by_cwd: dict[str, dict | None] = {}
+
+    def project(cwd: str):
+        if cwd not in by_cwd:
+            p = discovery.project_for_path(cwd, projects)
+            by_cwd[cwd] = {'id': p.id, 'name': p.name} if p else None
+        return by_cwd[cwd]
+
+    matched = [r for r in rows if matches(r)]
+    if view == 'apps':
+        return Response({'view': 'apps', 'sort': sort, 'total': len(matched), 'apps': _proc_apps(matched, sort, desc, limit, project)})
+    if view == 'tree':
+        return Response({'view': 'tree', 'sort': sort, 'total': len(matched), 'processes': _proc_tree(rows, matched, sort, desc, project)})
+    matched.sort(key=_proc_key(sort), reverse=desc)
+    out = [{**r, 'project': project(r['cwd'])} for r in matched[:limit]]
+    return Response({'view': 'list', 'sort': sort, 'total': len(matched), 'processes': out})
+
+
+def _proc_apps(rows: list[dict], sort: str, desc: bool, limit: int, project) -> list[dict]:
+    """One row per program (by process name), with its processes added up. Shared memory is counted once per process,
+    so a program of many processes (a browser) reads a little heavier than it is."""
+    groups: dict[str, dict] = {}
+    for r in rows:
+        g = groups.get(r['name'])
+        if g is None:
+            g = groups[r['name']] = {'name': r['name'], 'count': 0, 'cpu': 0.0, 'rss': 0, 'mem_percent': 0.0, 'threads': 0,
+                                     'cpu_time': 0.0, 'started': r['started'], 'users': set(), 'top': r}
+        g['count'] += 1
+        g['cpu'] += r['cpu']
+        g['rss'] += r['rss']
+        g['mem_percent'] += r['mem_percent']
+        g['threads'] += r['threads']
+        g['cpu_time'] += r.get('cpu_time') or 0
+        g['started'] = min(g['started'], r['started'])
+        if r['user']:
+            g['users'].add(r['user'])
+        if (r['cpu'], r['rss']) > (g['top']['cpu'], g['top']['rss']):
+            g['top'] = r
     out = []
-    for r in rows[:limit]:
-        p = discovery.project_for_path(r['cwd'], projects)
-        out.append({**r, 'project': {'id': p.id, 'name': p.name} if p else None})
-    return Response({'total': len(rows), 'processes': out})
+    for g in groups.values():
+        top = g.pop('top')
+        out.append({**g, 'cpu': round(g['cpu'], 1), 'mem_percent': round(g['mem_percent'], 2), 'cpu_time': round(g['cpu_time'], 2),
+                    'users': sorted(g['users']), 'pid': top['pid'], 'cmdline': top['cmdline'], 'project': project(top['cwd'])})
+    key = _proc_key(sort if sort in ('cpu', 'rss', 'name', 'count', 'threads', 'cpu_time', 'started') else 'cpu')
+    out.sort(key=key, reverse=desc)
+    return out[:limit]
+
+
+def _proc_tree(rows: list[dict], matched: list[dict], sort: str, desc: bool, project) -> list[dict]:
+    """Processes under their parents, depth first. A filter keeps what matches and the parents leading to it.
+    Siblings are ordered by the sort; by CPU or memory, a branch weighs what its whole subtree weighs."""
+    by_pid = {r['pid']: r for r in rows}
+    keep = {r['pid'] for r in matched}
+    if len(keep) < len(by_pid):
+        for pid in list(keep):
+            ppid = by_pid[pid]['ppid']
+            while ppid in by_pid and ppid not in keep and ppid != pid:
+                keep.add(ppid)
+                ppid = by_pid[ppid]['ppid']
+    match = {r['pid'] for r in matched}
+    kids: dict[int | None, list[int]] = {}
+    for pid in keep:
+        ppid = by_pid[pid]['ppid']
+        kids.setdefault(ppid if ppid in keep and ppid != pid else None, []).append(pid)
+
+    totals: dict[int, tuple[float, int]] = {}
+
+    def total(pid: int) -> tuple[float, int]:
+        # Iterative, so a deep tree can't overflow the stack.
+        stack = [(pid, False)]
+        while stack:
+            at, done = stack.pop()
+            if at in totals:
+                continue
+            if not done:
+                stack.append((at, True))
+                stack.extend((c, False) for c in kids.get(at, ()) if c not in totals)
+            else:
+                cpu, rss = by_pid[at]['cpu'], by_pid[at]['rss']
+                for c in kids.get(at, ()):
+                    cpu, rss = cpu + totals[c][0], rss + totals[c][1]
+                totals[at] = (cpu, rss)
+        return totals[pid]
+
+    own = _proc_key(sort)
+
+    def order(pids):
+        if sort in ('cpu', 'rss'):
+            i = 0 if sort == 'cpu' else 1
+            return sorted(pids, key=lambda p: total(p)[i], reverse=desc)
+        return sorted(pids, key=lambda p: own(by_pid[p]), reverse=desc)
+
+    out = []
+    stack = [(pid, 0) for pid in reversed(order(kids.get(None, [])))]
+    while stack:
+        pid, depth = stack.pop()
+        r = by_pid[pid]
+        children = kids.get(pid, [])
+        cpu, rss = total(pid)
+        out.append({**r, 'cmdline': r['cmdline'][:240], 'depth': depth, 'children': len(children), 'match': pid in match,
+                    'tree_cpu': round(cpu, 1), 'tree_rss': rss, 'project': project(r['cwd'])})
+        stack.extend((c, depth + 1) for c in reversed(order(children)))
+    return out
+
+
+@api_view(['GET'])
+def process(request, pid: int):
+    """One process up close: its row, what the list leaves out, and its last few minutes of CPU and memory."""
+    row = next((r for r in monitor.snapshot('processes') if r['pid'] == pid), None)
+    if row is None:
+        return Response({'detail': 'No such process'}, status=404)
+    try:
+        detail = monitor.process_detail(pid)
+    except psutil.NoSuchProcess:
+        return Response({'detail': 'No such process'}, status=404)
+    except psutil.Error:
+        detail = {}
+    p = discovery.project_for_path(row['cwd'], list(Project.objects.exclude(path='')))
+    history = [{'t': t, 'cpu': cpu, 'rss': rss} for t, cpu, rss in monitor.process_history(pid)]
+    return Response({**row, **detail, 'project': {'id': p.id, 'name': p.name} if p else None, 'history': history})
 
 
 @api_view(['POST'])

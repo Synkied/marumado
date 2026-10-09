@@ -18,6 +18,7 @@ const PATHS: Record<string, string> = {
   edit: 'M4 20h4L19 9l-4-4L4 16Z M13.5 6.5l4 4',
   copy: 'M9 9h10v11H9Z M5 15V4h10',
   play: 'M7 5v14l11-7Z',
+  pause: 'M8.5 5.5v13 M15.5 5.5v13',
   stop: 'M6.5 6.5h11v11h-11Z',
   restart: 'M4 12a8 8 0 1 0 2.4-5.7L4 8.5 M4 4v4.5h4.5',
   terminal: 'M3.5 5h17v14h-17Z M7 9.5l3 2.5-3 2.5 M12 15h5',

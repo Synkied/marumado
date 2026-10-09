@@ -28,6 +28,9 @@ _state: dict = {
     'docker': {'available': False, 'error': 'Not sampled yet', 'containers': []},
 }
 _procs: dict[int, psutil.Process] = {}
+# Each process's last few minutes of CPU and memory, for its detail view.
+PROC_HISTORY_POINTS = 90
+_proc_history: dict[int, deque] = {}
 _docker_client = None
 
 
@@ -135,6 +138,8 @@ def _sample_system(now: float) -> dict:
         },
         'memory': {
             'total': vm.total, 'used': vm.total - vm.available, 'available': vm.available,
+            # Linux's page cache and buffers: counted in neither used nor really free, the kernel gives them back.
+            'cached': getattr(vm, 'cached', 0) + getattr(vm, 'buffers', 0),
             'percent': vm.percent, 'swap_total': sw.total, 'swap_used': sw.used, 'swap_percent': sw.percent,
         },
         'net': {
@@ -173,7 +178,12 @@ def _cpu_model() -> str:
 
 # ---------------------------------------------------------------- processes & ports
 
-def _sample_processes() -> list[dict]:
+def _is_kernel_thread(pid: int, ppid: int) -> bool:
+    # Linux kernel threads are kthreadd (pid 2) and its children; they have no command line of their own.
+    return platform.system() == 'Linux' and (pid == 2 or ppid == 2)
+
+
+def _sample_processes(now: float) -> list[dict]:
     alive = set()
     rows = []
     total_mem = psutil.virtual_memory().total
@@ -185,6 +195,7 @@ def _sample_processes() -> list[dict]:
             with proc.oneshot():
                 cpu = proc.cpu_percent(None)
                 mem = proc.memory_info().rss
+                times = proc.cpu_times()
                 try:
                     cwd = proc.cwd()
                 except (psutil.AccessDenied, psutil.ZombieProcess, OSError):
@@ -193,11 +204,15 @@ def _sample_processes() -> list[dict]:
                     cmd = ' '.join(proc.cmdline())[:400]
                 except (psutil.AccessDenied, psutil.ZombieProcess):
                     cmd = ''
+                ppid = proc.ppid()
                 rows.append({
-                    'pid': pid, 'ppid': proc.ppid(), 'name': proc.name(),
+                    'pid': pid, 'ppid': ppid, 'name': proc.name(),
                     'user': _safe(proc.username), 'status': proc.status(),
                     'cpu': round(cpu, 1), 'rss': mem, 'mem_percent': round(mem / total_mem * 100, 2),
                     'threads': proc.num_threads(), 'started': proc.create_time(),
+                    'cpu_time': round(times.user + times.system, 2),
+                    'nice': _safe(proc.nice),
+                    'kernel': _is_kernel_thread(pid, ppid),
                     'cwd': cwd, 'cmdline': cmd,
                 })
         except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied):
@@ -205,7 +220,52 @@ def _sample_processes() -> list[dict]:
     for pid in list(_procs):
         if pid not in alive:
             del _procs[pid]
+    with _lock:  # requests read the history while this thread writes it
+        for r in rows:
+            hist = _proc_history.get(r['pid'])
+            if hist is None:
+                hist = _proc_history[r['pid']] = deque(maxlen=PROC_HISTORY_POINTS)
+            hist.append((now, r['cpu'], r['rss']))
+        for pid in list(_proc_history):
+            if pid not in alive:
+                del _proc_history[pid]
     return rows
+
+
+def process_history(pid: int) -> list[tuple[float, float, int]]:
+    with _lock:
+        return list(_proc_history.get(pid, ()))
+
+
+def process_detail(pid: int) -> dict:
+    """What the list doesn't carry, read now: open files, I/O and the full command line."""
+    proc = psutil.Process(pid)
+    out: dict = {'pid': pid}
+    with proc.oneshot():
+        try:
+            out['cmdline'] = proc.cmdline()
+        except (psutil.AccessDenied, psutil.ZombieProcess):
+            out['cmdline'] = []
+        out['exe'] = _safe(proc.exe)
+        try:
+            io = proc.io_counters()
+            out['io'] = {'read': io.read_bytes, 'write': io.write_bytes}
+        except (psutil.AccessDenied, AttributeError, OSError):
+            out['io'] = None
+        try:
+            out['fds'] = proc.num_fds()
+        except (psutil.AccessDenied, AttributeError, OSError):
+            out['fds'] = None
+        try:
+            out['children'] = [c.pid for c in proc.children()]
+        except psutil.Error:
+            out['children'] = []
+        try:
+            mi = proc.memory_info()
+            out['vms'] = mi.vms
+        except psutil.Error:
+            out['vms'] = None
+    return out
 
 
 def _safe(fn):
@@ -367,8 +427,17 @@ def _forever(name: str, interval, step):
 
 def _fast_step(now: float):
     system = _sample_system(now)
-    processes = _sample_processes()
+    processes = _sample_processes(now)
     system['process_count'] = len(processes)
+    states: dict[str, int] = {}
+    for p in processes:
+        states[p['status']] = states.get(p['status'], 0) + 1
+    system['tasks'] = {
+        'total': len(processes),
+        'threads': sum(p['threads'] for p in processes),
+        'kernel': sum(1 for p in processes if p['kernel']),
+        'states': states,
+    }
     point = {
         't': now, 'cpu': system['cpu']['percent'], 'mem': system['memory']['percent'],
         'rx': system['net']['rx_rate'], 'tx': system['net']['tx_rate'],

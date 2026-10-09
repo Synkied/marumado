@@ -17,6 +17,7 @@ urlpatterns = [
     path('system', views.system),
     path('system/history', views.history),
     path('processes', views.processes),
+    path('processes/<int:pid>', views.process),
     path('processes/<int:pid>/kill', views.kill),
     path('ports', views.ports),
     path('docker', views.docker),

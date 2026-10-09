@@ -1,0 +1,461 @@
+/* ---------- processes: htop's meters on top, then a table that sorts by any column ---------- */
+
+.pmeters {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--sp-9) var(--sp-16);
+  align-items: start;
+}
+
+.pmeters__cpu,
+.pmeters__mem {
+  min-width: 0;
+  display: grid;
+  gap: var(--sp-5);
+  padding-top: var(--sp-6);
+  border-top: 1px solid var(--rule-soft);
+}
+
+.pmeters__specs {
+  grid-column: 1 / -1;
+}
+
+/* One line per core, as htop draws them: its number, its bar, its share. As many columns as fit. */
+.pcores {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+  gap: var(--sp-2) var(--sp-10);
+}
+
+.pcore {
+  display: grid;
+  grid-template-columns: 3ch minmax(0, 1fr) 4.5ch;
+  align-items: center;
+  gap: var(--sp-4);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.pcore__n {
+  color: var(--ink-2);
+  text-align: right;
+}
+
+.pcore__v {
+  text-align: right;
+}
+
+/* Memory in one groove: what programs hold, then the kernel's cache (given back on demand), then what is free. */
+.pmem {
+  display: flex;
+  height: 10px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.pmem__used {
+  background: var(--mod);
+}
+
+.pmem__used.is-fault {
+  background: var(--signal);
+}
+
+.pmem__cache {
+  background: color-mix(in oklab, var(--mod) 35%, var(--track));
+}
+
+.pmem__key {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-10);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.pmem__key li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.pkey {
+  width: 10px;
+  height: 10px;
+  background: var(--track);
+}
+
+.pkey--used {
+  background: var(--mod);
+}
+
+.pkey--cache {
+  background: color-mix(in oklab, var(--mod) 35%, var(--track));
+}
+
+/* ---------- the bar over the table ---------- */
+
+.procs__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-6) var(--sp-10);
+}
+
+.procs__filter {
+  flex: 1 1 260px;
+}
+
+.procs__toggle[aria-pressed='true'] {
+  background: var(--solid);
+  border-color: var(--solid);
+  color: var(--on-solid);
+}
+
+.procs__paused,
+.procs__note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.procs__more {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  margin: 0;
+  color: var(--ink-2);
+}
+
+/* ---------- the table ---------- */
+
+.ptable-wrap {
+  min-width: 0;
+}
+
+.ptable {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+
+.ptable__h--pid,
+.ptable__h--count {
+  width: 9ch;
+}
+
+.ptable__h--user {
+  width: 11ch;
+}
+
+.ptable__h--cpu {
+  width: 10ch;
+}
+
+.ptable__h--rss {
+  width: 15ch;
+}
+
+.ptable__h--threads {
+  width: 9ch;
+}
+
+.ptable__h--cpu_time {
+  width: 11ch;
+}
+
+.ptable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--ground);
+  border-bottom: 1px solid var(--rule);
+  padding: 0;
+  text-align: right;
+  font-weight: var(--weight-body);
+}
+
+.ptable thead th.ptable__wide,
+.ptable thead th.ptable__h--user {
+  text-align: left;
+}
+
+.ptable__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--control);
+  padding: 0 var(--sp-3);
+  border: 0;
+  background: none;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ptable__sort:hover,
+.ptable__sort.is-on {
+  color: var(--ink);
+}
+
+.ptable__sort.is-on {
+  box-shadow: inset 0 -2px 0 var(--mod);
+}
+
+.ptable__sort.is-off {
+  cursor: default;
+}
+
+.ptable__sort.is-off:hover {
+  color: var(--ink-2);
+}
+
+.ptable td {
+  padding: var(--sp-3) var(--sp-3);
+  border-bottom: 1px solid var(--rule-soft);
+  font-family: var(--f-mono);
+  font-size: var(--text-md);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.ptable__row {
+  cursor: pointer;
+  transition: background var(--dur-quick) var(--ease);
+}
+
+.ptable__row:hover,
+.ptable__row.is-open {
+  background: var(--ground-raised);
+}
+
+.ptable__row.is-context td {
+  color: var(--ink-2);
+}
+
+.ptable__row.is-nested td:first-child {
+  padding-left: var(--sp-10);
+}
+
+.ptable__app td {
+  border-bottom-color: var(--rule);
+}
+
+.ptable__num {
+  text-align: right;
+}
+
+.ptable__pid {
+  color: var(--ink-2);
+}
+
+.ptable__dim {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+/* A share of one core, under its number: a hairline groove, so heavy rows stand out as you scan down. */
+.ptable__cpu {
+  position: relative;
+}
+
+.pbar {
+  position: absolute;
+  left: var(--sp-3);
+  right: var(--sp-3);
+  bottom: var(--sp-1);
+  height: 2px;
+  background: var(--track);
+}
+
+.pbar__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--mod);
+}
+
+.pbar__fill--branch {
+  background: color-mix(in oklab, var(--mod) 35%, var(--track));
+}
+
+.plamp {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: var(--sp-3);
+  border-radius: 50%;
+  border: 1px solid var(--ink-3);
+  vertical-align: 1px;
+}
+
+.plamp--on {
+  background: var(--moss);
+  border-color: var(--moss);
+}
+
+.plamp--fault {
+  border-style: dashed;
+}
+
+.ptable__cmd {
+  font-family: var(--f-sans);
+}
+
+.ptable__guide {
+  font-family: var(--f-mono);
+  color: var(--ink-3);
+  white-space: pre;
+}
+
+.ptable__fold,
+.ptable__fold-gap {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  vertical-align: -3px;
+  margin-right: var(--sp-1);
+}
+
+.ptable__fold {
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: transform var(--dur-quick) var(--ease);
+}
+
+.ptable__fold:hover {
+  color: var(--ink);
+}
+
+.ptable__fold.is-folded {
+  transform: rotate(-90deg);
+}
+
+.ptable__name {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-lg);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.ptable__name:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ptable__project {
+  margin-left: var(--sp-4);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.ptable__args {
+  margin-left: var(--sp-5);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+/* ---------- one process up close, under its row ---------- */
+
+.ptable__detail td {
+  padding: var(--sp-6) var(--sp-3) var(--sp-9);
+  white-space: normal;
+  background: var(--ground-raised);
+  font-family: var(--f-sans);
+}
+
+.ppanel {
+  display: grid;
+  gap: var(--sp-8);
+}
+
+.ppanel__charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: var(--sp-6) var(--sp-14);
+}
+
+.ppanel__charts section {
+  display: grid;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.ppanel__h {
+  display: flex;
+  gap: var(--sp-5);
+  align-items: baseline;
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.ppanel__h .mono {
+  font-size: var(--text-md);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+}
+
+.ppanel__facts dd {
+  font-size: var(--text-md);
+}
+
+@media (max-width: 860px) {
+  .pmeters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ptable__opt {
+    display: none;
+  }
+
+  .ptable__h--rss {
+    width: 11ch;
+  }
+
+  .ptable__args,
+  .ptable__project {
+    display: none;
+  }
+
+  .ptable td {
+    padding-block: var(--sp-5);
+  }
+
+  .ptable__sort {
+    min-height: var(--touch);
+  }
+}

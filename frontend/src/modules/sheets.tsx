@@ -14,13 +14,14 @@ import { useHub } from '../lib/hub'
 import { useMachines } from '../lib/machines'
 import { Redacted, Secret, useRedact } from '../lib/streaming'
 import { go, type Route } from '../lib/route'
-import type { Agent, Agents, AgentSource, AgentStatus, Container, Proc, ProjectRef, Pulse } from '../lib/types'
+import type { Agent, Agents, AgentSource, AgentStatus, Container, ProjectRef, Pulse } from '../lib/types'
 import { useIsNarrow } from '../lib/useIsNarrow'
 import { usePoll } from '../lib/usePoll'
 import { MomentumSheet, SkillsSheet, useView, ViewSwitch } from './growth'
 import { NotifyToggle } from './agentInbox'
 import { AgentSourcesSheet } from './agentSources'
 import { MachinesSheet } from './machines'
+import { ProcessesSheet } from './processes'
 import { Fleet } from './fleet'
 import { ProjectForm, ProjectsSheet } from './projects'
 import { SheetHead, ViewTabs } from './sheetHead'
@@ -560,98 +561,6 @@ function DockerSheet() {
         })
       )}
       {err && <p className="notice signal-text">{err}</p>}
-    </div>
-  )
-}
-
-function ProcessesSheet() {
-  const [q, setQ] = useState('')
-  const [sort, setSort] = useState<'cpu' | 'rss'>('cpu')
-  const [open, setOpen] = useState<number | null>(null)
-  const [msg, setMsg] = useState('')
-  const { data, refresh } = usePoll<{ total: number; processes: Proc[] }>(`processes?sort=${sort}&limit=60&q=${encodeURIComponent(q)}`, 3000)
-
-  const kill = async (pid: number, force: boolean) => {
-    setMsg('')
-    try {
-      await api(`processes/${pid}/kill`, { method: 'POST', json: { force } })
-      setMsg(`Sent ${force ? 'SIGKILL' : 'SIGTERM'} to ${pid}.`)
-      setOpen(null)
-      refresh()
-    } catch (e) {
-      setMsg(e instanceof Error ? `Couldn't stop ${pid}: ${e.message}` : `Couldn't stop ${pid}.`)
-    }
-  }
-
-  return (
-    <div className="sheet">
-      <SheetHead id="machine">
-        <button className={`btn${sort === 'cpu' ? '' : ' btn--quiet'}`} type="button" onClick={() => setSort('cpu')} aria-pressed={sort === 'cpu'}>
-          By CPU
-        </button>
-        <button className={`btn${sort === 'rss' ? '' : ' btn--quiet'}`} type="button" onClick={() => setSort('rss')} aria-pressed={sort === 'rss'}>
-          By memory
-        </button>
-      </SheetHead>
-      <ViewTabs at="processes" />
-      <label className="filter">
-        <Icon name="search" size={18} />
-        <span className="sr-only">Filter processes</span>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, command or pid" />
-        {data && <span className="mono">{data.total}</span>}
-      </label>
-      {msg && <p className="notice">{msg}</p>}
-      {!data ? (
-        <div className="sheet__empty">Loading…</div>
-      ) : data.processes.length === 0 ? (
-        <div className="sheet__empty">No process matches “{q}”.</div>
-      ) : (
-        <ul className="list">
-          {data.processes.map((p) => (
-            <li className="block" key={p.pid}>
-              <button className="row row--button" type="button" onClick={() => setOpen(open === p.pid ? null : p.pid)} aria-expanded={open === p.pid}>
-                <span className="row__main">
-                  {p.name}
-                  <span className="row__sub">
-                    pid {p.pid}
-                    {p.project ? ` · ${p.project.name}` : ''}
-                  </span>
-                </span>
-                <span className="row__meta">{p.cpu.toFixed(1)}%</span>
-                <span className="row__meta" style={{ minWidth: '8ch' }}>
-                  {bytes(p.rss)}
-                </span>
-              </button>
-              {open === p.pid && (
-                <div className="sheet__section" style={{ padding: 'var(--sp-3) 0 var(--sp-5)' }}>
-                  <dl className="facts">
-                    <dt>Command</dt>
-                    <dd>
-                      <Secret label="Command">{p.cmdline || '—'}</Secret>
-                    </dd>
-                    <dt>Folder</dt>
-                    <dd>
-                      <Secret label="Folder">{p.cwd || '—'}</Secret>
-                    </dd>
-                    <dt>User</dt>
-                    <dd>
-                      <Secret label="User">{p.user || '—'}</Secret> · {p.threads} threads · {p.status}
-                    </dd>
-                  </dl>
-                  <div className="chips">
-                    <ConfirmButton className="chip" confirmLabel={`Confirm stop ${p.pid}`} onConfirm={() => kill(p.pid, false)}>
-                      Stop (SIGTERM)
-                    </ConfirmButton>
-                    <ConfirmButton className="chip" confirmLabel={`Confirm kill ${p.pid}`} onConfirm={() => kill(p.pid, true)}>
-                      Force kill
-                    </ConfirmButton>
-                  </div>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   )
 }
