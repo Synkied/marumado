@@ -11,11 +11,11 @@ export function restWhenAway() {
   update()
 }
 
-/** How long the loops play, then rest: a critter blinks at least once in each burst (its blink comes every 4.7–6.4s). */
+/** How long the loops play, then rest. */
 const PLAY = 7000
 const REST = 13000
 
-/** Looping animations (critters, pulses) repaint every frame, and the desktop app's webview paints them on the CPU:
+/** Looping animations (pulses) repaint every frame, and the desktop app's webview paints them on the CPU:
     they play in bursts (`data-rest` between them) and hold still while a scroll is under way (`data-scrolling`). */
 export function restLoops() {
   const root = document.documentElement

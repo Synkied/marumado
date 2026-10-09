@@ -1,4 +1,3 @@
-import type { CSSProperties } from 'react'
 import type { AgentStatus } from '../lib/types'
 import './critter.css'
 
@@ -29,9 +28,6 @@ export type Traits = {
   eyeY: number
   eyeTall: boolean
   feet: boolean
-  /** blinks and breaths are out of step from one critter to the next */
-  delay: number
-  pace: number
 }
 
 const TOPPERS: Topper[] = ['none', 'ears', 'points', 'antenna', 'sprout', 'tuft', 'horns']
@@ -51,8 +47,6 @@ export function traitsOf(key: string): Traits {
     eyeY: -2.5 + r() * 2.5,
     eyeTall: r() < 0.4,
     feet: r() < 0.7,
-    delay: -r() * 6,
-    pace: 0.85 + r() * 0.35,
   }
 }
 
@@ -136,7 +130,7 @@ function Eyes({ t, status, cy }: { t: Traits; status: AgentStatus; cy: number })
   const ry = wide ? 2.3 : t.eyeTall ? 2 : 1.4
   const rx = wide ? 1.8 : 1.4
   return (
-    <g className="critter__eyes critter__blink">
+    <g className="critter__eyes">
       <ellipse cx={CX - g + look * 0.5} cy={y + look} rx={rx} ry={ry} className="critter__ink" />
       <ellipse cx={CX + g + look * 0.5} cy={y + look} rx={rx} ry={ry} className="critter__ink" />
     </g>
@@ -150,7 +144,7 @@ function Prop({ status, t, cy }: { status: AgentStatus; t: Traits; cy: number })
     case 'working':
       return (
         <g className="critter__prop">
-          <g className="critter__pen">
+          <g>
             <path d={`M${side - 1} ${cy + 3}l6 3`} />
             <path d={`M${side + 4} ${cy + 3.5}l4.5 6.5 -1.6 1 -4.5 -6.5Z`} className="critter__fill" />
           </g>
@@ -179,9 +173,8 @@ function Prop({ status, t, cy }: { status: AgentStatus; t: Traits; cy: number })
 export function Critter({ seed, status, size = 48 }: { seed: string; status: AgentStatus; size?: number }) {
   const t = traitsOf(seed)
   const cy = GROUND - (t.feet ? 2.5 : 0) - t.ry
-  const style = { '--critter-delay': `${t.delay}s`, '--critter-pace': t.pace } as CSSProperties
   return (
-    <svg className={`critter critter--${status}`} viewBox="0 0 48 48" width={size} height={size} aria-hidden="true" style={style}>
+    <svg className={`critter critter--${status}`} viewBox="0 0 48 48" width={size} height={size} aria-hidden="true">
       {/* At work it writes its own record along the ground, as every channel here does. */}
       {status === 'working' && <path className="critter__trace" pathLength={1} d={`M4 ${GROUND + 3.5}l3 -2 3 2.5 3 -3.5 3 3 3 -1 3 1.5 3 -2.5 3 2 3 -1.5 3 1`} />}
       <g className="critter__body">

@@ -90,7 +90,7 @@ textarea::placeholder {
   border: 0;
 }
 
-/* Looping animations (critters, pulses) repaint every frame, at the display's refresh rate: they rest while
+/* Looping animations (pulses) repaint every frame, at the display's refresh rate: they rest while
    Marumado isn't the window you are using (lib/away.ts), so it costs nothing in the background. */
 :root[data-away] *,
 :root[data-away] *::before,
@@ -100,24 +100,12 @@ textarea::placeholder {
 
 /* While a scroll is under way, every loop holds still, so the frames go to the scroll. Only the looping elements:
    a `*` here would restyle the whole page on the first frame of every scroll. */
-:root[data-scrolling] .critter__blink,
-:root[data-scrolling] .critter__body,
-:root[data-scrolling] .critter__pen,
-:root[data-scrolling] .critter__trace,
-:root[data-scrolling] .critter__z,
 :root[data-scrolling] .dial__pulse,
 :root[data-scrolling] .ribbon__tip::after {
   animation-play-state: paused !important;
 }
 
-/* Between their bursts (lib/away.ts) the loops are off, each critter back in its plain pose; they start again from
-   their own beat. A critter that needs you keeps hopping: that one is an alarm. */
-:root[data-rest] .critter__blink,
-:root[data-rest] .critter--working .critter__body,
-:root[data-rest] .critter--working .critter__pen,
-:root[data-rest] .critter__trace,
-:root[data-rest] .critter--idle .critter__body,
-:root[data-rest] .critter__z,
+/* Between their bursts (lib/away.ts) the loops are off; they start again from their own beat. */
 :root[data-rest] .dial__pulse,
 :root[data-rest] .ribbon__tip::after {
   animation: none !important;
