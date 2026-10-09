@@ -853,7 +853,17 @@ fn page_arg(args: &[String]) -> Option<String> {
     args.iter().skip(1).find(|a| a.starts_with('#')).cloned()
 }
 
+/// WebKitGTK's DMA-BUF renderer aborts at start on some GPUs and drivers (NVIDIA's above all): "Could not create GBM
+/// EGL display: EGL_NOT_INITIALIZED". Off, unless the environment says otherwise. Set before any thread starts.
+fn safe_rendering() {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+}
+
 fn main() {
+    safe_rendering();
     let args: Vec<String> = std::env::args().collect();
     let hidden = args.iter().any(|a| a == HIDDEN || a == CARD);
     let card = args.iter().any(|a| a == CARD);
