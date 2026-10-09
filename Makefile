@@ -62,7 +62,7 @@ clean: ## Stop and DELETE the data volume (projects you added by hand, uptime hi
 	$(COMPOSE) down -v
 
 dev: ## Run without Docker: backend on :7878 + Vite dev server on :5173
-	@cd backend && uv run python manage.py serve & cd frontend && npx vite
+	@cd backend && MARUMADO_DEBUG=1 uv run python manage.py serve & cd frontend && npx vite
 
 release: ## Release a version: VERSION=0.2.0 (or patch, minor, major); DRY_RUN=1 to only show it
 	@python3 scripts/release.py $(VERSION) $(if $(DRY_RUN),--dry-run) $(if $(YES),--yes)

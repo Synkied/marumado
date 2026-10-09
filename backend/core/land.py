@@ -41,7 +41,10 @@ def _local(task: Task) -> Path | None:
 
 def _run_local(path: Path, *args: str) -> str:
     try:
-        out = subprocess.run(['git', '-c', 'safe.directory=*', '-c', 'core.quotepath=off', '-C', str(path), *args],
+        # safe.directory=* trusts the repo although Marumado doesn't own it; core.fsmonitor/hooksPath=off then stop
+        # that trusted-but-untrusted .git/config from running a command on an ordinary read.
+        out = subprocess.run(['git', '-c', 'safe.directory=*', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null',
+                              '-c', 'core.quotepath=off', '-C', str(path), *args],
                              capture_output=True, timeout=20, env={'GIT_OPTIONAL_LOCKS': '0', 'PATH': '/usr/bin:/bin:/usr/local/bin'})
     except (OSError, subprocess.TimeoutExpired):
         return ''

@@ -22,7 +22,8 @@ class Refused(Exception):
 def _allowed_roots() -> list[str]:
     paths = [r['path'] for r in discovery.roots()]
     paths += list(Project.objects.exclude(path='').values_list('path', flat=True))
-    return sorted({os.path.realpath(p) for p in paths})
+    # '/' would make every path "inside a project folder", opening the whole filesystem; never allow it as a root.
+    return sorted({real for p in paths if (real := os.path.realpath(p)) != '/'})
 
 
 def resolve(raw: str) -> Path:

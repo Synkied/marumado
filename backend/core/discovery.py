@@ -79,8 +79,11 @@ SCANNED_FIELDS = ('description', 'online_url', 'repo_url')
 
 def _git(path: Path, *args: str) -> str:
     try:
+        # A scanned folder is someone else's repository, whose .git/config could name a command for git to run
+        # (core.fsmonitor on a read, a hook). Force those off so scanning a folder can never execute anything.
         out = subprocess.run(
-            ['git', '-C', str(path), *args], capture_output=True, text=True, timeout=3
+            ['git', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-C', str(path), *args],
+            capture_output=True, text=True, timeout=3
         )
     except (OSError, subprocess.TimeoutExpired):
         return ''

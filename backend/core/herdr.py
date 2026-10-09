@@ -55,6 +55,18 @@ SMOLVM_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$')
 # A source that failed is not asked again for a few seconds, so one VM that is off doesn't slow every listing.
 RETRY_SECONDS = 15
 
+# Marumado reads and lands git repositories it did not create (projects mounted from the host, worktrees in a VM).
+# A repository's own .git/config can name a command for git to run — core.fsmonitor on any read, hooks on a merge,
+# the pager when git runs in a real terminal — so a planted config would run code on the host. Every git call in a
+# script Marumado runs forces those off, set in the environment so it reaches each `git` the script invokes.
+# (discovery._git and land._run_local do the same inline, on the git calls that don't go through a shell.)
+GIT_SAFE = (
+    'export GIT_CONFIG_COUNT=3'
+    ' GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false'
+    ' GIT_CONFIG_KEY_1=core.hookspath GIT_CONFIG_VALUE_1=/dev/null'
+    ' GIT_CONFIG_KEY_2=core.pager GIT_CONFIG_VALUE_2=cat; '
+)
+
 
 @dataclass(frozen=True)
 class Source:
@@ -386,6 +398,7 @@ def shell(src: 'int | Source', script: str, timeout: float = TIMEOUT + 8) -> byt
     src = get_source(src)
     if src.kind == 'machine':
         raise RuntimeError(f"{src.name}'s files are read through its Marumado.")
+    script = GIT_SAFE + script  # neutralize any git call in it against a planted .git/config
     cmd, environ = _wrap(src, script) if any(_elsewhere(src)) else (['sh', '-c', script], None)
     try:
         proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -914,6 +927,7 @@ def _in_terminal(src: Source, full: str, marker: re.Pattern, timeout: float, nea
             raise
         pane = new_terminal('', src)['pane_id']  # the pane it was to go beside was closed meanwhile
     try:
+        full = GIT_SAFE + full  # neutralize any git call in it against a planted .git/config
         _run(src, 'pane', 'run', pane, 'sh -c ' + shlex.quote(full), text=True)  # sh, whatever the owner's shell is
         try:
             _run(src, 'pane', 'wait-output', pane, '--regex', marker.pattern, '--source', 'recent-unwrapped', '--lines', str(RUN_LINES),

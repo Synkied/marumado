@@ -467,7 +467,13 @@ def machine_proxy(request, pk: int, rest: str):
     content = res.content
     if request.method == 'GET' and res.status_code == 200 and rest in ('ports', 'docker', 'processes'):
         content = _as_our_projects(rest, content)
-    return HttpResponse(content, status=res.status_code, content_type=res.headers.get('content-type', 'application/json'))
+    ctype = res.headers.get('content-type', 'application/json')
+    if ctype.split(';')[0].strip().lower() != 'application/json':
+        ctype = 'application/json'  # the proxied API only returns JSON; never let a compromised machine serve HTML on our origin
+    resp = HttpResponse(content, status=res.status_code, content_type=ctype)
+    resp['X-Content-Type-Options'] = 'nosniff'
+    resp['Content-Security-Policy'] = "default-src 'none'"
+    return resp
 
 
 def _as_our_projects(rest: str, content: bytes) -> bytes:
@@ -993,7 +999,7 @@ def agent_trace(request):
     except ValueError:
         return Response({'detail': 'since and from are numbers.'}, status=400)
     path = q.get('path', '')
-    if path and not path.endswith('.jsonl'):
+    if path and not transcripts.RECORD.match(path):
         return Response({'detail': 'Not a session record.'}, status=400)
     try:
         return Response(transcripts.trace(herdr.ENV, q.get('kind', ''), q.get('cwd', ''), since, q.get('title', ''), path, start,

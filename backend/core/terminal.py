@@ -55,12 +55,15 @@ def _authorized(scope) -> bool:
     given = auth.bearer(headers.get('authorization', ''))
     if given is not None:
         return auth.try_token(address, given)
-    auth.check_locked(address)
+    # A valid session is accepted before the wrong-guess lockout is enforced, so wrong tokens from a shared address
+    # (a reverse proxy, or a page using DNS rebinding from 127.0.0.1) can't lock the owner's browser out.
     morsel = SimpleCookie(headers.get('cookie', '')).get(settings.SESSION_COOKIE_NAME)
-    if morsel is None:
-        return False
-    session = import_module(settings.SESSION_ENGINE).SessionStore(morsel.value)
-    return auth.session_ok(session)
+    if morsel is not None:
+        session = import_module(settings.SESSION_ENGINE).SessionStore(morsel.value)
+        if auth.session_ok(session):
+            return True
+    auth.check_locked(address)
+    return False
 
 
 def _command(message: dict, fit: bool) -> dict | None:

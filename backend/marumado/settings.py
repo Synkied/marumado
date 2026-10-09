@@ -30,7 +30,7 @@ def env(name, default=''):
 SECRET_KEY = env('SECRET_KEY', 'django-insecure-local-only-marumado')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env('DEBUG', '1') == '1'
+DEBUG = env('DEBUG', '0') == '1'
 
 ALLOWED_HOSTS = env('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
