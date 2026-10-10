@@ -121,7 +121,8 @@
   white-space: nowrap;
 }
 
-/* A tally may be longer than its column (tokens, cost and context): it wraps between its parts, never past the lane. */
+/* A tally may be longer than its column (tokens, cost and context): it wraps between its parts, never past the lane.
+   The space between parts stays outside them, or nowrap would swallow the only place to break. */
 .lane__tally {
   max-width: 100%;
   font-size: var(--text-sm);

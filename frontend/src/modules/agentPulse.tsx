@@ -211,14 +211,29 @@ function LaneRow({ lane: l, peak, pending, now }: { lane: Lane; peak: number; pe
           {turn && (
             <span className="lane__tally">
               {tally}
-              {turn.failed > 0 && <span className="signal-text"> · {turn.failed} failed</span>}
+              {turn.failed > 0 && (
+                <>
+                  {' '}
+                  <span className="signal-text">· {turn.failed} failed</span>
+                </>
+              )}
             </span>
           )}
           {usage && usage.calls > 0 && (
             <span className="lane__tally lane__usage" title="The last day: its tokens and what they cost at API prices, and how full its context is">
               <span>{tokens(usage.total)} tokens</span>
-              {usage.priced && <span> · {dollars(usage.cost)}</span>}
-              {usage.context && usage.context.tokens > 0 && <span> · context {tokens(usage.context.tokens)}</span>}
+              {usage.priced && (
+                <>
+                  {' '}
+                  <span>· {dollars(usage.cost)}</span>
+                </>
+              )}
+              {usage.context && usage.context.tokens > 0 && (
+                <>
+                  {' '}
+                  <span>· context {tokens(usage.context.tokens)}</span>
+                </>
+              )}
             </span>
           )}
         </span>
