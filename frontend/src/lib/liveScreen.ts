@@ -106,6 +106,35 @@ export function readQuestion(screen: string): string {
   return text.split('\n').map((l) => l.slice(Number.isFinite(indent) ? indent : 0)).join('\n')
 }
 
+// The keys a terminal menu lists at its foot ("Enter to select · Esc to cancel", "… · Esc to close", "Esc to clear").
+const MENU_KEYS = /\besc to (?:cancel|close|clear|go back|exit)\b/i
+// The edge of what a menu takes over: Claude Code's ▔ rule, or a plain one.
+const MENU_EDGE = /^\s*[▔─━]{8,}/
+
+/** A menu the agent has open in its terminal (Claude Code's /resume, /model, /config…): its input box gone and the
+    menu's keys at the foot of the screen. What it shows, from the rule above it, or '' when there is none. Its
+    record never has it, and Herdr says the agent is idle meanwhile. */
+export function readMenu(screen: string, kind: string): string {
+  if (!screen) return ''
+  const lines = screen.replace(/\s+$/, '').split('\n')
+  if (boxAt(lines, kind) >= 0) return ''
+  const foot = lines.slice(-3).join(' ')
+  if (!MENU_KEYS.test(foot)) return ''
+  let start = Math.max(0, lines.length - 40)
+  for (let i = lines.length - 2; i >= start; i--) {
+    if (MENU_EDGE.test(lines[i])) {
+      start = i + 1
+      break
+    }
+  }
+  const shown = lines.slice(start)
+  const indent = Math.min(...shown.filter((l) => l.trim()).map((l) => l.match(/^\s*/)![0].length))
+  return shown
+    .map((l) => l.slice(Number.isFinite(indent) ? indent : 0))
+    .join('\n')
+    .replace(/^\n+/, '')
+}
+
 /** The status line under the agent's input box, cut into parts: Claude Code's (model, usage, tokens, cost: whatever
     the owner set it to show) at its │, with its mode ("auto mode on") apart; Codex's ("GPT-6.1 default · 5h 100% left
     · Context 0% used") at its ·; Pi's (its context, then its model) at its gaps, with the folder's branch. Without

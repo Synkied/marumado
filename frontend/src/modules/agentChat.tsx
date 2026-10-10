@@ -3,7 +3,7 @@ import { Markdown } from '../components/Markdown'
 import { sourceOf, sourceQuery } from '../lib/agents'
 import { api } from '../lib/api'
 import { Icon } from '../components/Icon'
-import { bare, meterOf, readFooter, readLive, readQuestion } from '../lib/liveScreen'
+import { bare, meterOf, readFooter, readLive, readMenu, readQuestion } from '../lib/liveScreen'
 import { Secret } from '../lib/streaming'
 import type { Agent, AgentTrace, TraceStep } from '../lib/types'
 import { choices, tail } from './agentInbox'
@@ -213,13 +213,17 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
   const working = agent.status === 'working'
   const asking = agent.status === 'blocked'
   const { trace, steps, error, earlier, refresh } = useConversation(paneId, source, working ? 1500 : 4000)
-  const { screen, read } = useScreen(paneId, source, working ? 1200 : asking ? 2000 : 6000)
+  // A menu open in its terminal (/resume, /model…) is read often, as you move through it.
+  const [menuUp, setMenuUp] = useState(false)
+  const { screen, read } = useScreen(paneId, source, working ? 1200 : asking ? 2000 : menuUp ? 900 : 6000)
   const [display, setDisplay] = useDisplay()
   const commands = useCommands(paneId, source, agent.kind)
   const shownSteps = useMemo(() => (display.thinking === 'hidden' ? steps.filter((s) => s.kind !== 'think' || /^Updated its plan|^Wrote a plan/.test(s.title)) : steps), [steps, display.thinking])
   const items = useMemo(() => itemsOf(shownSteps), [shownSteps])
   const footer = readFooter(screen, agent.kind)
   const picks = asking ? choices(screen) : []
+  const menu = working || asking ? '' : readMenu(screen, agent.kind)
+  useEffect(() => setMenuUp(Boolean(menu)), [menu])
   const scroller = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
   const [shown, setShown] = useState<Shown | null>(null)
@@ -370,9 +374,10 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
         {body}
       </div>
       {asking && <Prompt screen={screen} control={control} send={send} />}
+      {menu && <Menu menu={menu} control={control} send={send} />}
       {!control && <StatusLine footer={footer} control={false} send={send} />}
       {control ? (
-        <ChatBox key={paneId} draftKey={`marumado.chat-draft.${source}.${paneId}`} working={working} asking={asking} locked={asking && picks.length > 0} commands={commands} sent={sent} send={send} footer={<StatusLine footer={footer} control={control} send={send} />} />
+        <ChatBox key={paneId} draftKey={`marumado.chat-draft.${source}.${paneId}`} working={working} asking={asking} locked={(asking && picks.length > 0) || Boolean(menu)} menu={Boolean(menu)} commands={commands} sent={sent} send={send} footer={<StatusLine footer={footer} control={control} send={send} />} />
       ) : (
         <p className="chat__note">Watching only (MARUMADO_HERDR_TERMINAL=observe): write to it in its terminal.</p>
       )}
@@ -497,6 +502,86 @@ function Prompt({ screen, control, send }: { screen: string; control: boolean; s
   )
 }
 
+const MENU_KEYS: [string, string, string][] = [
+  ['up', '↑', 'ArrowUp'],
+  ['down', '↓', 'ArrowDown'],
+  ['left', '←', 'ArrowLeft'],
+  ['right', '→', 'ArrowRight'],
+  ['space', 'Space', ' '],
+  ['enter', 'Enter', 'Enter'],
+]
+
+/** A menu open in its terminal (/resume, /model, /config…), which its record never has: what it shows, its numbered
+    choices as buttons, and the keys to move through it. The keys work from here too, unless you are typing somewhere.
+    Docked over the chat box, like a question. */
+function Menu({ menu, control, send }: { menu: string; control: boolean; send: (json: { keys: string[] }) => Promise<void> }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const lines = menu.split('\n')
+  const title = lines.find((l) => l.trim())?.trim() ?? ''
+  const picks = choices(menu)
+  const press = useCallback(
+    async (key: string) => {
+      setBusy(true)
+      setError('')
+      try {
+        await send({ keys: [key] })
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't reach the agent.")
+      } finally {
+        setBusy(false)
+      }
+    },
+    [send],
+  )
+  useEffect(() => {
+    if (!control) return
+    const onKey = (e: KeyboardEvent) => {
+      // The chat box too while it is empty: you typed /resume there and the menu is what you go on with.
+      const box = e.target instanceof HTMLTextAreaElement && e.target.id === 'chat-text' && !e.target.value
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || (editable(e.target) && !box) || busy) return
+      const key = e.key === 'Escape' ? 'esc' : (MENU_KEYS.find((k) => k[2] === e.key)?.[0] ?? (picks.some((p) => p.key === e.key) ? e.key : ''))
+      if (!key) return
+      e.preventDefault()
+      press(key)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [control, picks, busy, press])
+  return (
+    <section className="chat__ask chat__ask--menu" aria-label="Its open menu" aria-live="polite">
+      <header className="chat__ask-head">
+        <span className="row__lamp" aria-hidden="true" />
+        <span className="chat__ask-topic">{title || 'A menu is open'}</span>
+        {control && <span className="chat__ask-keys">Arrows, Enter and Esc work here</span>}
+      </header>
+      <pre className="chat__ask-body">{lines.slice(lines.findIndex((l) => l.trim()) + 1).join('\n').replace(/^\n+/, '')}</pre>
+      {control && (
+        <div className="chat__menu-keys" role="group" aria-label="Keys">
+          {picks.map((c) => (
+            <button key={c.key} type="button" className={`chat__ask-choice${c.current ? ' is-current' : ''}`} disabled={busy} onClick={() => press(c.key)}>
+              <kbd>{c.key}</kbd>
+              <span>{c.text}</span>
+            </button>
+          ))}
+          <div className="chat__menu-row">
+            {MENU_KEYS.map(([key, label]) => (
+              <button key={key} type="button" className="btn btn--quiet chat__menu-key" disabled={busy} onClick={() => press(key)}>
+                {label}
+              </button>
+            ))}
+            <button type="button" className="chat__ask-cancel" disabled={busy} onClick={() => press('esc')} title="Close it, as Esc does in its terminal">
+              Esc to close
+            </button>
+          </div>
+        </div>
+      )}
+      {!control && <p className="chat__note">Watching only: use it in its terminal.</p>}
+      {error && <p className="signal-text">{error}</p>}
+    </section>
+  )
+}
+
 /** Claude Code's status line, from under its input box: the model, its usage as small meters, tokens and cost, and
     its mode, which a click moves on (Shift+Tab, as in the terminal). */
 function StatusLine({ footer, control, send }: { footer: { parts: string[]; mode: string }; control: boolean; send: (json: { keys: string[] }) => Promise<void> }) {
@@ -555,7 +640,7 @@ function suggest(commands: Command[], text: string): Command[] {
   return [...starts, ...within].slice(0, 8)
 }
 
-function ChatBox({ draftKey, working, asking, locked, commands, sent, send, footer }: { draftKey: string; working: boolean; asking: boolean; locked: boolean; commands: Command[]; sent: string[]; send: (json: { text?: string; keys?: string[] }) => Promise<void>; footer: ReactNode }) {
+function ChatBox({ draftKey, working, asking, locked, menu, commands, sent, send, footer }: { draftKey: string; working: boolean; asking: boolean; locked: boolean; menu: boolean; commands: Command[]; sent: string[]; send: (json: { text?: string; keys?: string[] }) => Promise<void>; footer: ReactNode }) {
   // What you were writing stays, per agent, when you leave the page and come back (until it is sent).
   const [text, setTextState] = useState(() => {
     try {
@@ -669,12 +754,13 @@ function ChatBox({ draftKey, working, asking, locked, commands, sent, send, foot
         aria-expanded={matches.length > 0}
         aria-controls="chat-commands"
         aria-activedescendant={picked ? `chat-command-${picked.name}` : undefined}
-        placeholder={locked ? 'Answer its question above first; you can write here meanwhile' : asking ? 'It waits on you: answer above, or write here' : working ? 'Write to it: it reads this once it is done' : 'Write to the agent… (Enter sends, Shift+Enter for a new line)'}
+        placeholder={menu ? 'A menu is open in its terminal: pick above, or Esc to close it' : locked ? 'Answer its question above first; you can write here meanwhile' : asking ? 'It waits on you: answer above, or write here' : working ? 'Write to it: it reads this once it is done' : 'Write to the agent… (Enter sends, Shift+Enter for a new line)'}
         onChange={(e) => {
           setText(e.target.value)
           setBack(null)
         }}
         onKeyDown={(e) => {
+          if (menu && !text) return // the open menu's keys (Menu), not recalling what you wrote
           if (picked && !e.nativeEvent.isComposing) {
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
               e.preventDefault()

@@ -1035,3 +1035,32 @@ button.chat__mode:hover {
     margin-left: var(--sp-4);
   }
 }
+
+/* A menu open in its terminal: quieter than a question (nothing waits on you), its keys in a row. */
+.chat__ask--menu {
+  border-color: var(--rule);
+}
+
+.chat__ask--menu .chat__ask-body {
+  max-height: calc(var(--chat-mono) * 1.55 * 18);
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.chat__menu-keys {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.chat__menu-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.chat__menu-key {
+  min-width: 44px;
+  min-height: 36px;
+  font-family: var(--f-mono);
+}
