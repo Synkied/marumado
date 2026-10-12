@@ -100,13 +100,13 @@ textarea::placeholder {
 
 /* While a scroll is under way, every loop holds still, so the frames go to the scroll. Only the looping elements:
    a `*` here would restyle the whole page on the first frame of every scroll. */
-:root[data-scrolling] .dial__pulse,
+:root[data-scrolling] .dial__light,
 :root[data-scrolling] .ribbon__tip::after {
   animation-play-state: paused !important;
 }
 
 /* Between their bursts (lib/away.ts) the loops are off; they start again from their own beat. */
-:root[data-rest] .dial__pulse,
+:root[data-rest] .dial__light,
 :root[data-rest] .ribbon__tip::after {
   animation: none !important;
 }

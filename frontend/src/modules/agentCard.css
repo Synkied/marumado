@@ -8,7 +8,7 @@
   gap: var(--sp-4);
   padding: var(--sp-7) var(--sp-8) var(--sp-6);
   border: 1px solid var(--rule-soft);
-  background: var(--ground);
+  background: var(--ground-raised);
 }
 
 .acard__head,
@@ -63,9 +63,9 @@
   display: grid;
   gap: var(--sp-1);
   padding: var(--sp-5) var(--sp-6);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--radius-md);
-  background: var(--ground-raised);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  background: var(--well);
   text-align: left;
   transition: border-color var(--dur-quick) var(--ease);
 }
@@ -76,6 +76,7 @@
 
 .acard__agent.is-blocked {
   border-color: var(--signal);
+  background: color-mix(in oklab, var(--signal) 10%, var(--well));
 }
 
 /* Name, kind and state on one line; everything under it lines up with the name, past the lamp. */
@@ -91,8 +92,8 @@
 }
 
 .acard__lamp--working {
-  background: var(--c-agents);
-  border-color: var(--c-agents);
+  background: var(--moss);
+  border-color: var(--moss);
 }
 
 .acard__name {

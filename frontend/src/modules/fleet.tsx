@@ -238,38 +238,45 @@ function Cell({ readout: { label, module, pen }, reading, pending, onOpen }: { r
   )
 }
 
-// The seal's geometry, in its own 40-unit box.
+// The seal's geometry, in its own 40-unit box: a small Braun dial, its 270° scale open at the foot.
 const SC = 20
 const SR = 15
+const S_START = 0.625
+const S_SWEEP = 0.75
 
 const sealPt = (r: number, turn: number) => {
   const a = turn * 2 * Math.PI - Math.PI / 2
   return `${(SC + r * Math.cos(a)).toFixed(2)} ${(SC + r * Math.sin(a)).toFixed(2)}`
 }
-const sealArc = (from: number, to: number) => `M${sealPt(SR, from)}A${SR} ${SR} 0 ${to - from > 0.5 ? 1 : 0} 1 ${sealPt(SR, to)}`
+/** An arc along the scale, from one fraction of it to another (0..1). */
+const sealArc = (from: number, to: number) => {
+  const a = S_START + from * S_SWEEP
+  const b = S_START + Math.max(from + 0.0001, to) * S_SWEEP
+  return `M${sealPt(SR, a)}A${SR} ${SR} 0 ${b - a > 0.5 ? 1 : 0} 1 ${sealPt(SR, b)}`
+}
 
-/** The reading's round window: a small chart in the module's pen, read from twelve o'clock clockwise, like the
-    module's disc. A share is one arc with a tick at its budget; parts are one arc per item. */
+/** The reading's small dial in the module's colour. A share is one arc along the scale with a tick at its budget;
+    parts are one segment per item. */
 function Seal({ seal, off }: { seal: Reading['seal']; off: boolean }) {
   let record = null
   if (seal?.kind === 'share') {
-    const v = Math.max(0, Math.min(0.9999, seal.value))
+    const v = Math.max(0, Math.min(1, seal.value))
+    const limit = seal.limit != null ? S_START + Math.max(0, Math.min(1, seal.limit)) * S_SWEEP : null
     record = (
       <>
         {v > 0.004 && <path className="seal__arc" d={sealArc(0, v)} />}
-        {seal.limit != null && <path className="seal__limit" d={`M${sealPt(SR - 5, seal.limit)}L${sealPt(SR + 5, seal.limit)}`} />}
+        {limit != null && <path className="seal__limit" d={`M${sealPt(SR - 5, limit)}L${sealPt(SR + 5, limit)}`} />}
       </>
     )
   } else if (seal?.kind === 'parts') {
     const n = seal.items.length
-    const gap = n > 1 ? Math.min(0.03, 0.3 / n) : 0
-    record = seal.items.map((part, i) => <path key={i} className={`seal__part seal__part--${part}`} d={sealArc(i / n + gap / 2, n === 1 ? 0.9999 : (i + 1) / n - gap / 2)} />)
+    const gap = n > 1 ? Math.min(0.04, 0.4 / n) : 0
+    record = seal.items.map((part, i) => <path key={i} className={`seal__part seal__part--${part}`} d={sealArc(i / n + gap / 2, (i + 1) / n - gap / 2)} />)
   }
   return (
     <svg className={`seal${off ? ' seal--off' : ''}`} viewBox="0 0 40 40" aria-hidden="true">
-      <circle className="seal__track" cx={SC} cy={SC} r={SR} />
+      <path className="seal__track" d={sealArc(0, 1)} />
       {!off && record}
-      <circle className="seal__hub" cx={SC} cy={SC} r={2.2} />
     </svg>
   )
 }

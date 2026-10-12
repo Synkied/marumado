@@ -1,7 +1,7 @@
-/* Status inks use the same theme-aware pens as the rest of the app. */
+/* The pets are drawn in ink, as on the T3 sketches: orange when they need you, slate when done, grey at rest. */
 
 .critter {
-  --critter-pen: var(--c-agents);
+  --critter-pen: var(--ink);
   display: block;
   flex: none;
   overflow: visible;
@@ -13,7 +13,7 @@
 }
 
 .critter .critter__fill {
-  fill: var(--ground-raised);
+  fill: var(--critter-fill, var(--ground-raised));
 }
 
 .critter .critter__ink {
@@ -53,7 +53,7 @@
 }
 
 .critter--idle {
-  --critter-pen: var(--c-machines);
+  --critter-pen: var(--ink-2);
 }
 
 .critter--unknown {

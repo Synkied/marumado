@@ -139,8 +139,8 @@
   align-self: flex-end;
   max-width: min(100%, 60ch);
   padding: var(--sp-5) var(--sp-7);
-  background: var(--ground-raised);
-  border: 1px solid var(--rule-soft);
+  background: var(--well);
+  border: 1px solid transparent;
   border-radius: var(--radius-xl);
 }
 
@@ -190,9 +190,9 @@
 }
 
 .tool-call--card {
-  border: 1px solid var(--rule-soft);
+  border: 1px solid transparent;
   border-radius: var(--radius-lg);
-  background: var(--ground-raised);
+  background: var(--well);
   overflow: hidden;
 }
 
@@ -657,9 +657,10 @@ details.tool-call > .tool-call__out {
   max-width: var(--chat-column);
   margin-inline: auto;
   padding: var(--sp-4) var(--sp-5);
-  border: 1px solid var(--rule);
+  border: 1px solid transparent;
   border-radius: var(--radius-xl);
-  background: var(--ground-raised);
+  background: var(--well);
+  box-shadow: var(--shadow-well);
 }
 
 /* The / commands as you type one: over the conversation, just above the box. */
@@ -727,7 +728,7 @@ details.tool-call > .tool-call__out {
 }
 
 .chat__box:focus-within {
-  border-color: var(--ink);
+  border-color: var(--ink-3);
 }
 
 .chat__input {
@@ -840,9 +841,9 @@ button.chat__mode:hover {
 .chat__pic-open {
   display: block;
   padding: 0;
-  border: 1px solid var(--rule-soft);
+  border: 1px solid transparent;
   border-radius: var(--radius-lg);
-  background: var(--ground-raised);
+  background: var(--well);
   overflow: hidden;
   cursor: zoom-in;
 }
@@ -965,9 +966,9 @@ button.chat__mode:hover {
 
 .md__code {
   padding: var(--sp-5) var(--sp-6);
-  border: 1px solid var(--rule-soft);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
-  background: var(--ground-raised);
+  background: var(--well);
   font-family: var(--f-mono);
   font-size: var(--chat-mono);
   line-height: 1.5;

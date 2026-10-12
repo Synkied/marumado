@@ -24,11 +24,10 @@ import './app.css'
 function Wordmark() {
   return (
     <a className="wordmark" href="#/" aria-label="Marumado home">
-      {/* A round chart: the rim, its hub, and the pen's mark at the top. */}
+      {/* A round window (丸窓): its rim, and the light inside. */}
       <svg className="wordmark__mark" viewBox="0 0 32 32" aria-hidden="true">
         <circle className="wordmark__ring" cx="16" cy="16" r="14.5" />
-        <circle className="wordmark__hub" cx="16" cy="16" r="5" />
-        <path className="wordmark__pen" d="M16 1.5V8" />
+        <circle className="wordmark__hub" cx="16" cy="16" r="6.5" />
       </svg>
       <span className="wordmark__name">
         <span className="wordmark__text">marumado</span>

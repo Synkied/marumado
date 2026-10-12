@@ -21,7 +21,7 @@ function theme(css: CSSStyleDeclaration) {
   return Object.fromEntries(Object.entries(THEME_TOKENS).map(([key, token]) => [key, css.getPropertyValue(`--term-${token}`).trim()]))
 }
 
-// The app's own mono: narrow, so a wide pane fits the browser with bigger text, and the terminal reads as part of the instrument.
+// A narrow mono of its own (the app's IBM Plex Mono is wider): a wide pane fits the browser with bigger text.
 const FONT = "'Iosevka'"
 
 function decode(b64: string): Uint8Array {

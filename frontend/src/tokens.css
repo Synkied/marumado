@@ -1,19 +1,18 @@
 /* Marumado's design tokens: every value a retheme changes, in one place.
  * Components use these and nothing else for colour, type, spacing, corners and motion.
- * The world is a chart recorder: the machine writes its own record. Pale chart paper with a faint graticule, each
- * module a channel drawn by its own pen in a muted ink, one moss green for "all clear" and one persimmon alarm pen
- * for "needs you", plus a still blue for "done, ready to read". Pen hues keep clear of moss (olive) and persimmon
- * (orange), which only ever mean state.
+ * The world is a Braun T3, after Dieter Rams: a calm appliance for your machines and agents. A warm grey body, soft
+ * panels set on it like a radio's faceplate, sunk wells for fields and the round windows the pets live in, pill keys
+ * with a graphite key for what is pressed, status lights and dials. One orange is the one control that waits on you;
+ * a green light means working or all clear. Module pens stay muted so they never compete with the orange.
  * Fonts: swap the @fontsource imports below together with the --f-* families.
  * The one value CSS can't take from a variable is the phone breakpoint, 860px, written into app.css's media queries. */
 
-@import '@fontsource/iosevka-aile/300.css';
-@import '@fontsource/iosevka-aile/400.css';
-@import '@fontsource/iosevka-aile/500.css';
-@import '@fontsource/iosevka-aile/600.css';
-@import '@fontsource/iosevka/400.css';
-@import '@fontsource/iosevka/500.css';
-@import '@fontsource/iosevka/600.css';
+@import '@fontsource/inter-tight/400.css';
+@import '@fontsource/inter-tight/500.css';
+@import '@fontsource/inter-tight/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+@import '@fontsource/ibm-plex-mono/600.css';
 
 /* 丸窓 in the wordmark: only the two Noto Serif JP chunks that hold those glyphs ship (SIL OFL, see assets/fonts). */
 @font-face {
@@ -32,42 +31,43 @@
 
 :root {
   /* Colour roles. Text is ink, ink-2 or signal-text; ink-3 is for strokes only. */
-  --ground: #ecebe4; /* chart paper */
-  --ground-raised: #f5f4ef; /* a fresh sheet: fields, the open item, the search palette */
-  --ink: #23231f;
-  --ink-2: #57564f; /* 6.3:1 on the paper */
-  --ink-3: #9a988e;
-  --track: #d9d7cd;
-  --grid: #dcdad0; /* the graticule's fine lines */
-  --grid-major: #cbc8bc; /* its major divisions and the rims of the chart discs */
-  --rule: #bfbcb1;
-  --rule-soft: #d6d3c9;
-  --solid: #2b2b27; /* a filled control: the pressed segment, a button on hover, the selected result */
-  --on-solid: #f5f4ef;
-  --on-solid-2: #b9b7ae;
-  --pen-off: #b3b0a6; /* the rim of a channel that is off or unavailable */
-  --disc: var(--ground); /* a chart disc's paper */
-  --rim-ink: 55%; /* how much of its pen a disc's rim takes */
-  --moss: #5d6b3a; /* all clear, alive, working */
-  --signal: #c2502b; /* persimmon, the alarm pen: needs you, and nothing else */
-  --done: oklch(0.52 0.08 235); /* still blue: finished, ready for you to read; calmer than the alarm */
-  --signal-text: #a3411f; /* 5.4:1 on the paper, so small 'needs you' text passes AA */
-  --on-signal: #f6f2ea;
-  --focus: #23231f;
+  --ground: #e7e5e0; /* the appliance's warm grey body */
+  --ground-raised: #f4f3f0; /* a panel set on the body: sheets, the sidebar, the search palette, menus */
+  --well: #e7e5e0; /* sunk into a panel: fields, segmented controls, the pets' round windows, dial faces */
+  --ink: #1c1c1b;
+  --ink-2: #5f5e5a; /* 6.2:1 on a panel, 5.6:1 on the body */
+  --ink-3: #9a9893; /* strokes and resting lights only, never text */
+  --track: #dcdad4; /* the empty part of a meter or a dial's scale */
+  --grid: #e1dfd9; /* a chart's fine rules */
+  --grid-major: #d3d1cb;
+  --rule: #c9c7c0;
+  --rule-soft: #dedcd6;
+  --solid: #2a2a29; /* the graphite key: pressed, selected, a key on hover */
+  --on-solid: #f4f3f0;
+  --on-solid-2: #a9a7a1;
+  --pen-off: #b4b2ac; /* a channel that is off or unavailable */
+  --disc: var(--well); /* a dial's face */
+  --rim-ink: 55%;
+  --moss: #5a7654; /* the green light: working, alive, all clear (4.6:1 on a panel, so it may also be text) */
+  --signal: #f05a1a; /* Braun orange: needs you, and nothing else */
+  --done: #4f6074; /* finished, ready for you to read: a calm slate, quieter than the orange */
+  --signal-text: #b5400b; /* 5.0:1 on a panel, so small 'needs you' text passes AA */
+  --on-signal: #1c1c1b; /* legends on the orange key are dark, as on Braun's coloured keys (5:1) */
+  --focus: #1c1c1b;
 
-  /* One pen per module, as on a multi-pen recorder: muted inks, so a channel can be found at a glance. A .mod-<id>
-     class sets --mod (that module's pen); outside a module everything falls back to ink. */
-  --c-projects: oklch(0.44 0.1 266); /* indigo */
-  --c-urls: oklch(0.5 0.085 158); /* jade */
-  --c-machine: oklch(0.48 0.07 215); /* slate teal */
-  --c-docker: oklch(0.49 0.075 190); /* celadon */
-  --c-agents: oklch(0.48 0.1 300); /* wisteria */
-  --c-skills: oklch(0.46 0.085 330); /* plum */
-  --c-ports: oklch(0.5 0.08 85); /* ochre */
-  --c-tasks: oklch(0.47 0.09 0); /* madder rose: deep and blue-leaning, never the alarm's orange */
-  --c-momentum: oklch(0.5 0.07 245); /* blue */
-  --c-processes: oklch(0.46 0.03 60); /* umber grey */
-  --c-machines: oklch(0.45 0.04 250); /* blue slate */
+  /* One muted colour per module, as on Braun's product lines: enough to tell a chart's channels apart, never loud
+     enough to compete with the orange. A .mod-<id> class sets --mod; outside a module everything falls back to ink. */
+  --c-projects: oklch(0.44 0.060 266); /* indigo */
+  --c-urls: oklch(0.5 0.051 158); /* jade */
+  --c-machine: oklch(0.48 0.042 215); /* slate teal */
+  --c-docker: oklch(0.49 0.045 190); /* celadon */
+  --c-agents: oklch(0.48 0.060 300); /* wisteria */
+  --c-skills: oklch(0.46 0.051 330); /* plum */
+  --c-ports: oklch(0.5 0.048 85); /* ochre */
+  --c-tasks: oklch(0.47 0.054 0); /* madder rose: deep and blue-leaning, never the alarm's orange */
+  --c-momentum: oklch(0.5 0.042 245); /* blue */
+  --c-processes: oklch(0.46 0.018 60); /* umber grey */
+  --c-machines: oklch(0.45 0.024 250); /* blue slate */
   --mod: var(--ink);
   --on-mod: var(--ground);
 
@@ -101,14 +101,13 @@
   --term-cyan: #7fb2ac;
   --term-bright-cyan: #a2cbc6;
 
-  /* Type. One family, two widths: Iosevka Aile (its proportional sibling) for names, prose and controls, Iosevka
-     for every value, reading, path, port, log and line of code. The terminals use Iosevka too, so the instrument and
-     the agents it watches speak the same letters. */
-  --f-sans: 'Iosevka Aile', ui-sans-serif, system-ui, sans-serif;
-  --f-mono: 'Iosevka', ui-monospace, 'SFMono-Regular', monospace;
+  /* Type. Inter Tight, a compact neo-grotesk in the line of Braun's Akzidenz labels, for names, prose and controls;
+     IBM Plex Mono for every value, reading, path, port, log, line of code and the terminals. */
+  --f-sans: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
   --f-cjk: 'Marumado Kanji', 'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif CJK JP', 'Noto Serif JP', serif;
 
-  --weight-light: 300;
+  --weight-light: 400; /* Inter Tight ships 400–600 here; light text reads as ink-2 instead */
   --weight-body: 400;
   --weight-strong: 500;
   --weight-heavy: 600;
@@ -127,12 +126,12 @@
   --text-display-sm: clamp(26px, 2.4vw, 40px);
   --text-display: clamp(32px, 3.2vw, 50px);
 
-  --track-display: -0.02em;
+  --track-display: -0.025em;
   --track-title: 0;
   --track-snug: 0.04em;
-  --track-caps: 0.14em; /* small labels in tracked caps, like the channel names printed on a chart */
+  --track-caps: 0.12em; /* small labels in tracked caps, like the legends printed on a faceplate */
   --track-caps-wide: 0.18em;
-  --track-wordmark: 0.02em;
+  --track-wordmark: -0.01em;
 
   /* Spacing on a 2px grid: --sp-N is N × --space. Change --space to make the whole UI denser or roomier. */
   --space: 2px;
@@ -158,16 +157,20 @@
   --control: 40px;
   --touch: 44px;
 
-  /* Elevation: flat everywhere, except what floats over the page (the search palette, a menu). */
+  /* Elevation: a panel sits on the body, a well is pressed into a panel, a key has a lip at its foot, and what
+     floats over the page (the search palette, a menu) casts a long soft shadow. */
+  --shadow-panel: inset 0 1px 0 rgb(255 255 255 / 0.75), 0 1px 2px rgb(40 38 32 / 0.07), 0 6px 18px -10px rgb(40 38 32 / 0.16);
+  --shadow-well: inset 0 2px 5px rgb(40 38 32 / 0.12);
+  --shadow-key: inset 0 -2px 0 rgb(40 38 32 / 0.09);
   --shadow-float: 0 24px 60px -24px rgb(40 38 32 / 0.34);
 
-  /* Corners: an instrument's, small and exact. Circles (the chart discs, lamps, the status dot) stay 50%. */
-  --radius-xs: 2px;
-  --radius-sm: 3px;
-  --radius-control: 4px; /* buttons, chips, segmented controls, the picker */
-  --radius-md: 5px;
-  --radius-lg: 6px;
-  --radius-xl: 8px;
+  /* Corners: soft, as on a T3's faceplate. Keys and chips are pills; lights, dials and the round windows stay 50%. */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-control: 999px; /* buttons, chips, segmented controls, the picker */
+  --radius-md: 10px;
+  --radius-lg: 12px; /* fields, cards inside a panel */
+  --radius-xl: 16px; /* panels */
 
   /* Motion. Quick for hover and state, base for surfaces, slow for one-off sweeps. Nothing bounces. */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
@@ -175,49 +178,53 @@
   --dur-base: 260ms;
   --dur-enter: 420ms;
   --dur-slow: 700ms;
-  --dur-sweep: 1400ms; /* a pen drawing a channel's record onto its disc, once */
+  --dur-sweep: 1400ms; /* a dial's needle settling on its reading, once */
 
   color-scheme: light;
 }
 
-/* The recorder at night: charcoal paper rather than black, so a side screen in a dim room stays easy to read, and
-   pale pens. */
+/* At night, the T3 in graphite: a charcoal body rather than black, so a side screen in a dim room stays easy to
+   read, panels a step lighter, and the graphite key turns pale. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --ground: #22221f;
-    --ground-raised: #2d2d29;
-    --ink: #eeebe3;
-    --ink-2: #bdbab0;
-    --ink-3: #85827a;
-    --track: #3b3a35;
-    --grid: #32312d;
-    --grid-major: #4b4944;
-    --rule: #5a5851;
-    --rule-soft: #3e3d38;
-    --solid: #e2dfd5;
-    --on-solid: #22221f;
-    --on-solid-2: #67655e;
-    --pen-off: #706e67;
-    --disc: #292925; /* at night each disc is a sheet a shade lighter than the table, so it holds its shape */
+    --ground: #1b1b1a;
+    --ground-raised: #262624;
+    --well: #1b1b1a;
+    --ink: #ecebe7;
+    --ink-2: #a9a7a1; /* 6.4:1 on a panel */
+    --ink-3: #6f6d68;
+    --track: #383835;
+    --grid: #2f2f2c;
+    --grid-major: #41413d;
+    --rule: #454541;
+    --rule-soft: #34342f;
+    --solid: #ecebe7;
+    --on-solid: #1b1b1a;
+    --on-solid-2: #6f6d68;
+    --pen-off: #5e5c57;
+    --disc: var(--well);
     --rim-ink: 85%;
-    --moss: #93a666;
-    --signal: #e0703f;
-    --done: oklch(0.74 0.08 235);
-    --signal-text: #ec8a5c;
-    --on-signal: #191917;
-    --focus: #e8e5dc;
-    /* The same pens, pale enough to read on dark paper. */
-    --c-projects: oklch(0.76 0.11 266);
-    --c-urls: oklch(0.79 0.1 158);
-    --c-machine: oklch(0.79 0.09 215);
-    --c-docker: oklch(0.79 0.09 190);
-    --c-agents: oklch(0.77 0.11 300);
-    --c-skills: oklch(0.77 0.1 330);
-    --c-ports: oklch(0.81 0.1 85);
-    --c-tasks: oklch(0.76 0.1 0);
-    --c-momentum: oklch(0.78 0.09 245);
-    --c-processes: oklch(0.77 0.03 60);
-    --c-machines: oklch(0.77 0.045 250);
+    --moss: #8fb089;
+    --signal: #ff6a2b;
+    --done: #9fb2c8;
+    --signal-text: #ff8a55;
+    --on-signal: #1b1b1a;
+    --focus: #ecebe7;
+    --shadow-panel: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 20px -10px rgb(0 0 0 / 0.5);
+    --shadow-well: inset 0 2px 6px rgb(0 0 0 / 0.5);
+    --shadow-key: inset 0 -2px 0 rgb(0 0 0 / 0.35);
+    /* The same module colours, pale enough to read on a dark panel. */
+    --c-projects: oklch(0.76 0.066 266);
+    --c-urls: oklch(0.79 0.060 158);
+    --c-machine: oklch(0.79 0.054 215);
+    --c-docker: oklch(0.79 0.054 190);
+    --c-agents: oklch(0.77 0.066 300);
+    --c-skills: oklch(0.77 0.060 330);
+    --c-ports: oklch(0.81 0.060 85);
+    --c-tasks: oklch(0.76 0.060 0);
+    --c-momentum: oklch(0.78 0.054 245);
+    --c-processes: oklch(0.77 0.018 60);
+    --c-machines: oklch(0.77 0.027 250);
     --syn-keyword: #9eaed0;
     --syn-string: #a8ba7a;
     --syn-number: #d6b26a;

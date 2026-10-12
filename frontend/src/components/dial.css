@@ -4,12 +4,15 @@
   gap: var(--sp-4);
 }
 
-/* The face is one circular chart: paper, graticule, rim, the pen's record, and the hub with the reading. */
+/* The face is a round dial sunk into the panel: the scale, the value's arc, the record's marks, and the reading. */
 .dial__face {
   position: relative;
   width: var(--dial-size, clamp(120px, min(16vw, 22vh), 300px));
   aspect-ratio: 1;
   container-type: inline-size;
+  border-radius: 50%;
+  background: var(--disc);
+  box-shadow: var(--shadow-well);
 }
 
 .dial--md .dial__face {
@@ -24,137 +27,110 @@
   overflow: visible;
 }
 
-/* The disc is a sheet of paper laid on the table: it covers the graticule beneath. */
-.dial__paper {
-  fill: var(--disc);
+/* The scale: a 270° track, open at the foot. */
+.dial__scale {
+  fill: none;
+  stroke: var(--track);
+  stroke-width: 9;
+  stroke-linecap: round;
 }
 
-.dial__grid {
+/* The value: the arc along the scale, in ink, orange when it needs you. */
+.dial__value-arc {
   fill: none;
-  stroke: var(--grid);
-  stroke-width: 0.8;
-  vector-effect: non-scaling-stroke;
-}
-
-.dial__rim {
-  fill: none;
-  stroke: color-mix(in oklab, var(--mod) var(--rim-ink), var(--ground));
-  stroke-width: 1.2;
-  vector-effect: non-scaling-stroke;
+  stroke: var(--ink);
+  stroke-width: 9;
+  stroke-linecap: round;
   transition: stroke var(--dur-base) ease-out;
 }
 
-.dial__now {
-  stroke: var(--ink-3);
-  stroke-width: 1.2;
-  vector-effect: non-scaling-stroke;
+.dial--signal .dial__value-arc {
+  stroke: var(--signal);
 }
 
-.dial__hub {
-  fill: var(--disc);
-  stroke: var(--grid-major);
-  stroke-width: 0.8;
-  vector-effect: non-scaling-stroke;
-}
+/* ---------- the record ---------- */
 
-/* ---------- the pen's record ---------- */
-
-.dial__trace {
+.dial__mark {
   fill: none;
   stroke: var(--mod);
-  stroke-width: 1.6;
-  stroke-linejoin: round;
+  stroke-width: 3;
   stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
 }
 
-.dial__trace--signal {
+.dial__mark--none {
+  stroke: var(--track);
+}
+
+.dial__mark--signal {
   stroke: var(--signal);
-  stroke-width: 1.8;
-}
-
-.dial__tip {
-  fill: var(--mod);
-}
-
-.dial--signal .dial__tip {
-  fill: var(--signal);
-}
-
-.dial__tick {
-  stroke: var(--mod);
-  stroke-width: 2.6;
-  stroke-linecap: round;
-}
-
-.dial__tick-dot {
-  fill: color-mix(in oklab, var(--mod) 45%, var(--ground));
 }
 
 .dial__lane {
   fill: none;
-  stroke-linecap: butt;
+  stroke-width: 9;
+  stroke-linecap: round;
 }
 
 .dial__lane--on {
-  stroke: var(--mod);
-  stroke-width: 5;
+  stroke: var(--moss);
 }
 
 .dial__lane--done {
-  stroke: color-mix(in oklab, var(--mod) 38%, var(--ground));
-  stroke-width: 5;
+  stroke: var(--done);
 }
 
 .dial__lane--off {
-  stroke: var(--grid-major);
-  stroke-width: 1.6;
+  stroke: var(--ink-3);
 }
 
 .dial__lane--fault {
   stroke: var(--signal);
-  stroke-width: 5;
 }
 
-/* A quiet channel (nothing running, nothing open) is drawn with a lighter pen; the busy ones hold the eye. */
-.dial--quiet .dial__record {
+/* A quiet channel (nothing running, nothing open) draws lighter; the busy ones hold the eye. */
+.dial--quiet .dial__record,
+.dial--quiet .dial__value-arc {
   opacity: 0.55;
 }
 
-/* A channel that needs you: the alarm pen marks its rim and its newest record. */
-.dial--signal .dial__rim {
-  stroke: var(--signal);
-  stroke-width: 1.6;
-}
-
-.dial--signal .dial__now {
-  stroke: var(--signal);
-  stroke-width: 2;
-}
-
-/* Off or unavailable: a blank disc with a pale rim, no graticule. */
-.dial--off .dial__rim {
+/* Off or unavailable: an empty face with a dashed scale. */
+.dial--off .dial__scale {
   stroke: var(--pen-off);
-  stroke-dasharray: 3 4;
+  stroke-width: 2;
+  stroke-dasharray: 4 6;
 }
 
-.dial--off .dial__grid {
-  display: none;
+/* The dial's light, at twelve o'clock above the scale: green and breathing while something works, orange and steady
+   when it needs you. */
+.dial__light {
+  fill: var(--moss);
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
-.dial--off .dial__hub {
-  stroke: none;
+.dial--busy:not(.dial--signal) .dial__light {
+  animation: dial-light 2.4s ease-in-out infinite;
 }
 
-/* The pen draws each channel's record onto its disc once, as the page opens; afterwards it updates in place. */
+.dial--signal .dial__light {
+  fill: var(--signal);
+}
+
+@keyframes dial-light {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* The needle settles once, as the page opens; afterwards readings update in place. */
 @media (prefers-reduced-motion: no-preference) {
   .dial__record {
     animation: dial-draw var(--dur-sweep) var(--ease) backwards;
     animation-delay: calc(var(--i, 0) * 70ms + 120ms);
   }
-  .dial__trace[pathLength] {
+  .dial__value-arc[pathLength] {
     stroke-dasharray: 1;
-    animation: dial-pen var(--dur-sweep) var(--ease) backwards;
+    animation: dial-sweep var(--dur-sweep) var(--ease) backwards;
     animation-delay: calc(var(--i, 0) * 70ms + 120ms);
   }
 }
@@ -165,34 +141,19 @@
   }
 }
 
-@keyframes dial-pen {
+@keyframes dial-sweep {
   from {
     stroke-dashoffset: 1;
   }
 }
 
-/* Something at work: the pen tip pulses where it writes. */
-.dial__pulse {
-  fill: var(--mod);
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: dial-pulse 2.4s ease-in-out infinite;
-}
-
-@keyframes dial-pulse {
-  50% {
-    opacity: 0.25;
-    scale: 0.7;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .dial__pulse {
-    animation: none;
+  .dial__light {
+    animation: none !important;
   }
 }
 
-/* ---------- the reading, in the hub ---------- */
+/* ---------- the reading, in the middle ---------- */
 
 .dial__text {
   position: absolute;
@@ -211,7 +172,7 @@
   font-family: var(--f-mono);
   font-weight: var(--weight-body);
   font-size: 15cqi;
-  letter-spacing: var(--track-display);
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -226,8 +187,7 @@
 
 .dial--off .dial__value {
   font-family: var(--f-sans);
-  font-weight: var(--weight-light);
-  font-style: italic;
+  font-weight: var(--weight-strong);
   font-size: 11cqi;
   color: var(--ink-2);
 }
@@ -265,14 +225,13 @@
   color: var(--signal-text);
 }
 
-/* How much time the disc holds, printed at its foot like the range on a chart. */
+/* How much time the record holds, printed in the scale's open foot. */
 .dial__span {
   position: absolute;
   left: 50%;
-  bottom: -0.2em;
+  bottom: 6cqi;
   translate: -50% 0;
   padding: 0 var(--sp-3);
-  background: var(--ground);
   font-family: var(--f-mono);
   font-size: max(10px, 3.2cqi);
   line-height: 1.4;
@@ -286,20 +245,10 @@
   color: var(--ink-2);
 }
 
-/* A small disc has room for its name and reading only. */
+/* A small dial has room for its name and reading only. */
 @container (max-width: 190px) {
   .dial__sub,
   .dial__span {
     display: none;
-  }
-}
-
-/* At night the record needs more weight to hold against dark paper. */
-@media (prefers-color-scheme: dark) {
-  .dial__trace {
-    stroke-width: 2;
-  }
-  .dial--quiet .dial__record {
-    opacity: 0.75;
   }
 }

@@ -3,7 +3,7 @@
   max-height: min(640px, calc(100dvh - 64px));
   margin: 12vh auto auto;
   padding: 0;
-  border: 1px solid var(--rule);
+  border: 0;
   border-radius: var(--radius-xl);
   background: var(--ground-raised);
   color: var(--ink);

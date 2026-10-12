@@ -7,31 +7,38 @@
     <!-- The first-run page, bundled with the app (with starting.html): everything else is Marumado's own, loaded from its
          address. It runs Marumado on this machine (the `host` command) or connects to one elsewhere (`connect`). -->
     <style>
+      /* Marumado's Braun T3 look (frontend/src/tokens.css): a panel on the warm grey body, sunk wells, pill keys. */
       :root {
-        --ground: #ecebe4;
-        --raised: #f5f4ef;
-        --ink: #23231f;
-        --ink-2: #57564f;
-        --rule: #bfbcb1;
-        --solid: #2b2b27;
-        --on-solid: #f5f4ef;
-        --signal-text: #a3411f;
-        --focus: #23231f;
-        --f-sans: 'Iosevka Aile', ui-sans-serif, system-ui, sans-serif;
-        --f-mono: 'Iosevka', ui-monospace, 'SFMono-Regular', monospace;
+        --ground: #e7e5e0;
+        --raised: #f4f3f0;
+        --well: #e7e5e0;
+        --ink: #1c1c1b;
+        --ink-2: #5f5e5a;
+        --rule: #c9c7c0;
+        --solid: #2a2a29;
+        --on-solid: #f4f3f0;
+        --signal-text: #b5400b;
+        --focus: #1c1c1b;
+        --shadow-panel: inset 0 1px 0 rgb(255 255 255 / 0.75), 0 1px 2px rgb(40 38 32 / 0.07), 0 6px 18px -10px rgb(40 38 32 / 0.16);
+        --shadow-well: inset 0 2px 5px rgb(40 38 32 / 0.12);
+        --f-sans: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif;
+        --f-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --ground: #22221f;
-          --raised: #2d2d29;
-          --ink: #eeebe3;
-          --ink-2: #bdbab0;
-          --rule: #5a5851;
-          --solid: #e2dfd5;
-          --on-solid: #22221f;
-          --signal-text: #ec8a5c;
-          --focus: #eeebe3;
+          --ground: #1b1b1a;
+          --raised: #262624;
+          --well: #1b1b1a;
+          --ink: #ecebe7;
+          --ink-2: #a9a7a1;
+          --rule: #454541;
+          --solid: #ecebe7;
+          --on-solid: #1b1b1a;
+          --signal-text: #ff8a55;
+          --focus: #ecebe7;
+          --shadow-panel: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 20px -10px rgb(0 0 0 / 0.5);
+          --shadow-well: inset 0 2px 6px rgb(0 0 0 / 0.5);
           color-scheme: dark;
         }
       }
@@ -49,15 +56,19 @@
         font: 400 16px/1.5 var(--f-sans);
       }
       form {
-        width: min(440px, 100%);
+        width: min(480px, 100%);
         display: grid;
         gap: 18px;
+        padding: 28px;
+        border-radius: 16px;
+        background: var(--raised);
+        box-shadow: var(--shadow-panel);
       }
       h1 {
         margin: 0;
         font-size: 28px;
-        font-weight: 500;
-        letter-spacing: -0.02em;
+        font-weight: 600;
+        letter-spacing: -0.025em;
         display: flex;
         align-items: center;
         gap: 12px;
@@ -86,13 +97,14 @@
       }
       input[type='text'],
       input[type='password'] {
-        height: 40px;
-        padding: 0 12px;
-        border: 1px solid var(--rule);
-        border-radius: 4px;
-        background: var(--raised);
+        height: 44px;
+        padding: 0 14px;
+        border: 1px solid transparent;
+        border-radius: 12px;
+        background: var(--well);
+        box-shadow: var(--shadow-well);
         color: var(--ink);
-        font: 400 16px var(--f-mono);
+        font: 400 15px var(--f-mono);
       }
       input:focus-visible,
       button:focus-visible {
@@ -112,12 +124,12 @@
         accent-color: var(--solid);
       }
       button {
-        height: 40px;
+        height: 44px;
         border: 0;
-        border-radius: 4px;
+        border-radius: 999px;
         background: var(--solid);
         color: var(--on-solid);
-        font: 500 15px var(--f-sans);
+        font: 600 15px var(--f-sans);
         cursor: pointer;
       }
       button:disabled {
@@ -127,16 +139,16 @@
       .seg {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        border: 1px solid var(--rule);
-        border-radius: 4px;
-        overflow: hidden;
+        padding: 4px;
+        border-radius: 999px;
+        background: var(--well);
+        box-shadow: var(--shadow-well);
       }
       .seg button {
         height: 36px;
-        border-radius: 0;
         background: none;
         color: var(--ink-2);
-        font-weight: 400;
+        font-weight: 500;
       }
       .seg button[aria-pressed='true'] {
         background: var(--solid);
@@ -161,10 +173,8 @@
         align-items: center;
         gap: 8px;
         min-height: 36px;
-        padding: 0 4px 0 12px;
-        border: 1px solid var(--rule);
-        border-radius: 4px;
-        background: var(--raised);
+        padding: 0 4px 0 2px;
+        border-bottom: 1px solid var(--rule);
         font: 400 14px var(--f-mono);
       }
       .folders li span {
@@ -175,12 +185,13 @@
         white-space: nowrap;
       }
       .quiet {
-        height: 32px;
-        padding: 0 12px;
-        border: 1px solid var(--rule);
-        background: none;
+        height: 34px;
+        padding: 0 14px;
+        border: 0;
+        background: var(--well);
+        box-shadow: inset 0 -2px 0 rgb(40 38 32 / 0.09);
         color: var(--ink);
-        font-weight: 400;
+        font-weight: 500;
         justify-self: start;
       }
       .folders .quiet {
@@ -216,9 +227,8 @@
     <form id="connect">
       <h1>
         <svg viewBox="0 0 32 32" aria-hidden="true">
-          <circle cx="16" cy="16" r="14.5" fill="none" stroke="currentColor" stroke-opacity="0.5" stroke-width="1.2" />
-          <circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-opacity="0.5" stroke-width="1.2" />
-          <circle cx="16" cy="16" r="7.5" fill="currentColor" />
+          <circle cx="16" cy="16" r="14.5" fill="none" stroke="currentColor" stroke-width="2" />
+          <circle cx="16" cy="16" r="6.5" fill="currentColor" />
         </svg>
         Marumado
       </h1>

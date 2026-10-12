@@ -25,22 +25,22 @@
   display: grid;
   grid-template-columns: var(--lane-pets) minmax(0, 1fr);
   align-items: center;
-  background: var(--disc);
-  box-shadow: inset 1px 0 var(--rule-soft);
-  transition: background-color var(--dur-quick) ease-out;
+  border-radius: var(--radius-lg);
+  background: var(--well);
+  transition: box-shadow var(--dur-quick) ease-out;
 }
 
 .lane + .lane {
-  border-top: 1px solid var(--rule-soft);
+  margin-top: var(--sp-3);
 }
 
 .lane:hover {
-  background: var(--ground-raised);
+  box-shadow: inset 0 0 0 1px var(--rule);
 }
 
 .lane.is-fault {
-  background: color-mix(in oklab, var(--signal) 9%, var(--disc));
-  box-shadow: inset 3px 0 var(--signal);
+  background: color-mix(in oklab, var(--signal) 10%, var(--well));
+  box-shadow: inset 0 0 0 1.5px var(--signal);
 }
 
 .lane__pets {
@@ -49,15 +49,21 @@
   padding-left: var(--sp-2);
 }
 
-/* Several agents in one folder stand close, a little overlapped. */
+/* Several agents in one folder stand close, their windows a little overlapped. */
 .lane__pet + .lane__pet {
-  margin-left: -28px;
+  margin-left: -26px;
 }
 
+/* Each pet in its round window, sunk into the panel. */
 .lane__pet {
-  display: block;
+  display: grid;
+  place-items: center;
+  padding: 3px;
   line-height: 0;
   border-radius: 50%;
+  background: var(--ground-raised);
+  box-shadow: var(--shadow-well);
+  --critter-fill: var(--ground-raised);
 }
 
 .lane__body {
@@ -304,15 +310,21 @@
 .toppets {
   display: flex;
   align-items: center;
-  gap: var(--sp-1);
-  padding-left: clamp(var(--sp-3), 1vw, var(--sp-8));
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3) 0 var(--sp-5);
   border-left: 1px solid var(--rule-soft);
 }
 
+/* The pets in the top bar, each in its small round window. */
 .toppets__pet {
-  display: block;
+  display: grid;
+  place-items: center;
+  padding: 2px;
   line-height: 0;
   border-radius: 50%;
+  background: var(--well);
+  box-shadow: var(--shadow-well);
+  --critter-fill: var(--well);
 }
 
 .toppets__more {

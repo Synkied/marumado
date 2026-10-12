@@ -17,20 +17,14 @@
   pointer-events: auto;
 }
 
-/* A strip of chart paper the critters stand on, with the line they stand on. */
+/* A small panel the critters stand on, with the line they stand on. */
 .dock__plate {
-  --grid-fine: color-mix(in oklab, var(--grid) 30%, var(--ground-raised));
   position: relative;
   display: flex;
   align-items: stretch;
   border-radius: var(--radius-xl);
-  background-color: var(--ground-raised);
-  background-image:
-    linear-gradient(var(--grid-fine) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-fine) 1px, transparent 1px);
-  background-size: 16px 16px;
-  background-position: -1px 5px;
-  box-shadow: var(--shadow-float);
+  background: var(--ground-raised);
+  box-shadow: var(--shadow-panel), var(--shadow-float);
   animation: dock-in var(--dur-enter) var(--ease) 1;
 }
 
