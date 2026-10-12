@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { AgentChangesModal } from './agentChanges'
 import { Terminal } from '../components/Terminal'
 import { ConfirmButton } from '../components/ConfirmButton'
@@ -14,7 +14,7 @@ import { useHub } from '../lib/hub'
 import { useMachines } from '../lib/machines'
 import { Redacted, Secret, useRedact } from '../lib/streaming'
 import { go, type Route } from '../lib/route'
-import type { Agent, Agents, AgentSource, AgentStatus, Container, ProjectRef, Pulse } from '../lib/types'
+import type { Agent, Agents, AgentSource, AgentStatus, Container, ProjectRef, Pulse, Task } from '../lib/types'
 import { useIsNarrow } from '../lib/useIsNarrow'
 import { usePoll } from '../lib/usePoll'
 import { MomentumSheet, SkillsSheet, useView, ViewSwitch } from './growth'
@@ -568,7 +568,7 @@ function DockerSheet() {
 const AGENT_STATE: Record<AgentStatus, string> = {
   working: 'WORKING',
   blocked: 'NEEDS YOU',
-  idle: 'IDLE',
+  idle: 'RESTING',
   done: 'DONE',
   unknown: '—',
 }
@@ -890,7 +890,7 @@ function AgentTask({ agent: a, projectId }: { agent: Agent; projectId: number | 
       refreshTasks()
       go(`#/m/tasks/${made.id}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't make it a task.")
+      setError(err instanceof Error ? err.message : "Couldn't track it as a task.")
       setBusy(false)
     }
   }
@@ -902,17 +902,163 @@ function AgentTask({ agent: a, projectId }: { agent: Agent; projectId: number | 
         type="button"
         onClick={make}
         disabled={busy}
-        title="Follow what this agent does as a task: its states, what it changed, and a review when it finishes. Nothing is sent to it."
+        title="Track what this agent does as a task: its states, what it changed, and a review when it finishes. Nothing is sent to it."
       >
-        {busy ? 'Making it a task…' : 'Make it a task'}
+        {busy ? 'Tracking it…' : 'Track as a task'}
       </button>
       {error && <span className="signal-text">{error}</span>}
     </span>
   )
 }
 
+/** Waits for an element the next render brings (the conversation, its question), then does `then` with it. */
+function reach(selector: string, then: (el: HTMLElement) => void, tries = 20) {
+  const el = document.querySelector<HTMLElement>(selector)
+  if (el) then(el)
+  else if (tries > 0) window.setTimeout(() => reach(selector, then, tries - 1), 100)
+}
+
+/** Under the open agent's head: how it is, in words, and the one thing to do about it, with the next ones beside it.
+    Waiting on you: answer it. Done: check what it did. Resting: give it something. Working: queue what comes next. */
+function AgentNext({
+  agent: a,
+  task,
+  doing,
+  asks,
+  write,
+  onWrite,
+  onChanges,
+  onQueue,
+}: {
+  agent: Agent
+  task?: Task
+  doing?: Doing
+  /** Steps queued for it that wait for your go. */
+  asks: number
+  /** Where you write to it: the conversation, the phone's prompt box, or nowhere (the live terminal, or watch only). */
+  write: 'chat' | 'composer' | null
+  onWrite: () => void
+  onChanges: () => void
+  onQueue: () => void
+}) {
+  if (a.kind === 'terminal') return null
+  const toReview = task && task.state === 'review' && !task.landed
+  const queue = (
+    <button type="button" className="btn btn--quiet agent-next__btn" onClick={onQueue}>
+      <Icon name="queue" size={16} />
+      Queue next
+    </button>
+  )
+  const giveGo = asks > 0 && (
+    <button type="button" className="btn btn--quiet agent-next__btn agent-next__btn--go" onClick={onQueue}>
+      Give the go{asks > 1 ? ` (${asks})` : ''}
+    </button>
+  )
+  let say: ReactNode
+  let actions: ReactNode
+  if (a.status === 'blocked') {
+    say = write ? <>It asked you something. Answer it to let it go on.</> : <>It asked you something: answer in its terminal below.</>
+    actions = (
+      <>
+        {write && (
+          <button type="button" className="btn agent-next__btn agent-next__btn--main" onClick={onWrite}>
+            Answer it
+          </button>
+        )}
+        {giveGo}
+      </>
+    )
+  } else if (a.status === 'done') {
+    say = toReview ? <>It finished its turn. Its task is ready for review.</> : <>It finished its turn. Check what it did, then send it on.</>
+    actions = (
+      <>
+        {toReview ? (
+          <a className="btn agent-next__btn agent-next__btn--main" href={`#/m/tasks/${task.id}`}>
+            Review its work
+          </a>
+        ) : (
+          <button type="button" className="btn agent-next__btn agent-next__btn--main" onClick={onChanges}>
+            <Icon name="file" size={16} />
+            See what changed
+          </button>
+        )}
+        {giveGo}
+        {write && (
+          <button type="button" className="btn btn--quiet agent-next__btn" onClick={onWrite}>
+            Write to it
+          </button>
+        )}
+        {queue}
+      </>
+    )
+  } else if (a.status === 'working') {
+    say = doing ? (
+      <>
+        Working: <Secret label="Step">{doing.title}</Secret> <span className="agent-next__ago">· {lately(doing.t) === 'now' ? 'just now' : `${lately(doing.t)} ago`}</span>
+      </>
+    ) : (
+      <>Working. You can queue what it does next.</>
+    )
+    actions = (
+      <>
+        {giveGo}
+        {queue}
+      </>
+    )
+  } else if (a.status === 'idle') {
+    say = <>Resting at its prompt, with nothing to do.</>
+    actions = (
+      <>
+        {write && (
+          <button type="button" className="btn agent-next__btn agent-next__btn--main" onClick={onWrite}>
+            Give it something
+          </button>
+        )}
+        {giveGo}
+        {queue}
+      </>
+    )
+  } else return null
+  return (
+    <div className={`agent-next agent-next--${a.status}`} role="status">
+      <p className="agent-next__say">{say}</p>
+      <div className="agent-next__actions">{actions}</div>
+    </div>
+  )
+}
+
+/** The ⋯ beside the agent's tools: what ends it, kept away from what you use every minute. Each still asks twice. */
+function AgentMore({ children, label }: { children: ReactNode; label: string }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const away = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false)
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', away)
+    document.addEventListener('keydown', esc)
+    return () => {
+      document.removeEventListener('mousedown', away)
+      document.removeEventListener('keydown', esc)
+    }
+  }, [open])
+  return (
+    <div className="agent-more" ref={ref}>
+      <button type="button" className="tool" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen(!open)} title={label}>
+        <Icon name="more" size={18} />
+        <span className="sr-only">{label}</span>
+      </button>
+      {open && (
+        <div className="agent-more__menu" role="group" aria-label={label}>
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AgentsSheet({ sub }: { sub?: string }) {
-  const { agents, projects, refreshAgents, needsYou } = useHub()
+  const { agents, projects, refreshAgents, needsYou, tasks } = useHub()
   const [closeError, setCloseError] = useState('')
   const narrow = useIsNarrow()
   const [view, setView] = useState<'text' | 'screen'>('text')
@@ -1065,6 +1211,18 @@ function AgentsSheet({ sub }: { sub?: string }) {
   }
   const queued = current.queued ?? []
   const currentAsks = queued.filter((q) => q.asking).length
+  const currentTask = (tasks ?? []).find((t) => t.live && t.pane_id === current.pane_id && t.agent_source === currentSource)
+  // Where you write to it: the conversation (opened if the terminal is showing), or the phone's prompt box.
+  const write = mode !== 'control' ? null : canChat ? 'chat' : narrow ? 'composer' : null
+  const toWrite = () => {
+    if (write === 'composer') return reach('#composer-text', (el) => el.focus())
+    if (!showChat) setChat(true)
+    // Waiting on you, its question first; otherwise the box you write in.
+    reach(current.status === 'blocked' ? '.chat__ask, #chat-text' : '#chat-text', (el) => {
+      el.scrollIntoView({ block: 'nearest' })
+      ;(el.matches('textarea') ? el : (el.querySelector<HTMLElement>('.chat__ask-choice') ?? el)).focus()
+    })
+  }
   // Phones show one thing at a time, like a chat app: the list, or the agent opened from it.
   const listOnly = narrow && !ref && !inbox
   const folderOf = new Map<string, NonNullable<Pulse['folders']>[number]>()
@@ -1206,6 +1364,7 @@ function AgentsSheet({ sub }: { sub?: string }) {
                     <span className="sr-only">Queue next and plans{currentAsks ? `: ${currentAsks} waiting for your go` : ''}</span>
                   </button>
                 )}
+                {!narrow && mode !== 'off' && <span className="agent-tools__rule" aria-hidden="true" />}
                 {!narrow && mode === 'control' && !showChat && (
                   <button
                     type="button"
@@ -1224,26 +1383,38 @@ function AgentsSheet({ sub }: { sub?: string }) {
                     <span className="sr-only">Full screen</span>
                   </button>
                 )}
-                {mode === 'control' && quitWith && (
-                  <ConfirmButton className="tool" confirmLabel={`Quit ${current.kind}`} onConfirm={quitAgent} title={`Quit ${current.kind} and keep this pane as a terminal (${quitWith})`}>
-                    <Icon name="stop" size={18} />
-                    <span className="sr-only">Quit {current.kind}</span>
-                  </ConfirmButton>
-                )}
                 {mode === 'control' && (
-                  <ConfirmButton
-                    className="tool tool--danger"
-                    confirmLabel={current.kind === 'terminal' ? 'Close it' : `End ${current.kind}`}
-                    onConfirm={closePane}
-                    title={current.kind === 'terminal' ? 'Close this terminal' : `Close this pane and end ${current.kind}`}
-                  >
-                    <Icon name="close" size={18} />
-                    <span className="sr-only">Close</span>
-                  </ConfirmButton>
+                  <AgentMore label={current.kind === 'terminal' ? 'Close this terminal' : `Quit or end ${current.kind}`}>
+                    {quitWith && (
+                      <ConfirmButton className="btn btn--quiet agent-more__item" confirmLabel={`Quit ${current.kind}: sure?`} onConfirm={quitAgent} title={`Types ${quitWith}; the pane stays, as a terminal`}>
+                        <Icon name="stop" size={16} />
+                        Quit {current.kind}, keep the terminal
+                      </ConfirmButton>
+                    )}
+                    <ConfirmButton
+                      className="btn btn--quiet agent-more__item agent-more__item--danger"
+                      confirmLabel={current.kind === 'terminal' ? 'Close it: sure?' : `End ${current.kind}: sure?`}
+                      onConfirm={closePane}
+                      title={current.kind === 'terminal' ? 'Closes the pane in Herdr' : `Closes the pane in Herdr, and ${current.kind} with it`}
+                    >
+                      <Icon name="close" size={16} />
+                      {current.kind === 'terminal' ? 'Close this terminal' : 'Close the pane'}
+                    </ConfirmButton>
+                  </AgentMore>
                 )}
               </div>
             </div>
           </header>
+          <AgentNext
+            agent={current}
+            task={currentTask}
+            doing={doingOf(current)}
+            asks={currentAsks}
+            write={write}
+            onWrite={toWrite}
+            onChanges={() => setChangesAgent(current)}
+            onQueue={() => setPlansOpen(current)}
+          />
           {closeError && <p className="notice signal-text">{closeError}</p>}
           {!showChat && narrow && mode !== 'off' && (
             <div className="seg" role="group" aria-label="Terminal as">

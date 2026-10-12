@@ -62,7 +62,7 @@ export function Question({ agent: a, control, head = true, onAnswered, focused =
   }, [focused])
   const current = agents?.available ? agents.agents.find((other) => agentKey(other) === agentKey(a)) : undefined
   const resumed = Boolean(sent && current && current.status !== 'blocked' && current.status !== 'unknown')
-  const receiptTitle = !resumed ? 'Response sent' : current?.status === 'working' ? 'Agent resumed' : current?.status === 'done' ? 'Agent finished its turn' : 'Agent is idle at its prompt'
+  const receiptTitle = !resumed ? 'Response sent' : current?.status === 'working' ? 'Agent resumed' : current?.status === 'done' ? 'Agent is done: check its work' : 'Agent is resting at its prompt'
   const canAnswer = control && !resumed && Boolean(out.data) && !out.error
   const screen = out.data?.output ?? ''
   const picks = choices(screen)

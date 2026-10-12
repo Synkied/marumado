@@ -806,6 +806,141 @@
   text-decoration-color: var(--ink);
 }
 
+/* The open agent's next move, under its head: how it is in words, then one action that says what to do about it.
+   Calm while it works or rests; persimmon only while it waits on you. */
+.agent-next {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3) var(--sp-7);
+  min-height: var(--control-sm);
+}
+
+.agent-next__say {
+  flex: 1 1 24ch;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: 1.4;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-next--blocked .agent-next__say {
+  color: var(--signal-text);
+}
+
+.agent-next__ago {
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+
+.agent-next__actions {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.btn.agent-next__btn {
+  min-height: var(--control-sm);
+  padding: 0 var(--sp-6);
+  color: var(--ink);
+}
+
+.agent-next__btn > svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.agent-next__btn:hover:not(:disabled) > svg {
+  color: inherit;
+}
+
+/* The one thing to do: filled, so it reads before the rest. */
+.btn.agent-next__btn--main {
+  border-color: var(--solid);
+  background: var(--solid);
+  color: var(--on-solid);
+}
+
+.agent-next__btn--main > svg {
+  color: inherit;
+}
+
+.agent-next--blocked .agent-next__btn--main,
+.agent-next--blocked .agent-next__btn--main:hover:not(:disabled) {
+  border-color: var(--signal);
+  background: var(--signal);
+  color: var(--on-signal);
+}
+
+.agent-next--blocked .agent-next__btn--main:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--signal) 85%, var(--ink));
+}
+
+.btn.agent-next__btn--go {
+  border-color: var(--signal);
+  color: var(--signal-text);
+}
+
+/* The tools you use all the time, then how the terminal shows, then the ⋯ that ends it: a hairline between. */
+.agent-tools__rule {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 var(--sp-2);
+  background: var(--rule-soft);
+}
+
+.agent-more {
+  position: relative;
+  flex: none;
+}
+
+.agent-more__menu {
+  position: absolute;
+  top: calc(100% + var(--sp-2));
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: var(--sp-2);
+  min-width: 100%;
+  padding: var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-xl);
+  background: var(--ground-raised);
+  box-shadow: var(--shadow-float);
+  white-space: nowrap;
+}
+
+.btn.agent-more__item {
+  justify-content: flex-start;
+  min-height: var(--control-sm);
+  padding: 0 var(--sp-6);
+  border-color: transparent;
+  color: var(--ink);
+}
+
+.agent-more__item > svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.btn.agent-more__item--danger {
+  color: var(--signal-text);
+}
+
+.agent-more__item--danger > svg {
+  color: currentColor;
+}
+
 .agents__stage {
   min-width: 0;
   min-height: 0;

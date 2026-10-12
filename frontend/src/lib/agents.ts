@@ -27,8 +27,8 @@ export function parseAgentRef(sub?: string): AgentRef | null {
 export const STATE_WORDS: Record<AgentStatus, string> = {
   blocked: 'needs you',
   working: 'working',
-  done: 'finished its turn',
-  idle: 'idle at its prompt',
+  done: 'done, check it',
+  idle: 'resting',
   unknown: 'state unknown',
 }
 
