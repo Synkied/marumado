@@ -38,6 +38,11 @@
   box-shadow: inset 0 0 0 1px var(--rule);
 }
 
+.lane.is-busy {
+  background: color-mix(in oklab, var(--moss) 7%, var(--well));
+  box-shadow: inset 3px 0 var(--moss);
+}
+
 .lane.is-fault {
   background: color-mix(in oklab, var(--signal) 10%, var(--well));
   box-shadow: inset 0 0 0 1.5px var(--signal);
@@ -46,24 +51,46 @@
 .lane__pets {
   display: flex;
   justify-content: center;
+  min-width: 0;
   padding-left: var(--sp-2);
 }
 
-/* Several agents in one folder stand close, their windows a little overlapped. */
+/* Several agents in one folder stand close, their windows a little overlapped, and shrink together to fit the
+   column rather than spill out of it. */
 .lane__pet + .lane__pet {
-  margin-left: -26px;
+  margin-left: -14px;
 }
 
 /* Each pet in its round window, sunk into the panel. */
 .lane__pet {
   display: grid;
   place-items: center;
+  flex: 0 1 56px;
+  min-width: 0;
   padding: 3px;
   line-height: 0;
   border-radius: 50%;
   background: var(--ground-raised);
   box-shadow: var(--shadow-well);
   --critter-fill: var(--ground-raised);
+}
+
+/* The window's rim takes its pet's light, so a lane's state reads before its words. */
+.lane__pet:has(.critter--working) {
+  box-shadow: var(--shadow-well), 0 0 0 2px var(--moss);
+}
+
+.lane__pet:has(.critter--done) {
+  box-shadow: var(--shadow-well), 0 0 0 2px var(--done);
+}
+
+.lane__pet:has(.critter--blocked) {
+  box-shadow: var(--shadow-well), 0 0 0 2px var(--signal);
+}
+
+.lane__pet .critter {
+  width: 100%;
+  height: auto;
 }
 
 .lane__body {
@@ -217,7 +244,7 @@
 }
 
 .ribbon.is-busy .ribbon__tip {
-  background: var(--mod);
+  background: var(--moss);
 }
 
 /* A halo that grows and fades: scale and opacity only, which the GPU composites without repainting the page. */
@@ -226,7 +253,7 @@
   position: absolute;
   inset: -4px;
   border-radius: 50%;
-  background: color-mix(in oklab, var(--mod) 25%, transparent);
+  background: color-mix(in oklab, var(--moss) 30%, transparent);
   opacity: 0;
 }
 

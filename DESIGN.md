@@ -16,32 +16,32 @@ colors:
   graphite: "#2a2a29"
   on-graphite: "#f4f3f0"
   pen-off: "#b4b2ac"
-  green-light: "#5a7654"
+  green-light: "#2f7d3d"
   braun-orange: "#f05a1a"
   braun-orange-text: "#b5400b"
   on-orange: "#1c1c1b"
-  done-slate: "#4f6074"
+  done-slate: "oklch(0.52 0.08 235)"
   night-body: "#1b1b1a"
   night-panel: "#262624"
   night-ink: "#ecebe7"
   night-ink-2: "#a9a7a1"
   night-ink-3: "#6f6d68"
   night-rule: "#454541"
-  night-green-light: "#8fb089"
+  night-green-light: "#74c482"
   night-orange: "#ff6a2b"
   night-orange-text: "#ff8a55"
-  night-done-slate: "#9fb2c8"
-  module-projects: "oklch(0.44 0.06 266)"
-  module-urls: "oklch(0.5 0.051 158)"
-  module-machine: "oklch(0.48 0.042 215)"
-  module-docker: "oklch(0.49 0.045 190)"
-  module-agents: "oklch(0.48 0.06 300)"
-  module-skills: "oklch(0.46 0.051 330)"
-  module-ports: "oklch(0.5 0.048 85)"
-  module-tasks: "oklch(0.47 0.054 0)"
-  module-momentum: "oklch(0.5 0.042 245)"
-  module-processes: "oklch(0.46 0.018 60)"
-  module-machines: "oklch(0.45 0.024 250)"
+  night-done-slate: "oklch(0.74 0.08 235)"
+  module-projects: "oklch(0.44 0.1 266)"
+  module-urls: "oklch(0.5 0.085 158)"
+  module-machine: "oklch(0.48 0.07 215)"
+  module-docker: "oklch(0.49 0.075 190)"
+  module-agents: "oklch(0.48 0.1 300)"
+  module-skills: "oklch(0.46 0.085 330)"
+  module-ports: "oklch(0.5 0.08 85)"
+  module-tasks: "oklch(0.47 0.09 0)"
+  module-momentum: "oklch(0.5 0.07 245)"
+  module-processes: "oklch(0.46 0.03 60)"
+  module-machines: "oklch(0.45 0.04 250)"
 typography:
   display:
     fontFamily: "Inter Tight, Helvetica Neue, Arial, sans-serif"
@@ -132,7 +132,7 @@ components:
 
 Every design decision lives in `frontend/src/tokens.css`: colours (light and dark), syntax colours, the terminal palette, fonts and their imports, the type scale, tracking, spacing, control heights, corners, elevation and motion. Components refer to tokens only, so a retheme is an edit to that one file. The desktop app's two bundled pages (`desktop/setup/index.html`, `starting.html`) can't load the app's CSS, so they carry a copy of the palette, the panel and well shadows and the font stacks; change them together with `tokens.css`.
 
-- **Colour**: `--ground` (the body), `--ground-raised` (a panel), `--well` (sunk into a panel), `--disc` (a dial's face, the well), `--ink`, `--ink-2/3`, `--track`, `--grid(-major)` (a chart's rules), `--rule(-soft)`, `--solid` and `--on-solid(-2)` (the graphite key), `--pen-off`, `--moss` (the green light), `--signal(-text)` and `--on-signal` (Braun orange), `--done` (slate), `--c-<module>` (each module's muted colour), `--syn-*` for the code viewer, `--term-*` for the terminal. A `.mod-<id>` class sets `--mod`, the one hook components read for "this module's colour"; outside a module it is ink.
+- **Colour**: `--ground` (the body), `--ground-raised` (a panel), `--well` (sunk into a panel), `--disc` (a dial's face, the well), `--ink`, `--ink-2/3`, `--track`, `--grid(-major)` (a chart's rules), `--rule(-soft)`, `--solid` and `--on-solid(-2)` (the graphite key), `--pen-off`, `--moss` (the green light), `--signal(-text)` and `--on-signal` (Braun orange), `--done` (slate), `--c-<module>` (each module's colour), `--syn-*` for the code viewer, `--term-*` for the terminal. A `.mod-<id>` class sets `--mod`, the one hook components read for "this module's colour"; outside a module it is ink.
 - **Type**: `--f-sans` (Inter Tight), `--f-mono` (IBM Plex Mono), `--f-cjk` (the two vendored Noto Serif JP glyphs for 丸窓); weights `--weight-body/strong/heavy` (400/500/600; `--weight-light` is 400, since only 400–600 ship); sizes `--text-2xs` (10) to `--text-3xl` (28), fluid `--text-display(-sm/-xs)`, `--text-wordmark`, `--text-crumb`; tracking `--track-display/title/snug/caps/caps-wide/wordmark`. The live terminal keeps its own narrow mono, Iosevka (imported in `Terminal.tsx`), so a wide pane fits at a bigger size.
 - **Spacing**: `--sp-N` is N × `--space` (2px), from `--sp-1` (2px) to `--sp-22` (44px). `--gutter` is the page margin and the gap between panels.
 - **Sizes**: `--control-sm` (chips, small keys), `--control` (keys), `--touch` (round header keys, the phone minimum).
@@ -158,7 +158,7 @@ One orange is the one control that waits on you. A green light means working or 
 
 ## Colors
 
-A warm grey appliance with one orange and one green light; muted module colours only where a chart needs to tell channels apart.
+A warm grey appliance with one orange and one green light; module colours where a chart needs to tell channels apart, and every state in its own light.
 
 ### Primary
 - **Braun Orange** (`braun-orange`, text in `braun-orange-text`, legends on it in `on-orange`): needs you, and nothing else. The status light and its words, the light on a waiting pet's window, a dial's arc or a meter past its budget, a reading tile that needs you (an orange ring on a faint orange wash), a lane waiting on you, fault lights, the answer key, an armed destructive key. Legends on an orange key are dark (5:1), as on Braun's coloured keys.
@@ -168,7 +168,7 @@ A warm grey appliance with one orange and one green light; muted module colours 
 
 ### Tertiary
 - **Done Slate** (`done-slate`): finished, ready for you to read. Done lights, a done pet, done lanes; quieter than the orange.
-- **Module colours** (`module-*`): one muted colour per module, at about 60% of the chart recorder's chroma, used for chart channels (the hour ribbon's reading/editing/running/thinking, strip charts, the record's marks inside a dial) and module icons. Never for state.
+- **Module colours** (`module-*`): one colour per module, at the chart recorder's full chroma so channels tell apart at a glance, used for chart channels (the hour ribbon's reading/editing/running/thinking, strip charts, the record's marks inside a dial) and module icons. Never for state.
 
 ### Neutral
 - **Body** (`body`): the page, and the grey of every well, tile and round window. **Panel** (`panel`): sheets, the sidebar, home's machine panels, the key strip, the palette, menus, the desktop card.
@@ -264,7 +264,7 @@ A module's channel as a Braun dial (`Dial`): a round face sunk into the panel, a
 Off is an empty face with a dashed `pen-off` scale and "off" in `ink-2`. A quiet dial draws lighter. The time span is printed in the scale's open foot ("30 min", "12 wk").
 
 ### Round windows (the pets)
-Every pet sits in a round window: a body-grey circle with `--shadow-well` and a few pixels of margin, in the agents' list and heading, home's agent lanes (several agents of one folder overlap their windows) and the top bar. A pet that needs you carries an orange light with a soft halo on its window's rim. The pets are drawn in ink; their fill takes the window's grey (`--critter-fill`).
+Every pet sits in a round window: a body-grey circle with `--shadow-well` and a few pixels of margin, in the agents' list and heading, home's agent lanes (several agents of one folder overlap their windows) and the top bar. A pet that needs you carries an orange light with a soft halo on its window's rim. On home's lanes the window's rim takes the pet's light (green working, blue done, orange needs you), and a working lane carries a green edge as a waiting one carries an orange frame. Several pets of one folder shrink together to fit their column. The pets are drawn in their state's light; their fill takes the window's grey (`--critter-fill`).
 
 ### Machine panels (home)
 Home (`modules/fleet.tsx`, readings in `modules/readouts.ts`) shows every machine as a panel:
@@ -295,7 +295,7 @@ Under the Plans tab, plans grouped by state (Running, Scheduled, Paused, Draft, 
 - **The plans modal**, over the Agents page (`modules/planModal.tsx`): the queue button in the agent's toolbar (a list with an arrow, the count of steps queued for it, orange when the next one waits for your go) and "Next: …" in its header line open it. It is a modal `<dialog>` on the floating shadow over a blurred ground, nearly the window's size (full screen on a phone), with a segmented control: **Next for <agent>**, a roomy text box (its first line names the step, all of it goes to the agent; Ctrl/⌘+Enter queues it), "Ask me before it starts" (remembered per browser), a sentence saying when it will start, and the queue as numbered dashed rings in the Tasks colour (solid orange when waiting for your go); and **Plans**, the plans list, a new plan and a plan's page, moving between them inside the modal. Escape or a click on the backdrop closes it.
 
 ### Agent critters (the dock)
-Every running agent, from every source (plain terminals aside), is a small ink critter on a small panel floating in the bottom-right corner of every page (`modules/agentDock.tsx`, `components/Critter.tsx`). Each critter is generated from its agent's source and pane, so the same agent always looks the same: body proportions, a topper (ears, points, antenna, sprout, tuft, horns or none), a marking (a ring, spots, a band, a belly or none), eyes and feet. Shape tells agents apart; theme-aware ink and pose say the state everywhere critters appear: ink while working, orange when they need you, slate when finished, `ink-2` while idle, and a dashed `pen-off` grey when unknown.
+Every running agent, from every source (plain terminals aside), is a small ink critter on a small panel floating in the bottom-right corner of every page (`modules/agentDock.tsx`, `components/Critter.tsx`). Each critter is generated from its agent's source and pane, so the same agent always looks the same: body proportions, a topper (ears, points, antenna, sprout, tuft, horns or none), a marking (a ring, spots, a band, a belly or none), eyes and feet. Shape tells agents apart; theme-aware ink and pose say the state everywhere critters appear: green while working, orange when they need you, blue when finished, `ink-2` while idle, and a dashed `pen-off` grey when unknown.
 - **working**: nods over a pen and writes a trace along the ground, the trace of its work.
 - **needs you**: orange, lifts off the line and settles, and holds up a question mark. It stays in its place: state never reorders the dock.
 - **finished its turn**: content eyes, a small bow, a check drawn once in slate.

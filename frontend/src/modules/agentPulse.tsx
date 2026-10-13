@@ -184,7 +184,7 @@ function LaneRow({ lane: l, peak, pending, now }: { lane: Lane; peak: number; pe
   const headline = busy ? (turn ? `at it ${since(turn.since)}` : 'working') : last ? `${fault ? 'waiting' : 'quiet'} ${since(last)}` : '—'
   const tally = turn ? `${turn.files} file${turn.files === 1 ? '' : 's'} · ${turn.steps} step${turn.steps === 1 ? '' : 's'}` : ''
   return (
-    <li className={`lane${fault ? ' is-fault' : ''}`}>
+    <li className={`lane${fault ? ' is-fault' : busy ? ' is-busy' : ''}`}>
       <span className="lane__pets">
         {l.agents.slice(0, 3).map((a) => (
           <a key={agentKey(a)} className="lane__pet" href={agentActionHref(a)} title={label(a)}>

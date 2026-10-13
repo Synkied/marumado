@@ -3,7 +3,8 @@
  * The world is a Braun T3, after Dieter Rams: a calm appliance for your machines and agents. A warm grey body, soft
  * panels set on it like a radio's faceplate, sunk wells for fields and the round windows the pets live in, pill keys
  * with a graphite key for what is pressed, status lights and dials. One orange is the one control that waits on you;
- * a green light means working or all clear. Module pens stay muted so they never compete with the orange.
+ * a green light means working or all clear. Module pens stay a step below the orange, but
+ * bright enough to tell states and channels apart at a glance.
  * Fonts: swap the @fontsource imports below together with the --f-* families.
  * The one value CSS can't take from a variable is the phone breakpoint, 860px, written into app.css's media queries. */
 
@@ -48,26 +49,26 @@
   --pen-off: #b4b2ac; /* a channel that is off or unavailable */
   --disc: var(--well); /* a dial's face */
   --rim-ink: 55%;
-  --moss: #5a7654; /* the green light: working, alive, all clear (4.6:1 on a panel, so it may also be text) */
+  --moss: #2f7d3d; /* the green light: working, alive, all clear (4.6:1 on a panel, so it may also be text) */
   --signal: #f05a1a; /* Braun orange: needs you, and nothing else */
-  --done: #4f6074; /* finished, ready for you to read: a calm slate, quieter than the orange */
+  --done: oklch(0.52 0.08 235); /* finished, ready for you to read: a calm blue, quieter than the orange */
   --signal-text: #b5400b; /* 5.0:1 on a panel, so small 'needs you' text passes AA */
   --on-signal: #1c1c1b; /* legends on the orange key are dark, as on Braun's coloured keys (5:1) */
   --focus: #1c1c1b;
 
-  /* One muted colour per module, as on Braun's product lines: enough to tell a chart's channels apart, never loud
-     enough to compete with the orange. A .mod-<id> class sets --mod; outside a module everything falls back to ink. */
-  --c-projects: oklch(0.44 0.060 266); /* indigo */
-  --c-urls: oklch(0.5 0.051 158); /* jade */
-  --c-machine: oklch(0.48 0.042 215); /* slate teal */
-  --c-docker: oklch(0.49 0.045 190); /* celadon */
-  --c-agents: oklch(0.48 0.060 300); /* wisteria */
-  --c-skills: oklch(0.46 0.051 330); /* plum */
-  --c-ports: oklch(0.5 0.048 85); /* ochre */
-  --c-tasks: oklch(0.47 0.054 0); /* madder rose: deep and blue-leaning, never the alarm's orange */
-  --c-momentum: oklch(0.5 0.042 245); /* blue */
-  --c-processes: oklch(0.46 0.018 60); /* umber grey */
-  --c-machines: oklch(0.45 0.024 250); /* blue slate */
+  /* One colour per module, as on Braun's product lines: enough to tell a chart's channels apart at a glance,
+     never the orange. A .mod-<id> class sets --mod; outside a module everything falls back to ink. */
+  --c-projects: oklch(0.44 0.1 266); /* indigo */
+  --c-urls: oklch(0.5 0.085 158); /* jade */
+  --c-machine: oklch(0.48 0.07 215); /* slate teal */
+  --c-docker: oklch(0.49 0.075 190); /* celadon */
+  --c-agents: oklch(0.48 0.1 300); /* wisteria */
+  --c-skills: oklch(0.46 0.085 330); /* plum */
+  --c-ports: oklch(0.5 0.08 85); /* ochre */
+  --c-tasks: oklch(0.47 0.09 0); /* madder rose: deep and blue-leaning, never the alarm's orange */
+  --c-momentum: oklch(0.5 0.07 245); /* blue */
+  --c-processes: oklch(0.46 0.03 60); /* umber grey */
+  --c-machines: oklch(0.45 0.04 250); /* blue slate */
   --mod: var(--ink);
   --on-mod: var(--ground);
 
@@ -204,9 +205,9 @@
     --pen-off: #5e5c57;
     --disc: var(--well);
     --rim-ink: 85%;
-    --moss: #8fb089;
+    --moss: #74c482;
     --signal: #ff6a2b;
-    --done: #9fb2c8;
+    --done: oklch(0.74 0.08 235);
     --signal-text: #ff8a55;
     --on-signal: #1b1b1a;
     --focus: #ecebe7;
@@ -214,17 +215,17 @@
     --shadow-well: inset 0 2px 6px rgb(0 0 0 / 0.5);
     --shadow-key: inset 0 -2px 0 rgb(0 0 0 / 0.35);
     /* The same module colours, pale enough to read on a dark panel. */
-    --c-projects: oklch(0.76 0.066 266);
-    --c-urls: oklch(0.79 0.060 158);
-    --c-machine: oklch(0.79 0.054 215);
-    --c-docker: oklch(0.79 0.054 190);
-    --c-agents: oklch(0.77 0.066 300);
-    --c-skills: oklch(0.77 0.060 330);
-    --c-ports: oklch(0.81 0.060 85);
-    --c-tasks: oklch(0.76 0.060 0);
-    --c-momentum: oklch(0.78 0.054 245);
-    --c-processes: oklch(0.77 0.018 60);
-    --c-machines: oklch(0.77 0.027 250);
+    --c-projects: oklch(0.76 0.11 266);
+    --c-urls: oklch(0.79 0.1 158);
+    --c-machine: oklch(0.79 0.09 215);
+    --c-docker: oklch(0.79 0.09 190);
+    --c-agents: oklch(0.77 0.11 300);
+    --c-skills: oklch(0.77 0.1 330);
+    --c-ports: oklch(0.81 0.1 85);
+    --c-tasks: oklch(0.76 0.1 0);
+    --c-momentum: oklch(0.78 0.09 245);
+    --c-processes: oklch(0.77 0.03 60);
+    --c-machines: oklch(0.77 0.045 250);
     --syn-keyword: #9eaed0;
     --syn-string: #a8ba7a;
     --syn-number: #d6b26a;
