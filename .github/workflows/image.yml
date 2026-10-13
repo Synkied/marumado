@@ -16,9 +16,17 @@ permissions:
   contents: read
   packages: write
 
+# A release pushes main and its tag together: two builds of one commit at once fight over the gha cache, and one of
+# them hangs in build-push until cancelled. One at a time, the second finds every layer cached and takes seconds.
+concurrency:
+  group: image-${{ github.sha }}
+  cancel-in-progress: false
+
 jobs:
   image:
     runs-on: ubuntu-latest
+    # A cold multi-arch build takes about 5 minutes; a stuck one fails instead of hanging for an hour.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
