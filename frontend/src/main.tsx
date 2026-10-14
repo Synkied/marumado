@@ -11,6 +11,8 @@ import './index.css'
 
 restWhenAway()
 restLoops()
+// WebKitGTK repaints blurred shadows on every change beneath them: flat ones there (tokens.css).
+if (inDesktop && navigator.userAgent.includes('Linux')) document.documentElement.dataset.flat = ''
 
 createRoot(document.getElementById('root')!).render(
   // The desktop app's card window shows the agents' card alone.

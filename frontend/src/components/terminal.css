@@ -12,6 +12,11 @@
   overflow: hidden;
 }
 
+/* Redrawn with every line the agent prints: no blur in the Linux desktop app (see tokens.css). */
+:root[data-flat] .term {
+  box-shadow: inset 0 1px 0 rgb(0 0 0 / 0.45);
+}
+
 .term__screen {
   flex: 1;
   min-width: 0;

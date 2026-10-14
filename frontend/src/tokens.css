@@ -237,3 +237,20 @@
     color-scheme: dark;
   }
 }
+
+/* In the Linux desktop app (WebKitGTK) a shadow is drawn again, blur and all, whenever anything inside its box
+   changes: each key typed in the chat box redrew the panel around it, ~50ms a frame. There, elevation is drawn without
+   blur, a hairline at the foot or the rim, which costs nothing (main.tsx sets data-flat). */
+:root[data-flat] {
+  --shadow-panel: 0 1px 0 rgb(40 38 32 / 0.12);
+  --shadow-well: inset 0 1px 0 rgb(40 38 32 / 0.12);
+  --shadow-float: 0 0 0 1px rgb(40 38 32 / 0.14);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-flat] {
+    --shadow-panel: 0 1px 0 rgb(0 0 0 / 0.4);
+    --shadow-well: inset 0 1px 0 rgb(0 0 0 / 0.45);
+    --shadow-float: 0 0 0 1px rgb(0 0 0 / 0.5);
+  }
+}

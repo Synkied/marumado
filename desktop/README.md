@@ -123,7 +123,9 @@ private half is the `TAURI_SIGNING_PRIVATE_KEY` secret of the GitHub repository 
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, if it has one). A tag's build signs its bundles with it
 (`tauri.release.conf.json`). Other builds don't make updater bundles, so they need no key. Losing the key means the
 installed apps can't be updated any more: a new key needs a new app installed by hand. Make a new pair with
-`npx tauri signer generate -w ~/.tauri/marumado.key`.
+`npx tauri signer generate -w ~/.tauri/marumado.key`, and store it as the secret on a single line (a line break in
+it fails the build with "failed to decode base64 key: Invalid symbol 10"):
+`tr -d '\n' < ~/.tauri/marumado.key | gh secret set TAURI_SIGNING_PRIVATE_KEY`.
 
 Pushes to `main` publish `:main` too, to try the image without a release (`MARUMADO_IMAGE=ghcr.io/synkied/marumado:main`).
 
