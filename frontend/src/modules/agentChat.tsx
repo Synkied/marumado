@@ -210,6 +210,8 @@ function useCommands(paneId: string, source: number, kind: string) {
 }
 /** A message you sent that its record doesn't have yet: when, and the last step there was then. */
 type Pending = { text: string; at: number; after: number }
+/** The commands that start a new session (Claude Code's /clear and its aliases, Codex's and Pi's /new). */
+const RESET = /^\/(clear|new|reset)$/
 
 // Memoized: the Agents page renders again on every change of the hub (the system's figures, every 2s); the conversation
 // only when its agent does.
@@ -242,6 +244,10 @@ export const AgentConversation = memo(function AgentConversation({ agent, contro
   const waiting = pending.filter(
     (p) => Date.now() - p.at < 600000 && !steps.some((s) => s.kind === 'you' && (s.i > p.after || s.t >= p.at - 30000) && bare(s.detail || s.title).includes(bare(p.text).slice(0, 40))),
   )
+  // Those its record has are let go: kept, they would show again in the next session after a /clear, which has not.
+  useEffect(() => {
+    if (waiting.length < pending.length) setPending(waiting)
+  }, [waiting, pending])
   // The reply it is still writing, unless the record has it already. Kept a little after it leaves its screen (it
   // stops working, or goes on to a tool), as its record may not have it yet.
   const onScreen = working ? readLive(screen, agent.kind) : { status: '', text: '' }
@@ -249,6 +255,16 @@ export const AgentConversation = memo(function AgentConversation({ agent, contro
   useEffect(() => {
     if (onScreen.text) setHeld({ text: onScreen.text, at: Date.now() })
   }, [onScreen.text])
+  // Another session (a /clear in its terminal): what waited on the last one, or was on its screen, is not this one's.
+  const path = trace?.found ? trace.path : ''
+  const lastPath = useRef(path)
+  useEffect(() => {
+    if (lastPath.current && path !== lastPath.current) {
+      setPending([])
+      setHeld(null)
+    }
+    lastPath.current = path
+  }, [path])
   const live = { ...onScreen, text: onScreen.text || (held && Date.now() - held.at < 20000 ? held.text : '') }
   const sinceYou = lastYou ? steps.filter((s) => s.i > lastYou.i && s.kind === 'say') : steps.filter((s) => s.kind === 'say').slice(-3)
   const liveText = live.text && !sinceYou.some((s) => bare(s.detail).includes(bare(live.text).slice(0, 60))) ? live.text : ''
@@ -281,7 +297,9 @@ export const AgentConversation = memo(function AgentConversation({ agent, contro
     if (json.text) {
       follow.current = true
       setHeld(null)
-      setPending((p) => [...p, { text: json.text!, at: Date.now(), after: steps.length ? steps[steps.length - 1].i : -1 }])
+      // A new session: nothing from this one waits on it, and the command itself never shows in a record.
+      if (RESET.test(json.text.trim())) setPending([])
+      else setPending((p) => [...p, { text: json.text!, at: Date.now(), after: steps.length ? steps[steps.length - 1].i : -1 }])
     }
     window.setTimeout(() => {
       refresh()
@@ -289,7 +307,6 @@ export const AgentConversation = memo(function AgentConversation({ agent, contro
     }, 400)
   }
 
-  const path = trace?.found ? trace.path : ''
   const image = (id: string) => `/api/agents/${encodeURIComponent(paneId)}/image?${sourceQuery(source)}&path=${encodeURIComponent(path)}&id=${encodeURIComponent(id)}`
   const pictures = (s: TraceStep, caption = s.title) =>
     s.images?.length ? <Pictures ids={s.images} caption={caption} url={image} onOpen={setShown} onLoad={toEnd} /> : null

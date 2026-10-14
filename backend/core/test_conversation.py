@@ -221,6 +221,20 @@ class ConversationTests(TestCase):
         (sessions / f'{pid}.json').write_text(json.dumps({**mine, 'procStart': '1'}))
         self.assertEqual(conversation.trace('w1:p1', 0)['path'], str(self.records / 's1.jsonl'))
 
+    def test_claude_after_clear_with_task(self):
+        """A pane given a task shows the session its agent is in after a /clear, not the task's."""
+        old = self.write('s1.jsonl', line('user', 'The task'))
+        Task.objects.create(title='t', pane_id='w1:p1', agent_source=0, live=True, transcript=old)
+        sessions = self.home / '.claude' / 'sessions'
+        sessions.mkdir(parents=True)
+        pid = os.getpid()
+        start = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
+        mine = {'pid': pid, 'sessionId': '0d9da46f-33e1-412f-9eb9-f509c4c43d7f', 'cwd': self.cwd, 'procStart': start}
+        (sessions / f'{pid}.json').write_text(json.dumps(mine))
+        self.pid = pid
+        data = conversation.trace('w1:p1', 0)
+        self.assertEqual((data['path'], data['steps']), (str(self.records / f"{mine['sessionId']}.jsonl"), []))
+
     def test_two_agents_in_one_folder(self):
         old = self.write('old.jsonl', line('user', 'task prompt'))
         self.write('new.jsonl', line('user', 'other prompt'))

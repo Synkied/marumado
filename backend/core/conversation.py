@@ -139,21 +139,22 @@ def _named(pane: dict) -> str:
 
 
 def _record(src: herdr.Source, pane: dict, peers: list[dict]) -> tuple[str, bool]:
-    """The pane's session record, and whether that is sure: its task's, the one Herdr names, the one named as its
-    terminal's title, or the newest in its folder written since it started that no other pane has. ('', True): a new
+    """The pane's session record, and whether that is sure: the one Herdr names, the one its process is writing, its
+    task's, the one named as its terminal's title, or the newest in its folder written since it started that no other pane has. ('', True): a new
     session with no record yet."""
+    named = _named(pane)
+    if named:
+        return named, True
+    # Before its task's: a /clear in a pane given a task starts another session, while the task keeps the first one.
+    own = _own(src, pane['kind'], _pid(src, pane['pane_id']))
+    if own is not None:
+        return own, True
     tasks = Task.objects.filter(live=True, agent_source=src.id).exclude(transcript='').values_list('pane_id', 'transcript')
     theirs = set()
     for pane_id, path in tasks:
         if pane_id == pane['pane_id']:
             return path, True
         theirs.add(path)
-    named = _named(pane)
-    if named:
-        return named, True
-    own = _own(src, pane['kind'], _pid(src, pane['pane_id']))
-    if own is not None:
-        return own, True
     theirs |= {_named(a) for a in peers} - {''}
     started = _started(src, pane['pane_id'])
     since = lambda found: [p for t, p in found if p not in theirs and (started is None or t >= started - SLACK)]
