@@ -188,6 +188,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 type Shown = { src: string; caption: string }
+/** One picture of the session, for the Images panel: where it came, and what it was. */
+type Picture = Shown & { id: string; step: number; t: number }
 /** A / command the agent takes (GET agents/<pane>/commands): its own, or one its owner added. */
 type Command = { name: string; description: string; kind: 'built-in' | 'custom' | 'skill' }
 
@@ -227,6 +229,7 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
   const scroller = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
   const [shown, setShown] = useState<Shown | null>(null)
+  const [gallery, setGallery] = useState(false)
   const [pending, setPending] = useState<Pending[]>([])
 
   // What you sent shows at once, until the record has it: any message of yours written since, whichever comes first
@@ -286,6 +289,19 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
   const image = (id: string) => `/api/agents/${encodeURIComponent(paneId)}/image?${sourceQuery(source)}&path=${encodeURIComponent(path)}&id=${encodeURIComponent(id)}`
   const pictures = (s: TraceStep, caption = s.title) =>
     s.images?.length ? <Pictures ids={s.images} caption={caption} url={image} onOpen={setShown} onLoad={toEnd} /> : null
+  // Every picture of the steps read so far, oldest first: the Images panel, and the lightbox's previous and next.
+  const all = steps.flatMap((s) => (s.images || []).map((id): Picture => ({ id, step: s.i, t: s.t, src: image(id), caption: s.kind === 'you' ? 'You sent' : s.title })))
+  // Where a picture came, brought into view and marked a moment.
+  const goTo = (p: Picture) => {
+    const el = scroller.current?.querySelector<HTMLElement>(`[data-step="${p.step}"]`)
+    if (!el) return
+    follow.current = false
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    el.classList.remove('chat__flash')
+    void el.offsetWidth
+    el.classList.add('chat__flash')
+    window.setTimeout(() => el.classList.remove('chat__flash'), 1700)
+  }
 
   let body: ReactNode
   if (!trace) body = <p className="sheet__empty">{error || 'Reading the agent’s record…'}</p>
@@ -302,7 +318,7 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
         <ol className="chat__list">
           {items.map((it) =>
             it.kind === 'you' ? (
-              <li key={it.step.i} className="chat__msg chat__msg--you">
+              <li key={it.step.i} className="chat__msg chat__msg--you" data-step={it.step.i}>
                 <Secret label="Message">
                   <p className="chat__text">{it.step.detail || it.step.title}</p>
                 </Secret>
@@ -310,7 +326,7 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
                 <time className="chat__at">{clock(it.step.t)}</time>
               </li>
             ) : it.kind === 'say' ? (
-              <li key={it.step.i} className="chat__msg chat__msg--say">
+              <li key={it.step.i} className="chat__msg chat__msg--say" data-step={it.step.i}>
                 <Secret label="Message">
                   <Markdown text={it.step.detail || it.step.title} />
                 </Secret>
@@ -331,7 +347,7 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
             ) : it.kind === 'looks' ? (
               <Looks key={`l${it.steps[0].i}`} steps={it.steps} />
             ) : (
-              <li key={it.step.i} className="chat__tool-item">
+              <li key={it.step.i} className="chat__tool-item" data-step={it.step.i}>
                 <ToolCall s={it.step} live={working} open={display.tools === 'open'} />
                 {pictures(it.step)}
               </li>
@@ -367,8 +383,28 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
             {trace.shared} {trace.kind} agents work in this folder and this one’s session can’t be told apart yet: this may be another one’s.
           </p>
         )}
-        <DisplayMenu display={display} onChange={setDisplay} />
+        <div className="chat__tools">
+          {all.length > 0 && (
+            <button type="button" className="btn btn--quiet chat__display-btn" aria-expanded={gallery} onClick={() => setGallery(!gallery)}>
+              <Icon name="image" size={16} /> Images <span className="chat__count">{all.length}</span>
+            </button>
+          )}
+          <DisplayMenu display={display} onChange={setDisplay} />
+        </div>
       </div>
+      {gallery && all.length > 0 && (
+        <Gallery
+          pictures={all}
+          more={steps.length > 0 && steps[0].i > 0}
+          earlier={earlier}
+          onOpen={setShown}
+          onGo={(p) => {
+            if (window.matchMedia('(max-width: 720px)').matches) setGallery(false)
+            goTo(p)
+          }}
+          onClose={() => setGallery(false)}
+        />
+      )}
       {error && trace && <p className="notice signal-text">{error}</p>}
       <div className="chat__scroll" ref={scroller} onScroll={onScroll}>
         {body}
@@ -381,7 +417,7 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
       ) : (
         <p className="chat__note">Watching only (MARUMADO_HERDR_TERMINAL=observe): write to it in its terminal.</p>
       )}
-      {shown && <Lightbox shown={shown} onClose={() => setShown(null)} />}
+      {shown && <Lightbox shown={shown} pictures={all} onShow={setShown} onClose={() => setShown(null)} />}
     </div>
   )
 }
@@ -1025,16 +1061,84 @@ function Pictures({ ids, caption, url, onOpen, onLoad }: { ids: string[]; captio
   )
 }
 
-function Lightbox({ shown, onClose }: { shown: Shown; onClose: () => void }) {
+/** Every picture of the session at a glance, newest first, beside the conversation. A click opens one full size;
+    "Show where" brings its place in the conversation into view. Not modal: Escape or Close puts it away. */
+function Gallery({ pictures, more, earlier, onOpen, onGo, onClose }: { pictures: Picture[]; more: boolean; earlier: () => void; onOpen: (s: Shown) => void; onGo: (p: Picture) => void; onClose: () => void }) {
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && !document.querySelector('dialog[open]') && onClose()
+    document.addEventListener('keydown', esc)
+    return () => document.removeEventListener('keydown', esc)
+  }, [onClose])
+  const newest = [...pictures].reverse()
+  return (
+    <aside className="chat__gallery" aria-label="Images in this session">
+      <header className="chat__gallery-head">
+        <h3>
+          Images <span className="chat__count">{pictures.length}</span>
+        </h3>
+        <button type="button" className="btn btn--quiet chat__gallery-close" onClick={onClose} aria-label="Close the images">
+          <Icon name="close" size={16} />
+        </button>
+      </header>
+      <Secret label="Images">
+        <ul className="chat__gallery-grid">
+          {newest.map((p) => (
+            <li key={p.id} className="chat__gallery-item">
+              <button type="button" className="chat__pic-open chat__gallery-open" onClick={() => onOpen(p)} title={`${p.caption} — open it full size`}>
+                <img src={p.src} alt={p.caption} loading="lazy" />
+              </button>
+              <button type="button" className="chat__gallery-where" onClick={() => onGo(p)} title="Show where it came in the conversation">
+                <span>{p.caption}</span>
+                <time>{clock(p.t)}</time>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Secret>
+      {more && (
+        <button type="button" className="btn btn--quiet chat__gallery-more" onClick={earlier}>
+          Look in the steps before
+        </button>
+      )}
+    </aside>
+  )
+}
+
+function Lightbox({ shown, pictures, onShow, onClose }: { shown: Shown; pictures: Picture[]; onShow: (s: Shown) => void; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     ref.current?.showModal()
   }, [])
+  // Previous and next through the session's pictures, by button or the arrow keys.
+  const at = pictures.findIndex((p) => p.src === shown.src)
+  const prev = at > 0 ? pictures[at - 1] : null
+  const next = at >= 0 && at < pictures.length - 1 ? pictures[at + 1] : null
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft' && prev) onShow(prev)
+      else if (e.key === 'ArrowRight' && next) onShow(next)
+    }
+    document.addEventListener('keydown', key)
+    return () => document.removeEventListener('keydown', key)
+  }, [prev, next, onShow])
   return (
     <dialog className="chat__lightbox" ref={ref} onClose={onClose} onClick={(e) => e.target === ref.current && ref.current.close()} aria-label={shown.caption}>
       <img src={shown.src} alt={shown.caption} />
       <p className="chat__lightbox-foot">
         <span>{shown.caption}</span>
+        {pictures.length > 1 && at >= 0 && (
+          <>
+            <button type="button" className="btn btn--quiet" disabled={!prev} onClick={() => prev && onShow(prev)} aria-label="Previous image">
+              <Icon name="back" size={16} />
+            </button>
+            <span className="chat__lightbox-at">
+              {at + 1} / {pictures.length}
+            </span>
+            <button type="button" className="btn btn--quiet" disabled={!next} onClick={() => next && onShow(next)} aria-label="Next image">
+              <Icon name="arrow" size={16} />
+            </button>
+          </>
+        )}
         <a className="btn btn--quiet" href={shown.src} target="_blank" rel="noreferrer">
           Open in a tab
         </a>
