@@ -31,18 +31,6 @@
   gap: var(--sp-4);
 }
 
-/* With nothing to say, the bar is only the Display button: it floats at the conversation's top right, not a row. */
-.chat__bar:not(:has(.chat__note)) {
-  position: absolute;
-  top: 0;
-  right: var(--sp-2);
-  z-index: 5;
-}
-
-.chat__bar:not(:has(.chat__note)) .chat__display-btn {
-  background: var(--ground);
-}
-
 .chat__bar .chat__note {
   flex: 1;
 }
@@ -968,16 +956,22 @@ button.chat__mode:hover {
 
 .chat__gallery-item {
   display: grid;
+  align-content: start;
   gap: var(--sp-1);
   min-width: 0;
 }
 
 .chat__gallery-open {
+  position: relative;
   width: 100%;
+  min-height: 0;
   aspect-ratio: 4 / 3;
 }
 
+/* Out of the flow, so a tall picture can't stretch its tile past 4:3: every tile the same size. */
 .chat__gallery-open img {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
