@@ -104,9 +104,26 @@ bundles and a Docker image of the same version:
    `ghcr.io/synkied/marumado:0.2.0` (and `:latest`) for amd64 and arm64. `desktop.yml` builds the bundles on Linux,
    Windows and macOS, checks the tag against all four versions, then creates the release `v0.2.0` with the `.deb`,
    `.rpm`, `.AppImage`, `.msi`, `-setup.exe` and `.dmg` attached, and notes made from the commits and pull requests
-   since the last release (edit them on GitHub afterwards).
+   since the last release (edit them on GitHub afterwards). It also attaches the macOS `.app.tar.gz` and `latest.json`
+   (`scripts/latest_json.py`): the installed apps update from those.
 3. The first time only: make the package public (GitHub → the package → *Package settings* → *Change visibility*),
    or nobody else can pull it.
+
+### Updates
+
+The app looks for a newer version 30 seconds after it starts and every 6 hours, and when *Check for updates* is
+clicked in the tray's menu (`src-tauri/src/update.rs`). It reads `latest.json` from the latest GitHub release. When a
+newer version is out, the menu offers *Update to Marumado X.Y.Z*. That item downloads the bundle for the kind of
+install the app came from (AppImage, `.deb`, `.rpm`, NSIS, MSI or the macOS app), checks its signature, installs it
+and restarts the app. A `.deb` or `.rpm` asks for the password first. The new app then starts its own version's
+Marumado.
+
+Updates are signed with the release key. Its public half is `plugins.updater.pubkey` in `tauri.conf.json`. Its
+private half is the `TAURI_SIGNING_PRIVATE_KEY` secret of the GitHub repository (and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, if it has one). A tag's build signs its bundles with it
+(`tauri.release.conf.json`). Other builds don't make updater bundles, so they need no key. Losing the key means the
+installed apps can't be updated any more: a new key needs a new app installed by hand. Make a new pair with
+`npx tauri signer generate -w ~/.tauri/marumado.key`.
 
 Pushes to `main` publish `:main` too, to try the image without a release (`MARUMADO_IMAGE=ghcr.io/synkied/marumado:main`).
 

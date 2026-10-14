@@ -12,6 +12,7 @@ mod host;
 mod icon;
 mod marumado;
 mod notice;
+mod update;
 
 use config::Config;
 use docker::Stack;
@@ -68,6 +69,8 @@ struct Desk {
     badge: Mutex<(usize, Option<Instant>)>,
     /// Wakes the tray's reader early (after connecting to another Marumado).
     poke: Mutex<Option<mpsc::Sender<()>>>,
+    /// A newer version of the app, looked for or found.
+    update: Mutex<update::State>,
 }
 
 #[derive(Default)]
@@ -397,6 +400,8 @@ fn build_menu(app: &AppHandle, entries: &[Entry]) -> tauri::Result<Menu<tauri::W
         None::<&str>,
     )?)?;
     menu.append(&MenuItem::with_id(app, "connect", "Set up or connect Marumado…", true, None::<&str>)?)?;
+    let (id, text) = update::menu_item(app);
+    menu.append(&MenuItem::with_id(app, id.unwrap_or("updating"), text, id.is_some(), None::<&str>)?)?;
     menu.append(&MenuItem::with_id(app, "quit", "Quit Marumado", true, None::<&str>)?)?;
     Ok(menu)
 }
@@ -411,6 +416,8 @@ fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "quit" => quit(app),
         "connect" => reconnect_window(app),
+        "check-update" => update::check(app, true),
+        "install-update" => update::install(app),
         "notify" => {
             let d = desk(app);
             let mut config = d.config.lock().unwrap();
@@ -541,12 +548,19 @@ fn update(app: &AppHandle, r: Reading) {
         let _ = tray.set_tooltip(Some(&tooltip));
     }
     if new_menu {
-        match build_menu(app, &entries) {
-            Ok(menu) => {
-                let _ = tray.set_menu(Some(menu));
-            }
-            Err(e) => log(&format!("couldn't build the menu: {e}")),
+        refresh_menu(app);
+    }
+}
+
+/// Hands the tray its menu again, built from the entries last shown (after something besides the reading changed).
+fn refresh_menu(app: &AppHandle) {
+    let Some(tray) = app.tray_by_id(TRAY) else { return };
+    let entries = desk(app).shown.lock().unwrap().entries.clone();
+    match build_menu(app, &entries) {
+        Ok(menu) => {
+            let _ = tray.set_menu(Some(menu));
         }
+        Err(e) => log(&format!("couldn't build the menu: {e}")),
     }
 }
 
@@ -903,6 +917,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(kept())
@@ -960,6 +975,7 @@ fn main() {
             let reader = handle.clone();
             std::thread::spawn(move || poll(reader, rx));
             start_marumado(&handle);
+            update::watch(&handle);
             main_window(&handle)?;
             match &page {
                 Some(page) if connected => show_page(&handle, page),

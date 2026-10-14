@@ -1,6 +1,8 @@
 # The desktop app (desktop/), built for Linux, Windows and macOS. The bundles are kept as the run's artifacts; a tag
 # vX.Y.Z also publishes them as the GitHub release vX.Y.Z (the .deb, .rpm, .AppImage, Windows installers and .dmg).
-# Not signed yet: macOS and Windows warn before opening them the first time.
+# Not signed yet: macOS and Windows warn before opening them the first time. A tag's bundles are signed for the app's
+# updater though (the TAURI_SIGNING_PRIVATE_KEY secret, see desktop/README.md), and the release gets the latest.json the
+# app looks for its updates in.
 # A release: `make release VERSION=X.Y.Z` (scripts/release.py) sets the version everywhere, commits, tags and pushes.
 name: Desktop app
 
@@ -59,8 +61,12 @@ jobs:
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
 
-      - run: npm run build -- ${{ matrix.args }}
+      # A tag: the updater's artifacts too (tauri.release.conf.json), signed with the release key.
+      - run: npm run build -- ${{ matrix.args }} ${{ startsWith(github.ref, 'refs/tags/v') && '--config src-tauri/tauri.release.conf.json' || '' }}
         working-directory: desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -97,11 +103,15 @@ jobs:
         with:
           path: bundles
 
+      - name: The updater's manifest
+        run: python3 scripts/latest_json.py bundles "${GITHUB_REF_NAME#v}" "$GITHUB_REPOSITORY" > latest.json
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           files=$(find bundles -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.msi' \
-            -o -name '*-setup.exe' -o -name '*.dmg' \))
+            -o -name '*-setup.exe' -o -name '*.dmg' -o -name '*.app.tar.gz' \))
+          files="$files latest.json"
           echo "$files"
           gh release create "$GITHUB_REF_NAME" $files --verify-tag --generate-notes --title "Marumado $GITHUB_REF_NAME"
