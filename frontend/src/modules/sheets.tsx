@@ -952,7 +952,7 @@ function reach(selector: string, then: (el: HTMLElement) => void, tries = 20) {
 }
 
 /** Under the open agent's head: how it is, in words, and the one thing to do about it, with the next ones beside it.
-    Waiting on you: answer it. Done: check what it did. Resting: give it something. Working: queue what comes next. */
+    Waiting on you: answer it. Done: check what it did. Resting: queue what comes next. Working: queue what comes next. */
 function AgentNext({
   agent: a,
   task,
@@ -1042,11 +1042,6 @@ function AgentNext({
     say = <>Resting at its prompt, with nothing to do.</>
     actions = (
       <>
-        {write && (
-          <button type="button" className="btn agent-next__btn agent-next__btn--main" onClick={onWrite}>
-            Give it something
-          </button>
-        )}
         {giveGo}
         {queue}
       </>

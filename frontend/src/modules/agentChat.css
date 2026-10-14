@@ -968,8 +968,10 @@ button.chat__mode:hover {
 .chat__gallery-open {
   position: relative;
   width: 100%;
+  height: 0;
   min-height: 0;
-  aspect-ratio: 4 / 3;
+  /* 4:3 by padding, not aspect-ratio: WebKitGTK (the desktop app) ignores aspect-ratio on a button. */
+  padding: 0 0 75%;
 }
 
 /* Out of the flow, so a tall picture can't stretch its tile past 4:3: every tile the same size. */
@@ -984,6 +986,9 @@ button.chat__mode:hover {
 
 .chat__gallery-where {
   display: flex;
+  /* A button sizes to its text otherwise, and a long caption would spill over the next tile. */
+  width: 100%;
+  min-width: 0;
   gap: var(--sp-2);
   justify-content: space-between;
   padding: 0;
