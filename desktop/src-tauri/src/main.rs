@@ -206,12 +206,17 @@ fn main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 }
 
 /// WebKitGTK eases every wheel notch into a short animation, so scrolling lags behind the wheel: off, as in a browser.
+/// And its inspector, when MARUMADO_INSPECT asks for it.
 fn steady_scroll(w: &WebviewWindow) {
     #[cfg(target_os = "linux")]
     let _ = w.with_webview(|v| {
         use webkit2gtk::{SettingsExt as _, WebViewExt as _};
         if let Some(settings) = v.inner().settings() {
             settings.set_enable_smooth_scrolling(false);
+            // MARUMADO_INSPECT=1: right-click → Inspect Element, WebKit's inspector (its Timelines show what is slow).
+            if std::env::var_os("MARUMADO_INSPECT").is_some_and(|v| v != "0") {
+                settings.set_enable_developer_extras(true);
+            }
         }
     });
     #[cfg(not(target_os = "linux"))]

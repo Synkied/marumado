@@ -10,6 +10,8 @@ export function usePoll<T>(path: string | null, ms: number, background = false):
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [loading, setLoading] = useState(path !== null)
   const tick = useRef(0)
+  // The last answer as text: the same answer again keeps the same data, so nothing that reads it renders again.
+  const last = useRef('')
 
   const load = useCallback(async () => {
     if (!path) return
@@ -17,7 +19,11 @@ export function usePoll<T>(path: string | null, ms: number, background = false):
     try {
       const next = await api<T>(path)
       if (mine === tick.current) {
-        setData(next)
+        const text = JSON.stringify(next)
+        if (text !== last.current) {
+          last.current = text
+          setData(next)
+        }
         setError(null)
       }
     } catch (e) {

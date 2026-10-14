@@ -460,14 +460,6 @@ details.tool-call > .tool-call__out {
   height: 8px;
   border-radius: 50%;
   background: var(--moss);
-  animation: chat-pulse 1.4s var(--ease) infinite;
-}
-
-@keyframes chat-pulse {
-  50% {
-    transform: scale(0.6);
-    opacity: 0.45;
-  }
 }
 
 /* When it waits on you: docked over the chat box, in the one colour that means "needs you". */
@@ -745,6 +737,18 @@ details.tool-call > .tool-call__out {
 
 .chat__input:focus {
   outline: none;
+}
+
+/* The box's hidden copy, to measure its height on (ChatBox): out of the flow, so nothing moves while it is measured. */
+.chat__input--mirror {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .chat__box-actions {

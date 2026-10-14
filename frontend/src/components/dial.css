@@ -100,8 +100,8 @@
   stroke-dasharray: 4 6;
 }
 
-/* The dial's light, at twelve o'clock above the scale: green and breathing while something works, orange and steady
-   when it needs you. */
+/* The dial's light, at twelve o'clock above the scale: green while something works, orange when it needs you. Steady:
+   a light that breathes repaints the bar at the display's refresh rate, which the desktop app's webview feels. */
 .dial__light {
   fill: var(--moss);
   transform-box: fill-box;
@@ -109,18 +109,13 @@
 }
 
 .dial--busy:not(.dial--signal) .dial__light {
-  animation: dial-light 2.4s ease-in-out infinite;
+  opacity: 0.75;
 }
 
 .dial--signal .dial__light {
   fill: var(--signal);
 }
 
-@keyframes dial-light {
-  50% {
-    opacity: 0.3;
-  }
-}
 
 /* The needle settles once, as the page opens; afterwards readings update in place. */
 @media (prefers-reduced-motion: no-preference) {

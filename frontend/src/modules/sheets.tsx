@@ -870,7 +870,22 @@ function AgentTask({ agent: a, projectId }: { agent: Agent; projectId: number | 
   const { tasks, refreshTasks } = useHub()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // The task just marked done here: it is no longer followed, so it would drop out; it stays, done, for this agent.
+  const [finished, setFinished] = useState<{ pane: string; task: Task } | null>(null)
   const task = (tasks ?? []).find((t) => t.live && t.pane_id === a.pane_id && t.agent_source === sourceOf(a))
+  const markDone = async (t: Task) => {
+    setBusy(true)
+    setError('')
+    try {
+      await api(`tasks/${t.id}/done`, { method: 'POST' })
+      setFinished({ pane: a.pane_id, task: t })
+      refreshTasks()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't mark it done.")
+    } finally {
+      setBusy(false)
+    }
+  }
   if (task)
     return (
       <span className="agent-head__item mod-tasks">
@@ -878,6 +893,24 @@ function AgentTask({ agent: a, projectId }: { agent: Agent; projectId: number | 
         <a href={`#/m/tasks/${task.id}`} title={`Task: ${task.title}`}>
           {task.title}
         </a>
+        <button className="agent-head__done" type="button" onClick={() => markDone(task)} disabled={busy} title="Mark this task done: Marumado stops following it. Nothing is sent to the agent.">
+          <Icon name="check" size={14} />
+          {busy ? 'Marking…' : 'Done'}
+        </button>
+        {error && <span className="signal-text">{error}</span>}
+      </span>
+    )
+  if (finished && finished.pane === a.pane_id)
+    return (
+      <span className="agent-head__item mod-tasks">
+        <Icon name="check" size={15} />
+        <a href={`#/m/tasks/${finished.task.id}`} title={`Task done: ${finished.task.title}`}>
+          {finished.task.title}
+        </a>
+        <span className="agent-head__pill">done</span>
+        <button className="agent-head__link" type="button" onClick={() => setFinished(null)} title="Track what this agent does next as a new task">
+          New task
+        </button>
       </span>
     )
   const make = async () => {

@@ -247,7 +247,7 @@
   background: var(--moss);
 }
 
-/* A halo that grows and fades: scale and opacity only, which the GPU composites without repainting the page. */
+/* A steady halo while it works. It used to grow and fade, and the desktop app's webview repainted it every frame. */
 .ribbon__tip::after {
   content: '';
   position: absolute;
@@ -257,22 +257,8 @@
   opacity: 0;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .ribbon.is-busy .ribbon__tip::after {
-    animation: pulse-tip 1.6s var(--ease) infinite;
-  }
-}
-
-@keyframes pulse-tip {
-  0%,
-  100% {
-    opacity: 0;
-    transform: scale(0.5);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
+.ribbon.is-busy .ribbon__tip::after {
+  opacity: 0.7;
 }
 
 /* The time under every strip, in the strips' column. */

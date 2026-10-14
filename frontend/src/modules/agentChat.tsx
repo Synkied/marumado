@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Markdown } from '../components/Markdown'
 import { sourceOf, sourceQuery } from '../lib/agents'
 import { api } from '../lib/api'
@@ -43,7 +43,9 @@ function useConversation(paneId: string, source: number, every: number) {
           const kept = mine.steps.filter((x) => x.i < t.from)
           have.current = { path: t.path, steps: t.steps.length || kept.length < mine.steps.length ? [...kept, ...t.steps] : mine.steps }
         }
-        setState({ trace: t, steps: have.current.steps, error: '' })
+        // The record's header compared as text, its steps by identity: nothing new, nothing set, nothing rendered again.
+        const head = JSON.stringify({ ...t, steps: undefined })
+        setState((s) => (s.steps === have.current.steps && !s.error && s.trace && JSON.stringify({ ...s.trace, steps: undefined }) === head ? s : { trace: t, steps: have.current.steps, error: '' }))
       } catch (err) {
         setState((s) => ({ ...s, error: err instanceof Error ? err.message : "Couldn't read the agent's record." }))
       }
@@ -209,7 +211,9 @@ function useCommands(paneId: string, source: number, kind: string) {
 /** A message you sent that its record doesn't have yet: when, and the last step there was then. */
 type Pending = { text: string; at: number; after: number }
 
-export function AgentConversation({ agent, control }: { agent: Agent; control: boolean }) {
+// Memoized: the Agents page renders again on every change of the hub (the system's figures, every 2s); the conversation
+// only when its agent does.
+export const AgentConversation = memo(function AgentConversation({ agent, control }: { agent: Agent; control: boolean }) {
   const source = sourceOf(agent)
   const paneId = agent.pane_id
   const working = agent.status === 'working'
@@ -420,7 +424,7 @@ export function AgentConversation({ agent, control }: { agent: Agent; control: b
       {shown && <Lightbox shown={shown} pictures={all} onShow={setShown} onClose={() => setShown(null)} />}
     </div>
   )
-}
+})
 
 /** What it is doing right now, from its status line ("Herding… (1m 57s · ↓ 10.1k tokens)"). */
 function Working({ status }: { status: string }) {
@@ -701,11 +705,16 @@ function ChatBox({ draftKey, working, asking, locked, menu, commands, sent, send
   useEffect(() => {
     if (window.matchMedia('(pointer: fine)').matches && !editable(document.activeElement)) box.current?.focus({ preventScroll: true })
   }, [])
+  // Its height follows its lines, measured on a hidden copy: setting the box itself to auto to measure it moved the
+  // conversation above for a moment, and WebKitGTK (the desktop app) repainted all of it on every key.
+  const mirror = useRef<HTMLTextAreaElement>(null)
   useLayoutEffect(() => {
     const el = box.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 240)}px`
+    const m = mirror.current
+    if (!el || !m) return
+    m.style.width = `${el.offsetWidth}px`
+    const height = `${Math.min(m.scrollHeight, 240)}px`
+    if (el.style.height !== height) el.style.height = height
   }, [text])
   // Up and Down walk what you sent, as a shell does: `back` is how far from the newest (null: your own draft, kept
   // aside meanwhile). Typing makes the message on show your draft.
@@ -779,6 +788,7 @@ function ChatBox({ draftKey, working, asking, locked, menu, commands, sent, send
           </li>
         </ul>
       )}
+      <textarea ref={mirror} className="chat__input chat__input--mirror" rows={1} value={text} readOnly tabIndex={-1} aria-hidden="true" />
       <textarea
         id="chat-text"
         ref={box}
@@ -854,7 +864,7 @@ function ChatBox({ draftKey, working, asking, locked, menu, commands, sent, send
 }
 
 /** A run of looking around, folded: "Read 6 files, searched twice". */
-function Looks({ steps }: { steps: TraceStep[] }) {
+const Looks = memo(function Looks({ steps }: { steps: TraceStep[] }) {
   const reads = steps.filter((s) => s.kind === 'read').length
   const searches = steps.length - reads
   const title = [reads && `Read ${plural(reads, 'file')}`, searches && `searched ${plural(searches, 'time')}`].filter(Boolean).join(', ')
@@ -875,12 +885,12 @@ function Looks({ steps }: { steps: TraceStep[] }) {
       </details>
     </li>
   )
-}
+})
 
 const MARK: Record<string, string> = { read: 'read', search: 'read', edit: 'edit', run: 'run', agent: 'run', tool: 'run', think: 'think', ask: 'ask', you: 'run', say: 'think' }
 
 /** One tool call, as Claude Code shows it: a line saying what it did, and what came back under it. */
-function ToolCall({ s, live, open }: { s: TraceStep; live: boolean; open: boolean }) {
+const ToolCall = memo(function ToolCall({ s, live, open }: { s: TraceStep; live: boolean; open: boolean }) {
   const running = s.end === null && live
   const took = s.end !== null && s.end - s.t >= 1000 ? span(s.end - s.t) : ''
   const state = (
@@ -1017,7 +1027,7 @@ function ToolCall({ s, live, open }: { s: TraceStep; live: boolean; open: boolea
       </Secret>
     </details>
   )
-}
+})
 
 /** A long output or diff, its first lines and a button for the rest. */
 function Clipped({ text, lines, className, diff = false }: { text: string; lines: number; className: string; diff?: boolean }) {

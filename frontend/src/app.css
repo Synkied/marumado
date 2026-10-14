@@ -350,7 +350,7 @@
   border-radius: inherit;
   background: var(--ink-2);
   transform-origin: left center;
-  transition: transform var(--dur-slow) var(--ease);
+  /* No slide between readings: every 2s it would animate 700ms, repainting the bar at the display's rate. */
 }
 
 .vitals__value {
@@ -841,6 +841,29 @@
 
 .agent-head__link:hover {
   text-decoration-color: var(--ink);
+}
+
+/* Marks the agent's task done, right beside its name. */
+.agent-head__done {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 24px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.agent-head__done:hover:not(:disabled),
+.agent-head__done:focus-visible {
+  border-color: var(--ink-3);
+  color: var(--ink);
 }
 
 /* The open agent's next move, under its head: how it is in words, then one action that says what to do about it.

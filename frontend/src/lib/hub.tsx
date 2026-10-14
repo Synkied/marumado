@@ -233,26 +233,33 @@ export function HubProvider({ children }: { children: ReactNode }) {
 
   const needs = useMemo(() => needsYou(agents.data, plans.data), [agents.data, plans.data])
 
-  const value: Hub = {
-    system: system.data,
-    history,
-    projects: projects.data,
-    ports: ports.data,
-    docker: docker.data,
-    agents: agents.data,
-    tasks: tasks.data,
-    plans: plans.data,
-    needsYou: needs,
-    skills: skills.data,
-    alerts,
-    error: system.error ?? projects.error,
-    refreshProjects: projects.refresh,
-    refreshDocker: docker.refresh,
-    refreshSkills: skills.refresh,
-    refreshAgents: agents.refresh,
-    refreshTasks: tasks.refresh,
-    refreshPlans: plans.refresh,
-  }
+  // One value while nothing in it changes, so what reads the hub renders again only when something did.
+  const value = useMemo<Hub>(
+    () => ({
+      system: system.data,
+      history,
+      projects: projects.data,
+      ports: ports.data,
+      docker: docker.data,
+      agents: agents.data,
+      tasks: tasks.data,
+      plans: plans.data,
+      needsYou: needs,
+      skills: skills.data,
+      alerts,
+      error: system.error ?? projects.error,
+      refreshProjects: projects.refresh,
+      refreshDocker: docker.refresh,
+      refreshSkills: skills.refresh,
+      refreshAgents: agents.refresh,
+      refreshTasks: tasks.refresh,
+      refreshPlans: plans.refresh,
+    }),
+    [
+      system.data, history, projects.data, ports.data, docker.data, agents.data, tasks.data, plans.data, needs, skills.data, alerts, system.error, projects.error,
+      projects.refresh, docker.refresh, skills.refresh, agents.refresh, tasks.refresh, plans.refresh,
+    ],
+  )
   return <HubContext.Provider value={value}>{children}</HubContext.Provider>
 }
 
