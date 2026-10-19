@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { agentHref, agentKey, preferredKind, sourceLabel, startAgent, workspaceIn, workspaceLabel } from '../lib/agents'
+import { agentHref, agentKey, apisFor, preferredApi, preferredKind, sourceLabel, startAgent, workspaceIn, workspaceLabel } from '../lib/agents'
 import { api } from '../lib/api'
 import { useHub } from '../lib/hub'
 import { go, moduleHref } from '../lib/route'
@@ -67,16 +67,18 @@ export function Palette({ onClose }: { onClose: () => void }) {
       const where = agents?.terminal === 'control' ? startPlaces(p, agents)[0] : undefined
       if (needle && where) {
         const kind = preferredKind(agents?.kinds)
+        const modelApi = preferredApi(agents, kind)
+        const using = modelApi ? ` · using ${apisFor(agents, kind).find((a) => a.id === modelApi)?.name}` : ''
         const on = (agents?.sources?.length ?? 0) > 1 ? ` on ${where.name}` : ''
         // Opens it once Agents lists it, so the page doesn't show another agent meanwhile.
         const workspace = workspaceIn(agents, where.id)
         const start = async () => {
-          const made = await startAgent(p.id, kind, where.id, workspace?.id)
+          const made = await startAgent(p.id, kind, where.id, workspace?.id, modelApi)
           await refreshAgents()
           go(agentHref(made))
         }
         const inside = workspace ? `, in the workspace ${workspaceLabel(workspace)}` : ''
-        out.push({ key: `pa:${p.id}`, icon: 'agent', label: `Start ${kind} in ${p.name}`, sub: `New agent in its folder${on}${inside}`, run: start })
+        out.push({ key: `pa:${p.id}`, icon: 'agent', label: `Start ${kind} in ${p.name}`, sub: `New agent in its folder${on}${inside}${using}`, run: start })
       }
     }
     if (needle) {

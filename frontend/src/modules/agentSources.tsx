@@ -6,23 +6,31 @@ import { api } from '../lib/api'
 import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
 import { Redacted, useStreaming } from '../lib/streaming'
-import type { SavedAgentSource, SourceFolder } from '../lib/types'
+import type { SavedAgentSource, SavedModelApi, SourceFolder } from '../lib/types'
 import { usePoll } from '../lib/usePoll'
 
-/** Agents → Sources: every place Herdr runs (`sub`: '' the list, 'new', 'edit/<id>', or 'edit/env' for the .env one). */
+/** Agents → Sources: every place Herdr runs (`sub`: '' the list, 'new', 'edit/<id>', or 'edit/env' for the .env one),
+    and the model APIs agents can be pointed at ('api/new', 'api/<id>'). */
 export function AgentSourcesSheet({ sub }: { sub: string }) {
   const saved = usePoll<SavedAgentSource[]>('agent-sources', 30000)
+  const apis = usePoll<SavedModelApi[]>('model-apis', 30000)
+  if (sub === 'api/new') return <ModelApiForm onSaved={apis.refresh} />
+  if (sub.startsWith('api/')) {
+    if (!apis.data) return <div className="sheet__empty">{apis.error ? `Couldn't load the model APIs: ${apis.error.message}` : 'Loading…'}</div>
+    const found = apis.data.find((a) => String(a.id) === sub.slice(4))
+    return found ? <ModelApiForm api={found} onSaved={apis.refresh} key={found.id} /> : <SourcesPage apis={apis.data} />
+  }
   if (sub === 'new') return <SourceForm onSaved={saved.refresh} />
   if (sub === 'edit/env') return <EnvSourceForm />
   if (sub.startsWith('edit/')) {
     if (!saved.data) return <div className="sheet__empty">{saved.error ? `Couldn't load the sources: ${saved.error.message}` : 'Loading…'}</div>
     const source = saved.data.find((s) => String(s.id) === sub.slice(5))
-    return source ? <SourceForm source={source} onSaved={saved.refresh} key={source.id} /> : <SourcesPage />
+    return source ? <SourceForm source={source} onSaved={saved.refresh} key={source.id} /> : <SourcesPage apis={apis.data} />
   }
-  return <SourcesPage />
+  return <SourcesPage apis={apis.data} apisError={apis.error?.message} />
 }
 
-function SourcesPage() {
+function SourcesPage({ apis, apisError }: { apis?: SavedModelApi[]; apisError?: string }) {
   return (
     <div className="sheet">
       <a className="side__back" href="#/m/agents">
@@ -40,6 +48,7 @@ function SourcesPage() {
         Every place your coding agents run in Herdr: this machine, VMs, servers. Agents lists them all together, under the source each one runs in.
       </p>
       <SourcesList />
+      <ModelApis apis={apis} error={apisError} />
       <section className="sheet__section">
         <h3>Adding a source</h3>
         <ul className="machines__steps">
@@ -214,6 +223,200 @@ function SourceForm({ source, onSaved }: { source?: SavedAgentSource; onSaved: (
         Marumado runs <span className="mono">herdr</span> there to list your agents and stream their terminals. Removing a source stops watching it; the agents keep
         running.
       </p>
+    </form>
+  )
+}
+
+/** The model APIs, under the sources: what a new agent can use instead of its own login. */
+function ModelApis({ apis, error }: { apis?: SavedModelApi[]; error?: string }) {
+  return (
+    <section className="sheet__section">
+      <h3>Model APIs</h3>
+      <p className="sheet__lede">
+        Point a new Claude Code or Codex agent at another model server instead of its own login: Ollama, llama.cpp&rsquo;s llama-server, a proxy like LiteLLM, or a
+        provider with an API token. You pick one when you start an agent, give a task to a new one, or make a plan.
+      </p>
+      {!apis ? (
+        <div className="sheet__empty">{error ? `Couldn't load them: ${error}` : 'Loading…'}</div>
+      ) : apis.length ? (
+        <ul className="list">
+          {apis.map((a) => (
+            <li className="row" key={a.id}>
+              <span className="row__lamp" aria-hidden />
+              <span className="row__main">
+                {a.name}
+                <span className="row__sub mono">
+                  <Redacted text={a.base_url} />
+                </span>
+              </span>
+              <span className="row__meta">
+                {a.model || 'default model'} · {a.has_token ? 'token saved' : 'no token'}
+              </span>
+              <span className="row__actions">
+                <a className="btn btn--quiet" href={`#/m/agents/sources/api/${a.id}`} aria-label={`Edit ${a.name}`}>
+                  Edit
+                </a>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <a className="btn btn--quiet" href="#/m/agents/sources/api/new">
+        <Icon name="plus" size={16} /> Add model API
+      </a>
+    </section>
+  )
+}
+
+/** Servers with an address everyone uses: picking one fills it in. */
+const PRESETS: { label: string; url: string; note: string }[] = [
+  { label: 'Ollama', url: 'http://localhost:11434', note: 'Serves both Claude Code and Codex. No token. The model is one you pulled, like qwen3-coder:30b.' },
+  { label: 'llama.cpp', url: 'http://localhost:8080', note: 'llama-server, on its --port. No token unless you started it with --api-key.' },
+  { label: 'OpenAI', url: 'https://api.openai.com/v1', note: 'For Codex, with an API key.' },
+  { label: 'Anthropic', url: 'https://api.anthropic.com', note: 'For Claude Code, with an API key.' },
+  { label: 'OpenRouter', url: 'https://openrouter.ai/api', note: 'Serves both, with an OpenRouter key. The model is its id, like qwen/qwen3-coder.' },
+]
+
+function ModelApiForm({ api: saved, onSaved }: { api?: SavedModelApi; onSaved: () => void }) {
+  const { refreshAgents } = useHub()
+  const streaming = useStreaming().on
+  const [form, setForm] = useState({ name: saved?.name ?? '', base_url: saved?.base_url ?? '', model: saved?.model ?? '' })
+  const [token, setToken] = useState('')
+  const [forget, setForget] = useState(false)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const preset = PRESETS.find((p) => p.url === form.base_url.trim().replace(/\/+$/, ''))
+
+  const done = () => {
+    onSaved()
+    refreshAgents()
+    go('#/m/agents/sources')
+  }
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    try {
+      // Left out, a saved token is kept.
+      const keep = saved && !token.trim() && !forget
+      const json = { name: form.name.trim(), base_url: form.base_url.trim(), model: form.model.trim(), ...(keep ? {} : { token: token.trim() }) }
+      await api(saved ? `model-apis/${saved.id}` : 'model-apis', { method: saved ? 'PATCH' : 'POST', json })
+      done()
+    } catch (err) {
+      setError(err instanceof Error ? `Couldn't save: ${err.message}` : "Couldn't save.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const remove = async () => {
+    if (!saved) return
+    try {
+      await api(`model-apis/${saved.id}`, { method: 'DELETE' })
+      done()
+    } catch (err) {
+      setError(err instanceof Error ? `Couldn't remove: ${err.message}` : "Couldn't remove.")
+    }
+  }
+
+  return (
+    <form className="sheet" onSubmit={submit}>
+      <a className="side__back" href="#/m/agents/sources">
+        <Icon name="back" size={18} /> All sources
+      </a>
+      <header className="sheet__head mod-agents">
+        <h2 className="sheet__title">{saved ? `Edit ${saved.name}` : 'Add model API'}</h2>
+      </header>
+      <div className="field">
+        <span id="api-preset">Server</span>
+        <div className="seg seg--mod mod-agents" role="group" aria-labelledby="api-preset">
+          {PRESETS.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              className="seg__btn"
+              aria-pressed={preset === p}
+              onClick={() => setForm({ ...form, base_url: p.url, name: form.name || p.label })}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <p className="agent-hint">{preset ? preset.note : 'Or any server with the same API: type its address below.'}</p>
+      </div>
+      <label className="field">
+        Name
+        <input required maxLength={60} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ollama on the desk" />
+      </label>
+      <label className="field">
+        Address
+        <input
+          required
+          className="mono"
+          value={form.base_url}
+          onChange={(e) => setForm({ ...form, base_url: e.target.value })}
+          type={streaming ? 'password' : 'text'}
+          autoComplete="off"
+          placeholder="http://localhost:11434"
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+        />
+      </label>
+      <p className="agent-hint">
+        As the agent reaches it, from where it runs: <span className="mono">localhost</span> is the machine or VM of the agent&rsquo;s source, not this one. Claude Code
+        asks <span className="mono">/v1/messages</span> (Anthropic&rsquo;s API), Codex <span className="mono">/v1/responses</span> (OpenAI&rsquo;s).
+      </p>
+      <label className="field">
+        API token
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          autoComplete="new-password"
+          placeholder={saved?.has_token ? 'Saved: leave empty to keep it' : 'None for a local server'}
+          spellCheck={false}
+          disabled={forget}
+        />
+      </label>
+      {saved?.has_token && (
+        <label className="field field--check">
+          <input type="checkbox" checked={forget} onChange={(e) => setForget(e.target.checked)} /> Forget the saved token
+        </label>
+      )}
+      <p className="agent-hint">
+        Kept on this Marumado and given to the agent&rsquo;s shell in its environment, never typed on screen.
+      </p>
+      <label className="field">
+        Model
+        <input
+          className="mono"
+          maxLength={200}
+          value={form.model}
+          onChange={(e) => setForm({ ...form, model: e.target.value })}
+          placeholder="qwen3-coder:30b"
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+        />
+      </label>
+      <p className="agent-hint">The name the server lists. Empty: the agent asks for its own default, which a local server won&rsquo;t have.</p>
+      {error && <p className="notice signal-text">{error}</p>}
+      <div className="sheet__actions" style={{ justifyContent: 'start' }}>
+        <button className="btn" type="submit" disabled={saving}>
+          {saving ? 'Saving' : saved ? 'Save changes' : 'Add model API'}
+        </button>
+        <a className="btn btn--quiet" href="#/m/agents/sources">
+          Cancel
+        </a>
+        {saved && (
+          <ConfirmButton onConfirm={remove} confirmLabel="Confirm remove">
+            Remove
+          </ConfirmButton>
+        )}
+      </div>
+      <p className="sheet__lede">Agents already started on it keep using it. Plans that use it go back to their agents&rsquo; own login.</p>
     </form>
   )
 }

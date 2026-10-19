@@ -13,9 +13,9 @@ import re
 
 import psutil
 
-from . import auth, checks, discovery, files, herdr, land, machines, monitor, opener, overview, places, plans, pulse, tasks, transcripts
-from .models import AgentSource, Machine, Plan, Project, ScanRoot, Skill, Task, UptimeCheck
-from .serializers import AgentSourceSerializer, MachineSerializer, PlanSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
+from . import auth, checks, discovery, drops, files, herdr, land, machines, modelapis, monitor, opener, overview, places, plans, pulse, tasks, transcripts
+from .models import AgentSource, Machine, ModelApi, Plan, Project, ScanRoot, Skill, Task, UptimeCheck
+from .serializers import AgentSourceSerializer, MachineSerializer, ModelApiSerializer, PlanSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
 
 RECENT_CHECKS = 30
 
@@ -165,8 +165,8 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def assign(self, request, pk=None):
-        """{pane_id, source}: give it to that open agent. {kind, source}: start a new agent of that kind in the project's folder,
-        in that source (where Herdr runs; 0, the default, is the one set in .env)."""
+        """{pane_id, source}: give it to that open agent. {kind, source[, api]}: start a new agent of that kind in the project's
+        folder, in that source (where Herdr runs; 0, the default, is the one set in .env), pointed at that model API if given."""
         if herdr.terminal_mode() != 'control':
             return Response({'detail': 'Giving tasks to agents is turned off (MARUMADO_HERDR_TERMINAL).'}, status=403)
         task = self.get_object()
@@ -176,7 +176,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         if not isinstance(pane_id, str) or not isinstance(kind, str) or not isinstance(source, int):
             return Response({'detail': 'Send pane_id or kind, and the source.'}, status=400)
         try:
-            tasks.assign(task, pane_id, kind, source)
+            tasks.assign(task, pane_id, kind, source, api=_model_api(request))
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=400)
         except RuntimeError as exc:
@@ -854,6 +854,9 @@ def file_read(request):
 def agents(request):
     """Every agent, with the project it works in. `?machines=0`: only this machine's own (what other Marumados ask)."""
     data = herdr.agents(include_machines=request.query_params.get('machines') != '0')
+    # The model APIs a new agent can be pointed at, and the kinds of agent that can be.
+    data['apis'] = [{'id': a.id, 'name': a.name, 'model': a.model} for a in ModelApi.objects.all()]
+    data['api_kinds'] = list(modelapis.AGENT_KINDS)
     projects = _projects_of(data['agents'])
     for a in data['agents']:
         p = projects.get(id(a))
@@ -922,6 +925,24 @@ class AgentSourceViewSet(viewsets.ModelViewSet):
         instance.delete()
 
 
+class ModelApiViewSet(viewsets.ModelViewSet):
+    """The model APIs new agents can be pointed at instead of their own login (core/modelapis.py)."""
+
+    serializer_class = ModelApiSerializer
+    queryset = ModelApi.objects.all()
+
+
+def _model_api(request) -> ModelApi | None:
+    """The model API `api` in the body (an id; none: the agent's own login). Raises ValueError for an unknown one."""
+    given = request.data.get('api') if isinstance(request.data, dict) else None
+    if given in (None, '', 0):
+        return None
+    found = ModelApi.objects.filter(pk=given).first() if isinstance(given, int) else None
+    if found is None:
+        raise ValueError('That model API no longer exists.')
+    return found
+
+
 def _agent_source(request) -> herdr.Source:
     """The `source` the agent lives in (query string, or the body of a POST). Raises ValueError for an unknown one."""
     given = request.query_params.get('source')
@@ -966,9 +987,10 @@ def _control_only(what: str) -> Response | None:
 
 @api_view(['POST'])
 def agent_workspace(request):
-    """{cwd, label[, branch | workspace]}: a new Herdr workspace with a shell, for a task (asked by the Marumado that
-    shows this machine). With `branch`, a new git worktree of the repository at `cwd` on that branch, for a plan's
-    step. With `workspace`, a new tab in that open workspace instead, for an agent started there."""
+    """{cwd, label[, branch | workspace][, env]}: a new Herdr workspace with a shell, for a task (asked by the Marumado
+    that shows this machine). With `branch`, a new git worktree of the repository at `cwd` on that branch, for a plan's
+    step. With `workspace`, a new tab in that open workspace instead, for an agent started there. `env`: variables the
+    shell starts with (a model API's); `env: true` in the answer says they were set."""
     refused = _control_only('Starting agents')
     if refused:
         return refused
@@ -977,13 +999,16 @@ def agent_workspace(request):
     if not all(isinstance(v, str) for v in (cwd, label, branch, workspace)):
         return Response({'detail': 'cwd, label, branch and workspace are text.'}, status=400)
     try:
+        env = modelapis.clean_env(request.data.get('env'))
+        set_env = {'env': True} if env else {}
         if workspace:
-            return Response({**herdr.open_tab(workspace, cwd, label, _agent_source(request)), 'tab': True}, status=status.HTTP_201_CREATED)
+            return Response({**herdr.open_tab(workspace, cwd, label, _agent_source(request), env), 'tab': True, **set_env}, status=status.HTTP_201_CREATED)
         if branch:
             if not cwd or not herdr.BRANCH.match(branch):
                 return Response({'detail': 'A worktree needs the repository folder and a plain branch name.'}, status=400)
-            return Response({**herdr.open_worktree(cwd, branch, label, _agent_source(request)), 'worktree': True}, status=status.HTTP_201_CREATED)
-        return Response(herdr.open_workspace(cwd, label, _agent_source(request)), status=status.HTTP_201_CREATED)
+            return Response({**herdr.open_worktree(cwd, branch, label, _agent_source(request), env), 'worktree': True, **set_env},
+                            status=status.HTTP_201_CREATED)
+        return Response({**herdr.open_workspace(cwd, label, _agent_source(request), env), **set_env}, status=status.HTTP_201_CREATED)
     except ValueError as exc:
         return Response({'detail': str(exc)}, status=400)
     except (RuntimeError, KeyError) as exc:
@@ -1046,9 +1071,9 @@ def agent_workspace_close(request, workspace_id: str):
 
 @api_view(['POST'])
 def agent_start(request):
-    """{project, kind, source[, workspace]}: a new `kind` agent in the project's folder in that source (no project:
-    Herdr's default folder), in a new workspace or a new tab of `workspace`. Answers {pane_id, source, cwd, name} once
-    it is open; the agent keeps starting there."""
+    """{project, kind, source[, workspace][, api]}: a new `kind` agent in the project's folder in that source (no project:
+    Herdr's default folder), in a new workspace or a new tab of `workspace`, pointed at the model API `api` if given.
+    Answers {pane_id, source, cwd, name} once it is open; the agent keeps starting there."""
     refused = _control_only('Starting agents')
     if refused:
         return refused
@@ -1065,7 +1090,7 @@ def agent_start(request):
         cwd = tasks.folder_for(project, source.id)
         if project and not cwd:
             return Response({'detail': f'{project.name} has no folder {source.where()}.'}, status=400)
-        started = herdr.start_agent(kind, cwd, project.name if project else '', source, workspace)
+        started = herdr.start_agent(kind, cwd, project.name if project else '', source, workspace, _model_api(request))
         return Response({**started, 'source': source.id}, status=status.HTTP_201_CREATED)
     except ValueError as exc:
         return Response({'detail': str(exc)}, status=400)
@@ -1075,13 +1100,15 @@ def agent_start(request):
 
 @api_view(['POST'])
 def agent_launch(request, pane_id: str):
-    """{name, kind}: start an agent in that pane's shell. `ready`: it takes input already."""
+    """{name, kind[, args]}: start an agent in that pane's shell, with `args` after its command (a model API's).
+    `ready`: it takes input already; `args: true`: it was given them."""
     refused = _control_only('Starting agents')
     if refused:
         return refused
     name, kind = request.data.get('name') or '', request.data.get('kind') or ''
     try:
-        return Response({'ready': herdr.launch_agent(str(name), str(kind), pane_id, _agent_source(request))})
+        args = modelapis.clean_args(request.data.get('args'))
+        return Response({'ready': herdr.launch_agent(str(name), str(kind), pane_id, _agent_source(request), args), **({'args': True} if args else {})})
     except ValueError as exc:
         return Response({'detail': str(exc)}, status=400)
     except RuntimeError as exc:
@@ -1137,6 +1164,44 @@ def agent_input(request, pane_id: str):
     except RuntimeError as exc:
         return Response({'detail': str(exc)}, status=502)
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['POST'])
+def agent_files(request, pane_id: str):
+    """A file dropped into the agent's chat, as the body (?name=<its name>), written where the agent runs
+    (core/drops.py): {path}, for the message to name."""
+    refused = _control_only('Sending files to agents')
+    if refused:
+        return refused
+    try:
+        size = int(request.META.get('CONTENT_LENGTH') or 0)
+    except ValueError:
+        size = 0
+    if size > drops.MAX_BYTES:
+        return Response({'detail': f'That file is over {drops.MAX_BYTES // (1024 * 1024)} MB.'}, status=413)
+    # Read as it comes, not through request.body, which refuses anything over Django's 2.5 MB form limit.
+    data = request.stream.read(drops.MAX_BYTES + 1) if size and request.stream else b''
+    if not data:
+        return Response({'detail': 'That file is empty.'}, status=400)
+    try:
+        return Response({'path': drops.save(pane_id, _agent_source(request), request.query_params.get('name', ''), data)}, status=201)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    except RuntimeError as exc:
+        return Response({'detail': str(exc)}, status=502)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def drop_fetch(request, nonce: str):
+    """A dropped file, once, for the host to fetch when Marumado runs in a container beside its Herdr (core/drops.py).
+    The unguessable one-time address is the only key: the host's shell has no login."""
+    data = drops.take(nonce)
+    if data is None:
+        return Response({'detail': 'Not found.'}, status=404)
+    res = HttpResponse(data, content_type='application/octet-stream')
+    res['Cache-Control'] = 'no-store'
+    return res
 
 
 @api_view(['GET'])

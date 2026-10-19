@@ -136,6 +136,26 @@ class AgentSource(models.Model):
         return self.name
 
 
+class ModelApi(models.Model):
+    """An endpoint serving models (Ollama, llama.cpp's llama-server, a proxy, a provider) that a new agent can be
+    pointed at instead of its own login (core/modelapis.py)."""
+
+    name = models.CharField(max_length=60, unique=True)
+    # The server's address as the agent reaches it, where it runs: http://localhost:11434, https://api.openai.com/v1…
+    base_url = models.CharField(max_length=300)
+    # Sent as the bearer token; empty for a local server that takes none.
+    token = models.CharField(max_length=4096, blank=True, default='')
+    # The model the agent asks for (empty: the agent's default).
+    model = models.CharField(max_length=200, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
 class Setting(models.Model):
     """A setting kept in the database rather than .env, by key: `env_source_folders` (the .env agent source's folders)."""
 
@@ -156,6 +176,8 @@ class Plan(models.Model):
     # What a step that needs a new agent starts, and where (an agent source, as on Task).
     kind = models.CharField(max_length=20, default='claude')
     source = models.PositiveIntegerField(default=0)
+    # The model API those new agents are pointed at (none: their own login).
+    api = models.ForeignKey(ModelApi, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
     # Steps start by themselves only while the plan runs; paused, those not started yet wait.
     running = models.BooleanField(default=False)
     # When it starts by itself (plans.start_due), if the owner set one and it isn't running yet.
@@ -213,6 +235,8 @@ class Task(models.Model):
     agent_source = models.PositiveIntegerField(default=0)
     agent_name = models.CharField(max_length=40, blank=True, default='')
     agent_kind = models.CharField(max_length=20, blank=True, default='')
+    # The model API a new agent started for it is pointed at (none: its own login).
+    agent_api = models.ForeignKey(ModelApi, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
     # The agent's last seen Herdr state (idle, working, blocked, done, unknown) and terminal title.
     agent_state = models.CharField(max_length=10, blank=True, default='')
     agent_title = models.CharField(max_length=200, blank=True, default='')

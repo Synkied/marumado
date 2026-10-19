@@ -1202,3 +1202,96 @@ button.chat__mode:hover {
   min-height: 36px;
   font-family: var(--f-mono);
 }
+
+/* ---------- files for the next message ---------- */
+
+/* Dropped anywhere on the chat: a plain plate over it, saying where they go. Flat and still (no blur, no motion):
+   WebKitGTK repaints the whole chat under anything heavier. */
+.chat__drop {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  border: 2px dashed var(--ink-3);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--ground-raised) 88%, transparent);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  text-align: center;
+  pointer-events: none;
+}
+
+.chat__drop strong {
+  color: var(--ink);
+  font-size: var(--text-lg);
+}
+
+.chat__files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat__file {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 var(--sp-1) 0 var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-md);
+  background: var(--ground-raised);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.chat__file.is-failed {
+  border-color: var(--signal-text);
+}
+
+.chat__file-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--f-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat__file-state {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.chat__file-remove {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.chat__file-remove:hover {
+  background: var(--well);
+  color: var(--ink);
+}
+
+.chat__attach {
+  flex: none;
+  padding-inline: var(--sp-2);
+}

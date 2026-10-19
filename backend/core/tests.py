@@ -109,8 +109,8 @@ class TaskFlowTests(TestCase):
                 mock.patch.object(tasks.herdr, 'prompt_task', return_value=False):
             res = self.api.post(f'/api/tasks/{tid}/assign', {'kind': 'claude'}, format='json')
         self.assertEqual(res.status_code, 200, res.content)
-        opened.assert_called_once_with(self.repo, 'demo', 0)
-        start.assert_called_once_with(f'task-{tid}-2', 'claude', 'w2:p1', 0)
+        opened.assert_called_once_with(self.repo, 'demo', 0, {})
+        start.assert_called_once_with(f'task-{tid}-2', 'claude', 'w2:p1', 0, [])
         task = Task.objects.get(pk=tid)
         self.assertEqual((task.pane_id, task.state), ('w2:p1', 'starting'))
         # Never picked up: idle keeps it starting.
@@ -325,9 +325,9 @@ class PlanTests(TestCase):
         self.panes = iter(['w2:p1', 'w3:p1', 'w4:p1', 'w5:p1'])
         for name, fake in {
             'prompt_task': lambda pane, text, source=0: self.prompted.append((pane, text.split('\n')[0])) or True,
-            'open_workspace': lambda cwd, label, source=0: self.opened.append(('workspace', cwd)) or {'pane_id': next(self.panes), 'cwd': cwd},
-            'open_worktree': lambda cwd, branch, label, source=0: self.opened.append(('worktree', branch)) or {'pane_id': next(self.panes), 'cwd': f'{cwd}-{branch}'},
-            'launch_agent': lambda name, kind, pane, source=0: True,
+            'open_workspace': lambda cwd, label, source=0, env=None: self.opened.append(('workspace', cwd)) or {'pane_id': next(self.panes), 'cwd': cwd},
+            'open_worktree': lambda cwd, branch, label, source=0, env=None: self.opened.append(('worktree', branch)) or {'pane_id': next(self.panes), 'cwd': f'{cwd}-{branch}'},
+            'launch_agent': lambda name, kind, pane, source=0, args=(): True,
         }.items():
             patch = mock.patch.object(tasks.herdr, name, fake)
             patch.start()
@@ -676,7 +676,7 @@ class FakeTunnel:
 
     def request(self, method, path, query='', body=b'', content_type='', timeout=10):
         import json
-        self.calls.append((method, path, query, json.loads(body) if body else None))
+        self.calls.append((method, path, query, json.loads(body) if body and content_type == 'application/json' else body or None))
         status_code, data = self.answers.get(path, (404, {}))
         res = mock.Mock(status_code=status_code, content=json.dumps(data).encode(), headers={'content-type': 'application/json'})
         res.json = lambda: data

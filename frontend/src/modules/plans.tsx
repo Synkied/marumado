@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { Icon } from '../components/Icon'
+import { ModelApiPick } from '../components/ModelApiPick'
 import { UsageLine } from '../components/UsageLine'
-import { agentKey, parseAgentRef, sourceLabel } from '../lib/agents'
+import { agentKey, apisFor, parseAgentRef, preferredApi, sourceLabel, usableApi } from '../lib/agents'
 import { api } from '../lib/api'
 import { ago } from '../lib/format'
 import { useHub } from '../lib/hub'
@@ -628,6 +629,10 @@ export function NewPlan() {
   const places = startPlaces(chosen, agents)
   const [kind, setKind] = useState('')
   const [place, setPlace] = useState<number | null>(null)
+  const agentKind = kind || agents?.kinds?.[0] || 'claude'
+  // undefined: the model API last picked for this kind
+  const [apiPick, setApiPick] = useState<number | null | undefined>(undefined)
+  const modelApi = apiPick === undefined ? preferredApi(agents, agentKind) : usableApi(agents, agentKind, apiPick)
 
   const create = async (e: FormEvent) => {
     e.preventDefault()
@@ -635,7 +640,7 @@ export function NewPlan() {
     try {
       const made = await api<Plan>('plans', {
         method: 'POST',
-        json: { title, project, kind: kind || agents?.kinds?.[0] || 'claude', source: place ?? places[0]?.id ?? 0 },
+        json: { title, project, kind: agentKind, source: place ?? places[0]?.id ?? 0, api: modelApi },
       })
       nav({ plan: made.id })
     } catch (err) {
@@ -671,7 +676,13 @@ export function NewPlan() {
         </label>
         <label className="field">
           New agents
-          <select value={kind || agents?.kinds?.[0] || 'claude'} onChange={(e) => setKind(e.target.value)}>
+          <select
+            value={agentKind}
+            onChange={(e) => {
+              setKind(e.target.value)
+              setApiPick(undefined)
+            }}
+          >
             {(agents?.kinds ?? ['claude']).map((k) => (
               <option key={k} value={k}>
                 {k}
@@ -679,6 +690,12 @@ export function NewPlan() {
             ))}
           </select>
         </label>
+        {apisFor(agents, agentKind).length > 0 && (
+          <label className="field">
+            Model
+            <ModelApiPick kind={agentKind} value={modelApi} onChange={setApiPick} />
+          </label>
+        )}
         {places.length > 1 && (
           <label className="field">
             Where
@@ -821,7 +838,13 @@ function PlanView({ plan, refresh, back }: { plan: Plan; refresh: () => void; ba
         <span className="plan__sep" aria-hidden="true">·</span>
         <label>
           new agents are{' '}
-          <select className="plan__inline" value={plan.kind} onChange={(e) => patch({ kind: e.target.value })} disabled={busy}>
+          <select
+            className="plan__inline"
+            value={plan.kind}
+            // A kind that can't use the plan's model API goes back to its own login.
+            onChange={(e) => patch({ kind: e.target.value, ...(usableApi(agents, e.target.value, plan.api) == null ? { api: null } : {}) })}
+            disabled={busy}
+          >
             {(agents?.kinds ?? [plan.kind]).map((k) => (
               <option key={k} value={k}>
                 {k}
@@ -829,6 +852,11 @@ function PlanView({ plan, refresh, back }: { plan: Plan; refresh: () => void; ba
             ))}
           </select>
         </label>
+        {apisFor(agents, plan.kind).length > 0 && (
+          <label>
+            using <ModelApiPick className="plan__inline" kind={plan.kind} value={usableApi(agents, plan.kind, plan.api)} onChange={(id) => patch({ api: id })} disabled={busy} />
+          </label>
+        )}
         {places.length > 1 ? (
           <label>
             on{' '}

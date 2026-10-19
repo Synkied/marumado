@@ -110,8 +110,8 @@ class CheckTests(TestCase):
         self.panes = iter(['w2:p1', 'w3:p1'])
         for name, fake in {
             'prompt_task': lambda pane, text, source=0: self.prompted.append((pane, text.split('\n')[0])) or True,
-            'open_workspace': lambda cwd, label, source=0: {'pane_id': next(self.panes), 'cwd': cwd},
-            'launch_agent': lambda name, kind, pane, source=0: True,
+            'open_workspace': lambda cwd, label, source=0, env=None: {'pane_id': next(self.panes), 'cwd': cwd},
+            'launch_agent': lambda name, kind, pane, source=0, args=(): True,
             'execute': lambda source, cwd, script, timeout=60, near='': self.ran.append((cwd, script)) or self.results.pop(0),
         }.items():
             patch = mock.patch.object(tasks.herdr, name, fake)

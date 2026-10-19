@@ -10,6 +10,7 @@ router.register('machines', views.MachineViewSet, basename='machine')
 router.register('tasks', views.TaskViewSet, basename='task')
 router.register('plans', views.PlanViewSet, basename='plan')
 router.register('agent-sources', views.AgentSourceViewSet, basename='agent-source')
+router.register('model-apis', views.ModelApiViewSet, basename='model-api')
 
 urlpatterns = [
     path('auth', views.auth_view),
@@ -47,6 +48,8 @@ urlpatterns = [
     path('agents/<str:pane_id>/image', views.agent_image),
     path('agents/<str:pane_id>/commands', views.agent_commands),
     path('agents/<str:pane_id>/input', views.agent_input),
+    path('agents/<str:pane_id>/files', views.agent_files),
+    path('drops/<str:nonce>', views.drop_fetch),
     path('agents/<str:pane_id>/close', views.agent_close),
     path('machines/<int:pk>/retry', views.machine_retry),  # before the proxy, which takes every other path
     path('machines/<int:pk>/<path:rest>', views.machine_proxy),

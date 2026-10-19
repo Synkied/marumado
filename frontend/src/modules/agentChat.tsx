@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent as DropEvent, type ReactNode } from 'react'
 import { Markdown } from '../components/Markdown'
 import { sourceOf, sourceQuery } from '../lib/agents'
 import { api } from '../lib/api'
@@ -208,6 +208,44 @@ function useCommands(paneId: string, source: number, kind: string) {
   }, [paneId, source, kind])
   return commands
 }
+/** A file dropped, pasted or picked for the next message: its path where the agent runs once it is copied there
+    (POST agents/<pane>/files, core/drops.py), or why it couldn't be. */
+type Attached = { id: number; name: string; path: string; error: string }
+const MAX_FILE = 25 * 1024 * 1024
+
+function useAttached(paneId: string, source: number) {
+  const [files, setFiles] = useState<Attached[]>([])
+  const next = useRef(0)
+  const set = (id: number, change: Partial<Attached>) => setFiles((l) => l.map((a) => (a.id === id ? { ...a, ...change } : a)))
+  // Another agent's chat: what waited on this one's isn't its (an upload still going lands on nothing).
+  useEffect(() => setFiles([]), [paneId, source])
+  const add = useCallback(
+    (picked: File[], folders: string[] = []) => {
+      for (const name of folders) setFiles((l) => [...l, { id: ++next.current, name, path: '', error: 'A folder: drop the files in it.' }])
+      for (const file of picked) {
+        const id = ++next.current
+        const tooBig = file.size > MAX_FILE ? 'Over 25 MB.' : ''
+        setFiles((l) => [...l, { id, name: file.name, path: '', error: tooBig }])
+        if (tooBig) continue
+        api<{ path: string }>(`agents/${encodeURIComponent(paneId)}/files?${sourceQuery(source)}&name=${encodeURIComponent(file.name)}`, {
+          method: 'POST',
+          body: file,
+          headers: { 'Content-Type': 'application/octet-stream' },
+        }).then(
+          (r) => set(id, { path: r.path }),
+          (err) => set(id, { error: err instanceof Error ? err.message : "Couldn't copy it." }),
+        )
+      }
+    },
+    [paneId, source],
+  )
+  const remove = useCallback((id: number) => setFiles((l) => l.filter((a) => a.id !== id)), [])
+  const clear = useCallback(() => setFiles([]), [])
+  return { files, add, remove, clear }
+}
+
+const hasFiles = (e: DropEvent) => Array.from(e.dataTransfer.types).includes('Files')
+
 /** A message you sent that its record doesn't have yet: when, and the last step there was then. */
 type Pending = { text: string; at: number; after: number }
 /** The commands that start a new session (Claude Code's /clear and its aliases, Codex's and Pi's /new). */
@@ -237,6 +275,36 @@ export const AgentConversation = memo(function AgentConversation({ agent, contro
   const [shown, setShown] = useState<Shown | null>(null)
   const [gallery, setGallery] = useState(false)
   const [pending, setPending] = useState<Pending[]>([])
+  const attached = useAttached(paneId, source)
+  const [dragging, setDragging] = useState(false)
+  // Files dropped anywhere on the chat go with the next message, when you can write to it.
+  const drop = control
+    ? {
+        onDragEnter: (e: DropEvent) => {
+          if (!hasFiles(e)) return
+          e.preventDefault()
+          setDragging(true)
+        },
+        onDragOver: (e: DropEvent) => {
+          if (!hasFiles(e)) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+        },
+        onDragLeave: (e: DropEvent) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setDragging(false),
+        onDrop: (e: DropEvent) => {
+          setDragging(false)
+          if (!hasFiles(e)) return
+          e.preventDefault()
+          const items = Array.from(e.dataTransfer.items)
+          const folder = (i: number) => items[i]?.webkitGetAsEntry?.()?.isDirectory
+          const dropped = Array.from(e.dataTransfer.files)
+          attached.add(
+            dropped.filter((_, i) => !folder(i)),
+            dropped.filter((_, i) => folder(i)).map((f) => f.name),
+          )
+        },
+      }
+    : {}
 
   // What you sent shows at once, until the record has it: any message of yours written since, whichever comes first
   // (sent while it works, it is taken in later, maybe along with others). Kept a good while, as it may be busy long.
@@ -397,7 +465,7 @@ export const AgentConversation = memo(function AgentConversation({ agent, contro
     )
 
   return (
-    <div className="chat" data-size={display.size} data-width={display.width} data-density={display.density}>
+    <div className="chat" data-size={display.size} data-width={display.width} data-density={display.density} {...drop}>
       <div className="chat__bar">
         {trace?.found && trace.sure === false && (
           <p className="chat__note">
@@ -434,11 +502,18 @@ export const AgentConversation = memo(function AgentConversation({ agent, contro
       {menu && <Menu menu={menu} control={control} send={send} />}
       {!control && <StatusLine footer={footer} control={false} send={send} />}
       {control ? (
-        <ChatBox key={paneId} draftKey={`marumado.chat-draft.${source}.${paneId}`} working={working} asking={asking} locked={(asking && picks.length > 0) || Boolean(menu)} menu={Boolean(menu)} commands={commands} sent={sent} send={send} footer={<StatusLine footer={footer} control={control} send={send} />} />
+        <ChatBox key={paneId} draftKey={`marumado.chat-draft.${source}.${paneId}`} kind={agent.kind} attached={attached} working={working} asking={asking} locked={(asking && picks.length > 0) || Boolean(menu)} menu={Boolean(menu)} commands={commands} sent={sent} send={send} footer={<StatusLine footer={footer} control={control} send={send} />} />
       ) : (
         <p className="chat__note">Watching only (MARUMADO_HERDR_TERMINAL=observe): write to it in its terminal.</p>
       )}
       {shown && <Lightbox shown={shown} pictures={all} onShow={setShown} onClose={() => setShown(null)} />}
+      {dragging && (
+        <div className="chat__drop" aria-hidden="true">
+          <Icon name="file" size={28} />
+          <strong>Drop to attach</strong>
+          <span>Copied to where the agent runs, and named in your next message</span>
+        </div>
+      )}
     </div>
   )
 })
@@ -697,7 +772,7 @@ function suggest(commands: Command[], text: string): Command[] {
   return [...starts, ...within].slice(0, 8)
 }
 
-function ChatBox({ draftKey, working, asking, locked, menu, commands, sent, send, footer }: { draftKey: string; working: boolean; asking: boolean; locked: boolean; menu: boolean; commands: Command[]; sent: string[]; send: (json: { text?: string; keys?: string[] }) => Promise<void>; footer: ReactNode }) {
+function ChatBox({ draftKey, kind, attached, working, asking, locked, menu, commands, sent, send, footer }: { draftKey: string; kind: string; attached: ReturnType<typeof useAttached>; working: boolean; asking: boolean; locked: boolean; menu: boolean; commands: Command[]; sent: string[]; send: (json: { text?: string; keys?: string[] }) => Promise<void>; footer: ReactNode }) {
   // What you were writing stays, per agent, when you leave the page and come back (until it is sent).
   const [text, setTextState] = useState(() => {
     try {
@@ -750,6 +825,7 @@ function ChatBox({ draftKey, working, asking, locked, menu, commands, sent, send
       if (json.text) {
         setText('')
         setBack(null)
+        attached.clear()
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't reach the agent.")
@@ -758,8 +834,18 @@ function ChatBox({ draftKey, working, asking, locked, menu, commands, sent, send
       box.current?.focus()
     }
   }
+  // The files copied over are named after what you wrote: as @<path> to Claude Code, which reads each into the message
+  // (a picture as a picture), as the path to the others, which read it themselves.
+  const ready = attached.files.filter((f) => f.path)
+  const copying = attached.files.some((f) => !f.path && !f.error)
+  const withFiles = (value: string) => {
+    const named = ready.map((f) => (kind === 'claude' ? `@${f.path}` : f.path)).join(' ')
+    // A space after: ending on @<path>, Claude Code's file menu would take the Enter that sends it.
+    return named ? `${value.trim() ? `${value.trimEnd()}\n\n` : ''}${named} ` : value
+  }
   // While a menu is up, what you type would go into it (a digit picks a choice): answer it first.
-  const submit = (value = text) => value.trim() && !busy && !locked && go({ text: value })
+  const submit = (value = text) => (value.trim() || ready.length > 0) && !busy && !locked && !copying && go({ text: withFiles(value) })
+  const picker = useRef<HTMLInputElement>(null)
   // The / commands as you type one: Enter runs the one picked (as the agent's own menu does), Tab or a click puts
   // it in the box to add what it takes, Escape puts the menu away.
   const [pick, setPick] = useState(0)
@@ -805,6 +891,23 @@ function ChatBox({ draftKey, working, asking, locked, menu, commands, sent, send
           </li>
         </ul>
       )}
+      {attached.files.length > 0 && (
+        <ul className="chat__files" aria-label="Files for your next message">
+          {attached.files.map((f) => (
+            <li key={f.id} className={`chat__file${f.error ? ' is-failed' : ''}`}>
+              <Icon name={/\.(png|jpe?g|gif|webp)$/i.test(f.name) ? 'image' : 'file'} size={14} />
+              <span className="chat__file-name" title={f.path || f.name}>
+                {f.name}
+              </span>
+              {!f.path && !f.error && <span className="chat__file-state">Copying…</span>}
+              {f.error && <span className="chat__file-state signal-text">{f.error}</span>}
+              <button type="button" className="chat__file-remove" onClick={() => attached.remove(f.id)} aria-label={`Remove ${f.name}`}>
+                <Icon name="close" size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <textarea ref={mirror} className="chat__input chat__input--mirror" rows={1} value={text} readOnly tabIndex={-1} aria-hidden="true" />
       <textarea
         id="chat-text"
@@ -821,6 +924,13 @@ function ChatBox({ draftKey, working, asking, locked, menu, commands, sent, send
         onChange={(e) => {
           setText(e.target.value)
           setBack(null)
+        }}
+        onPaste={(e) => {
+          // A screenshot or a copied file; not text that comes with a picture of itself (as from a spreadsheet).
+          const pasted = Array.from(e.clipboardData.files)
+          if (!pasted.length || e.clipboardData.types.includes('text/plain')) return
+          e.preventDefault()
+          attached.add(pasted)
         }}
         onKeyDown={(e) => {
           if (menu && !text) return // the open menu's keys (Menu), not recalling what you wrote
@@ -865,13 +975,26 @@ function ChatBox({ draftKey, working, asking, locked, menu, commands, sent, send
         }}
       />
       <div className="chat__box-actions">
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            attached.add(Array.from(e.target.files ?? []))
+            e.target.value = ''
+          }}
+        />
+        <button type="button" className="btn btn--quiet chat__attach" onClick={() => picker.current?.click()} title="Attach files: or drop them on the chat, or paste a screenshot" aria-label="Attach files">
+          <Icon name="plus" size={16} />
+        </button>
         {footer}
         {working && (
           <button type="button" className="btn btn--quiet" disabled={busy} onClick={() => go({ keys: ['esc'] })} title="Interrupt it (Esc)">
             Stop
           </button>
         )}
-        <button type="submit" className="btn" disabled={busy || locked || !text.trim()}>
+        <button type="submit" className="btn" disabled={busy || locked || copying || (!text.trim() && !ready.length)}>
           Send
         </button>
       </div>

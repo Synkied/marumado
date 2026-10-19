@@ -279,9 +279,27 @@ export type SourceFolder = { here: string; there: string }
 
 export type SavedAgentSource = { id: number; name: string; kind: 'ssh' | 'smolvm'; target: string; folders: SourceFolder[] }
 
+/** A model API as saved in the app (GET /model-apis): an endpoint a new agent can be pointed at instead of its own login.
+    The token is never sent back: `has_token` says whether there is one. */
+export type SavedModelApi = { id: number; name: string; base_url: string; model: string; has_token: boolean }
+
+/** A model API as Agents lists it, to pick when starting an agent. */
+export type ModelApiRef = { id: number; name: string; model: string }
+
 /** `kinds`: the agents Herdr can start (for Tasks), most common first. `available`: at least one source answered.
- * `sources` is absent from Marumados older than agent sources. */
-export type Agents = { available: boolean; error: string; where: string; terminal: TerminalMode; kinds?: string[]; sources?: AgentSource[]; agents: Agent[] }
+ * `sources` is absent from Marumados older than agent sources. `apis`: the model APIs a new agent of one of
+ * `api_kinds` can be pointed at. */
+export type Agents = {
+  available: boolean
+  error: string
+  where: string
+  terminal: TerminalMode
+  kinds?: string[]
+  sources?: AgentSource[]
+  apis?: ModelApiRef[]
+  api_kinds?: string[]
+  agents: Agent[]
+}
 
 /** todo → starting (being handed over) → working ⇄ blocked (needs you) → review (agent finished its turn) → done; or failed.
     queued: a step of a running plan, waiting for the steps above it or for its agent. */
@@ -380,6 +398,8 @@ export type Plan = {
   project_name: string
   kind: string
   source: number
+  /** the model API its new agents are pointed at (null: their own login) */
+  api: number | null
   running: boolean
   /** when it starts by itself, if it isn't running yet (core/plans.py start_due) */
   start_at: string | null
