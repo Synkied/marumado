@@ -668,49 +668,28 @@ START_SECONDS = 120  # how long a new agent may take to start before the task fa
 LAUNCH_WAIT = 10  # how long `agent start` waits for it; after that the monitor follows it
 
 
-def _env_args(env: dict[str, str] | None) -> list[str]:
-    """`--env NAME=value` for each variable the new shell gets (a model API's, core/modelapis.py)."""
-    return [a for k, v in (env or {}).items() for a in ('--env', f'{k}={v}')]
-
-
-def _remote_open(src: Source, payload: dict, env: dict[str, str] | None) -> dict:
-    """Open a shell through the Marumado on another machine; with `env`, only one that sets it."""
-    made = _remote(src, 'POST', 'agents/workspace', {**payload, **({'env': env} if env else {})})
-    if env and not made.get('env'):
-        try:
-            close(made['pane_id'], src)
-        except (RuntimeError, ValueError):
-            pass
-        raise RuntimeError(f'The Marumado on {src.name} is too old for model APIs: update it.')
-    return made
-
-
-def open_workspace(cwd: str = '', label: str = '', source: 'int | Source' = ENV, env: dict[str, str] | None = None) -> dict:
-    """A new Herdr workspace (in `cwd`, when that folder exists where Herdr runs): {pane_id, cwd} of its shell.
-    `env`: variables its shell starts with."""
+def open_workspace(cwd: str = '', label: str = '', source: 'int | Source' = ENV) -> dict:
+    """A new Herdr workspace (in `cwd`, when that folder exists where Herdr runs): {pane_id, cwd} of its shell."""
     src = get_source(source)
     if src.kind == 'machine':
-        made = _remote_open(src, {'cwd': cwd, 'label': label[:60]}, env)
+        made = _remote(src, 'POST', 'agents/workspace', {'cwd': cwd, 'label': label[:60]})
         return {'pane_id': made['pane_id'], 'cwd': made.get('cwd') or ''}
-    made = _run(src, 'workspace', 'create', *(['--cwd', cwd] if cwd else []), *(['--label', label[:60]] if label else []),
-                *_env_args(env), '--no-focus')
+    made = _run(src, 'workspace', 'create', *(['--cwd', cwd] if cwd else []), *(['--label', label[:60]] if label else []), '--no-focus')
     pane = made['root_pane']
     return {'pane_id': pane['pane_id'], 'cwd': pane.get('cwd') or ''}
 
 
-def open_tab(workspace: str, cwd: str = '', label: str = '', source: 'int | Source' = ENV, env: dict[str, str] | None = None) -> dict:
-    """A new tab in an open Herdr workspace (in `cwd`, when that folder exists where Herdr runs): {pane_id, cwd} of its shell.
-    `env`: variables its shell starts with."""
+def open_tab(workspace: str, cwd: str = '', label: str = '', source: 'int | Source' = ENV) -> dict:
+    """A new tab in an open Herdr workspace (in `cwd`, when that folder exists where Herdr runs): {pane_id, cwd} of its shell."""
     if not WORKSPACE_ID.match(workspace):
         raise ValueError('Not a Herdr workspace id.')
     src = get_source(source)
     if src.kind == 'machine':
-        made = _remote_open(src, {'cwd': cwd, 'label': label[:60], 'workspace': workspace}, env)
+        made = _remote(src, 'POST', 'agents/workspace', {'cwd': cwd, 'label': label[:60], 'workspace': workspace})
         if not made.get('tab'):
             raise RuntimeError(f'The Marumado on {src.name} is too old to open tabs in a workspace: update it.')
         return {'pane_id': made['pane_id'], 'cwd': made.get('cwd') or ''}
-    made = _run(src, 'tab', 'create', '--workspace', workspace, *(['--cwd', cwd] if cwd else []), *(['--label', label[:60]] if label else []),
-                *_env_args(env), '--no-focus')
+    made = _run(src, 'tab', 'create', '--workspace', workspace, *(['--cwd', cwd] if cwd else []), *(['--label', label[:60]] if label else []), '--no-focus')
     pane = made['root_pane']
     return {'pane_id': pane['pane_id'], 'cwd': pane.get('cwd') or ''}
 
@@ -753,15 +732,14 @@ def close_workspace(workspace: str, group: bool = False, source: 'int | Source' 
         raise
 
 
-def open_worktree(cwd: str, branch: str, label: str = '', source: 'int | Source' = ENV, env: dict[str, str] | None = None) -> dict:
+def open_worktree(cwd: str, branch: str, label: str = '', source: 'int | Source' = ENV) -> dict:
     """A new git worktree of the repository at `cwd` on a new `branch`, opened as its own Herdr workspace:
-    {pane_id, cwd} of its shell, cwd being the worktree's folder. For a step that runs beside others.
-    `env`: variables its shell starts with."""
+    {pane_id, cwd} of its shell, cwd being the worktree's folder. For a step that runs beside others."""
     if not BRANCH.match(branch):
         raise ValueError('Not a branch name Marumado makes.')
     src = get_source(source)
     if src.kind == 'machine':
-        made = _remote_open(src, {'cwd': cwd, 'label': label[:60], 'branch': branch}, env)
+        made = _remote(src, 'POST', 'agents/workspace', {'cwd': cwd, 'label': label[:60], 'branch': branch})
         if not made.get('worktree'):
             raise RuntimeError(f'The Marumado on {src.name} is too old for worktrees: update it.')
         return {'pane_id': made['pane_id'], 'cwd': made.get('cwd') or ''}
@@ -770,16 +748,7 @@ def open_worktree(cwd: str, branch: str, label: str = '', source: 'int | Source'
     pane = next((p for p in _run(src, 'pane', 'list')['panes'] if p.get('workspace_id') == workspace), None)
     if pane is None:
         raise RuntimeError(f'Herdr made the worktree for {branch} but opened no shell in it.')
-    path = made['worktree'].get('path') or pane.get('cwd') or ''
-    if env:
-        # `worktree create` takes no environment: a tab that has it replaces the shell it opened.
-        tab = open_tab(workspace, path, '', src, env)
-        try:
-            close(pane['pane_id'], src)
-        except (RuntimeError, ValueError):
-            pass
-        return {'pane_id': tab['pane_id'], 'cwd': path or tab['cwd']}
-    return {'pane_id': pane['pane_id'], 'cwd': path}
+    return {'pane_id': pane['pane_id'], 'cwd': made['worktree'].get('path') or pane.get('cwd') or ''}
 
 
 def worktrees(cwd: str, source: 'int | Source' = ENV) -> list[dict]:
@@ -798,10 +767,9 @@ def remove_worktree(workspace: str, force: bool = False, source: 'int | Source' 
     _run(get_source(source), 'worktree', 'remove', '--workspace', workspace, *(['--force'] if force else []), text=True)
 
 
-def launch_agent(name: str, kind: str, pane_id: str, source: 'int | Source' = ENV, args: list[str] | tuple[str, ...] = ()) -> bool:
-    """Start a `kind` agent named `name` in the shell in `pane_id`, with `args` after its command (they show on screen).
-    True when it is ready for input already; False when it is still starting (or stopped on a startup question): Herdr
-    carries on without us."""
+def launch_agent(name: str, kind: str, pane_id: str, source: 'int | Source' = ENV) -> bool:
+    """Start a `kind` agent named `name` in the shell in `pane_id`. True when it is ready for input already;
+    False when it is still starting (or stopped on a startup question): Herdr carries on without us."""
     src = get_source(source)
     if kind not in AGENT_KINDS:
         raise ValueError('Herdr cannot start that kind of agent.')
@@ -810,14 +778,10 @@ def launch_agent(name: str, kind: str, pane_id: str, source: 'int | Source' = EN
     if not PANE_ID.match(pane_id):
         raise ValueError('Not a Herdr pane id.')
     if src.kind == 'machine':
-        res = _remote(src, 'POST', f'agents/{pane_id}/launch', {'name': name, 'kind': kind, **({'args': list(args)} if args else {})},
-                      timeout=LAUNCH_WAIT + 20)
-        if args and not res.get('args'):
-            raise RuntimeError(f'The Marumado on {src.name} is too old for model APIs: update it.')
-        return bool(res['ready'])
+        return bool(_remote(src, 'POST', f'agents/{pane_id}/launch', {'name': name, 'kind': kind}, timeout=LAUNCH_WAIT + 20)['ready'])
     try:
         _run(src, 'agent', 'start', name, '--kind', kind, '--pane', pane_id, '--timeout', str(LAUNCH_WAIT * 1000),
-             *(['--', *args] if args else []), timeout=LAUNCH_WAIT + 10)
+             timeout=LAUNCH_WAIT + 10)
     except RuntimeError as exc:
         message = str(exc).lower()
         if 'not ready' in message or 'not_ready' in message or 'timed out' in message or 'did not answer' in message:
@@ -839,18 +803,15 @@ def free_name(base: str, source: 'int | Source' = ENV) -> str:
     return name
 
 
-def start_agent(kind: str, cwd: str = '', label: str = '', source: 'int | Source' = ENV, workspace: str = '', api=None) -> dict:
+def start_agent(kind: str, cwd: str = '', label: str = '', source: 'int | Source' = ENV, workspace: str = '') -> dict:
     """Open a workspace in `cwd` (or a tab in `workspace`, an open one) and start a `kind` agent there, named after
-    `label`, pointed at the model API `api` if given (a ModelApi). Answers once it is open ({pane_id, cwd}); the agent
-    keeps starting in Herdr on a thread, so the browser can watch it start."""
-    from . import modelapis
+    `label`. Answers once it is open ({pane_id, cwd}); the agent keeps starting in Herdr on a thread, so the browser
+    can watch it start."""
     src = get_source(source)
     if kind not in AGENT_KINDS:
         raise ValueError('Herdr cannot start that kind of agent.')
-    modelapis.check(kind, api)
-    env, args = modelapis.env_for(kind, api), modelapis.args_for(kind, api)
     name = free_name(label or kind, src)
-    opened = open_tab(workspace, cwd, label, src, env) if workspace else open_workspace(cwd, label, src, env)
+    opened = open_tab(workspace, cwd, label, src) if workspace else open_workspace(cwd, label, src)
     # Herdr opens a folder it can't find in its home folder, without a word; an agent there is no use to anyone.
     if cwd and opened['cwd'] and opened['cwd'].rstrip('/') != cwd.rstrip('/'):
         try:
@@ -862,7 +823,7 @@ def start_agent(kind: str, cwd: str = '', label: str = '', source: 'int | Source
 
     def launch():
         try:
-            launch_agent(name, kind, opened['pane_id'], src, args)
+            launch_agent(name, kind, opened['pane_id'], src)
         except (RuntimeError, ValueError) as exc:
             log.warning('starting %s in %s %s failed: %s', kind, opened['pane_id'], src.where(), exc)
 

@@ -2,8 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 import { createPortal } from 'react-dom'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { Icon } from '../components/Icon'
-import { ModelApiPick } from '../components/ModelApiPick'
-import { agentHref, agentKey, apisFor, parseAgentRef, preferredApi, sourceLabel, usableApi } from '../lib/agents'
+import { agentHref, agentKey, parseAgentRef, sourceLabel } from '../lib/agents'
 import { api } from '../lib/api'
 import { ago } from '../lib/format'
 import { useHub } from '../lib/hub'
@@ -962,9 +961,6 @@ function useAgentPick(project: Project | undefined) {
   const places = startPlaces(project, agents)
   const [how, setHow] = useState<'new' | 'open'>('new')
   const [kind, setKind] = useState(agents?.kinds?.[0] ?? 'claude')
-  // undefined: the model API last picked for this kind
-  const [apiPick, setApiPick] = useState<number | null | undefined>(undefined)
-  const modelApi = apiPick === undefined ? preferredApi(agents, kind) : usableApi(agents, kind, apiPick)
   const [place, setPlace] = useState<number | null>(null)
   const [pane, setPane] = useState('')
   // `pane` is `<source>/<pane id>`: the same pane id can be open in two sources.
@@ -976,7 +972,7 @@ function useAgentPick(project: Project | undefined) {
 
   const body = () => {
     const picked = parseAgentRef(chosenPane)
-    return how === 'new' ? { kind, source: chosenPlace, api: modelApi } : { pane_id: picked?.pane ?? '', source: picked?.source ?? 0 }
+    return how === 'new' ? { kind, source: chosenPlace } : { pane_id: picked?.pane ?? '', source: picked?.source ?? 0 }
   }
 
   const fields: ReactNode = !agents ? null : !usable ? (
@@ -1001,14 +997,7 @@ function useAgentPick(project: Project | undefined) {
           <p className="plan__setup tdetail__sentence">
             <label>
               Start a new{' '}
-              <select
-                className="plan__inline"
-                value={kind}
-                onChange={(e) => {
-                  setKind(e.target.value)
-                  setApiPick(undefined)
-                }}
-              >
+              <select className="plan__inline" value={kind} onChange={(e) => setKind(e.target.value)}>
                 {(agents.kinds ?? ['claude']).map((k) => (
                   <option key={k} value={k}>
                     {k}
@@ -1016,11 +1005,6 @@ function useAgentPick(project: Project | undefined) {
                 ))}
               </select>
             </label>
-            {apisFor(agents, kind).length > 0 && (
-              <label>
-                using <ModelApiPick className="plan__inline" kind={kind} value={modelApi} onChange={setApiPick} />
-              </label>
-            )}
             {places.length > 1 ? (
               <label>
                 on{' '}

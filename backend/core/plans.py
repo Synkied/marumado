@@ -101,7 +101,7 @@ def queued_for_agents() -> dict[tuple[int, str], list[Task]]:
 
 def advance() -> None:
     """Start every step whose turn has come, in every running plan."""
-    plans = list(Plan.objects.filter(running=True, steps__state=Task.QUEUED).distinct().select_related('project', 'api'))
+    plans = list(Plan.objects.filter(running=True, steps__state=Task.QUEUED).distinct().select_related('project'))
     if not plans:
         return
     listed = herdr.agents()
@@ -161,7 +161,7 @@ def _try(plan: Plan, step: Task, row: list[Task], layout: list[list[Task]], agen
                 return
             if len(row) > 1 and _has_repo(step, plan.source):
                 worktree = branch_for(step)
-            tasks.assign(step, kind=plan.kind, source=plan.source, worktree=worktree, api=plan.api)
+            tasks.assign(step, kind=plan.kind, source=plan.source, worktree=worktree)
     except (ValueError, RuntimeError) as exc:
         _fail(step, f"Couldn't start it: {exc}")
 

@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Icon } from '../components/Icon'
-import { ModelApiPick } from '../components/ModelApiPick'
-import { agentHref, apisFor, preferredApi, preferredKind, sourcesOf, startAgent, usableApi, useWorkspace, workspaceIn, workspaceLabel } from '../lib/agents'
+import { agentHref, preferredKind, sourcesOf, startAgent, useWorkspace, workspaceIn, workspaceLabel } from '../lib/agents'
 import { api } from '../lib/api'
 import { useHub } from '../lib/hub'
 import { go } from '../lib/route'
@@ -16,16 +15,12 @@ export function StartAgent({ project }: { project: Project }) {
   const { agents, refreshAgents, refreshProjects } = useHub()
   const places = startPlaces(project, agents)
   const [kind, setKind] = useState(() => preferredKind(agents?.kinds))
-  // undefined: the model API last picked for this kind
-  const [apiPick, setApiPick] = useState<number | null | undefined>(undefined)
   const [place, setPlace] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   useWorkspace() // follows the pick on the Agents page
   if (!agents?.available || agents.terminal !== 'control' || !places.length) return null
   const chosen = places.find((s) => s.id === place) ?? places[0]
-  const modelApi = apiPick === undefined ? preferredApi(agents, kind) : usableApi(agents, kind, apiPick)
-  const apiName = apisFor(agents, kind).find((a) => a.id === modelApi)?.name
   const workspace = workspaceIn(agents, chosen.id)
   const preferred = defaultSource(project)
   const isDefault = chosen.id === project.agent_source
@@ -46,7 +41,7 @@ export function StartAgent({ project }: { project: Project }) {
     setBusy(true)
     setError('')
     try {
-      const made = await startAgent(project.id, kind, chosen.id, workspace?.id, modelApi)
+      const made = await startAgent(project.id, kind, chosen.id, workspace?.id)
       await refreshAgents()
       go(agentHref(made))
     } catch (err) {
@@ -61,35 +56,20 @@ export function StartAgent({ project }: { project: Project }) {
         type="button"
         onClick={start}
         disabled={busy}
-        title={`${workspace ? `In a new tab of the workspace ${workspaceLabel(workspace)}, picked on the Agents page` : 'In a new Herdr workspace'}${apiName ? `, using ${apiName}` : ''}`}
+        title={workspace ? `In a new tab of the workspace ${workspaceLabel(workspace)}, picked on the Agents page` : 'In a new Herdr workspace'}
       >
         <Icon name="agent" size={16} /> {busy ? 'Starting…' : `Start ${kind}`}
       </button>
       <label className="sr-only" htmlFor={`kind-${project.id}`}>
         Kind of agent
       </label>
-      <select
-        id={`kind-${project.id}`}
-        className="start-agent__pick"
-        value={kind}
-        onChange={(e) => {
-          setKind(e.target.value)
-          setApiPick(undefined)
-        }}
-        disabled={busy}
-      >
+      <select id={`kind-${project.id}`} className="start-agent__pick" value={kind} onChange={(e) => setKind(e.target.value)} disabled={busy}>
         {(agents.kinds ?? ['claude']).map((k) => (
           <option key={k} value={k}>
             {k}
           </option>
         ))}
       </select>
-      {apisFor(agents, kind).length > 0 && (
-        <label className="sr-only" htmlFor={`api-${project.id}`}>
-          Model
-        </label>
-      )}
-      <ModelApiPick id={`api-${project.id}`} className="start-agent__pick" kind={kind} value={modelApi} onChange={setApiPick} disabled={busy} />
       {places.length > 1 && (
         <>
           <label className="sr-only" htmlFor={`where-${project.id}`}>

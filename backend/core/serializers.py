@@ -1,8 +1,8 @@
 from rest_framework import serializers
 
 from .discovery import SCANNED_FIELDS
-from . import herdr, machines, modelapis, tasks
-from .models import AgentSource, Machine, ModelApi, Plan, Project, Skill, Task, TaskEvent, UptimeCheck
+from . import herdr, machines, tasks
+from .models import AgentSource, Machine, Plan, Project, Skill, Task, TaskEvent, UptimeCheck
 
 
 class UptimeCheckSerializer(serializers.ModelSerializer):
@@ -97,42 +97,6 @@ class AgentSourceSerializer(serializers.ModelSerializer):
         return {**data, 'target': target}
 
 
-class ModelApiSerializer(serializers.ModelSerializer):
-    """The token is never sent back: `has_token` says whether there is one. Left out of a change, it is kept."""
-    has_token = serializers.SerializerMethodField()
-
-    class Meta:
-        model = ModelApi
-        fields = ['id', 'name', 'base_url', 'token', 'model', 'has_token']
-        extra_kwargs = {'token': {'write_only': True, 'required': False, 'allow_blank': True, 'trim_whitespace': True}}
-
-    def get_has_token(self, api):
-        return bool(api.token)
-
-    def validate_name(self, value):
-        value = value.strip()
-        if not value:
-            raise serializers.ValidationError('Give it a name.')
-        return value
-
-    def validate_base_url(self, value):
-        try:
-            return modelapis.clean_url(value)
-        except ValueError as exc:
-            raise serializers.ValidationError(str(exc))
-
-    def validate_token(self, value):
-        if modelapis.CONTROL.search(value) or ' ' in value:
-            raise serializers.ValidationError('A token is one word, without spaces.')
-        return value
-
-    def validate_model(self, value):
-        value = value.strip()
-        if value and not modelapis.MODEL.match(value):
-            raise serializers.ValidationError('Use the model name the server lists, like qwen3-coder:30b or gpt-5.')
-        return value
-
-
 class MachineSerializer(serializers.ModelSerializer):
     class Meta:
         model = Machine
@@ -191,7 +155,7 @@ class PlanSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Plan
-        fields = ['id', 'title', 'project', 'project_name', 'kind', 'source', 'api', 'running', 'start_at', 'pane_id', 'pane_source', 'archived_at', 'created_at',
+        fields = ['id', 'title', 'project', 'project_name', 'kind', 'source', 'running', 'start_at', 'pane_id', 'pane_source', 'archived_at', 'created_at',
                   'updated_at', 'steps', 'asking', 'usage', 'check_command', 'check_fixes']
         read_only_fields = ['running', 'pane_id', 'pane_source', 'archived_at', 'created_at', 'updated_at', 'steps', 'asking', 'usage']
 
@@ -224,13 +188,6 @@ class PlanSerializer(serializers.ModelSerializer):
         if value not in herdr.AGENT_KINDS:
             raise serializers.ValidationError('Herdr cannot start that kind of agent.')
         return value
-
-    def validate(self, attrs):
-        try:
-            modelapis.check(attrs.get('kind', getattr(self.instance, 'kind', 'claude')), attrs.get('api', getattr(self.instance, 'api', None)))
-        except ValueError as exc:
-            raise serializers.ValidationError({'api': str(exc)})
-        return attrs
 
     def validate_source(self, value):
         try:

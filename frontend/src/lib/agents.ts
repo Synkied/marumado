@@ -118,39 +118,13 @@ export function preferredKind(kinds?: string[]): string {
   return all.includes(kind) ? kind : all[0] ?? 'claude'
 }
 
-/** The model APIs a new `kind` agent can be pointed at: [] when that kind can't be, or none were added. */
-export const apisFor = (agents: Agents | undefined, kind: string) => ((agents?.api_kinds ?? []).includes(kind) ? (agents?.apis ?? []) : [])
-
-/** `id` while it is a model API a new `kind` agent can use; null (its own login) otherwise. */
-export const usableApi = (agents: Agents | undefined, kind: string, id: number | null | undefined) =>
-  id != null && apisFor(agents, kind).some((a) => a.id === id) ? id : null
-
-const apiKey = (kind: string) => `marumado.agent-api.${kind}`
-
-/** The model API last picked for a new `kind` agent from this browser, while it is still there (null: its own login). */
-export function preferredApi(agents: Agents | undefined, kind: string): number | null {
-  try {
-    return usableApi(agents, kind, Number(localStorage.getItem(apiKey(kind))) || null)
-  } catch {
-    return null
-  }
-}
-
-/** Start a `kind` agent in the project's folder in `source`, pointed at the model API `modelApi` if given, and remember
-    both. Resolves once it is open: in a new tab of `workspace`, or in a workspace of its own. */
-export async function startAgent(
-  project: number | null,
-  kind: string,
-  source: number,
-  workspace?: string,
-  modelApi: number | null = null,
-): Promise<{ pane_id: string; source: number }> {
+/** Start a `kind` agent in the project's folder in `source`, and remember the kind. Resolves once it is open: in a new
+    tab of `workspace`, or in a workspace of its own. */
+export async function startAgent(project: number | null, kind: string, source: number, workspace?: string): Promise<{ pane_id: string; source: number }> {
   try {
     localStorage.setItem(KIND_KEY, kind)
-    if (modelApi) localStorage.setItem(apiKey(kind), String(modelApi))
-    else localStorage.removeItem(apiKey(kind))
   } catch {
     /* remembered for this visit only */
   }
-  return api('agents/start', { method: 'POST', json: { project, kind, source, ...(workspace ? { workspace } : {}), ...(modelApi ? { api: modelApi } : {}) } })
+  return api('agents/start', { method: 'POST', json: { project, kind, source, ...(workspace ? { workspace } : {}) } })
 }

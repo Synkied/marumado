@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 
 from django.db import close_old_connections, transaction
 
-from . import discovery, herdr, modelapis, places, transcripts
+from . import discovery, herdr, places, transcripts
 from .models import Task, TaskEvent
 
 log = logging.getLogger(__name__)
@@ -136,9 +136,9 @@ def _unique_name(task: Task, taken: set[str]) -> str:
     return name
 
 
-def assign(task: Task, pane_id: str = '', kind: str = '', source: int = herdr.ENV, worktree: str = '', api=None) -> None:
+def assign(task: Task, pane_id: str = '', kind: str = '', source: int = herdr.ENV, worktree: str = '') -> None:
     """Hand the task to the agent in `pane_id`, or to a new `kind` agent started in the project's folder,
-    in `source` (where Herdr runs), pointed at the model API `api` if given (a ModelApi). `worktree`: the branch the agent works on; a new agent gets a git worktree of the
+    in `source` (where Herdr runs). `worktree`: the branch the agent works on; a new agent gets a git worktree of the
     project on that new branch (a plan's step beside others), an open one is already in it (the step above's).
     Checks what it can up front (raising ValueError), then does the slow part on a thread."""
     listed = herdr.agents()
@@ -158,14 +158,11 @@ def assign(task: Task, pane_id: str = '', kind: str = '', source: int = herdr.EN
             raise ValueError('That agent is busy with something else.')
     elif kind not in herdr.AGENT_KINDS:
         raise ValueError('Choose an agent to give it to.')
-    else:
-        modelapis.check(kind, api)
     if pane_id:
         task.agent_name, task.agent_kind, task.agent_cwd = agent['name'], agent['kind'], agent['cwd']
     else:
         task.agent_name, task.agent_kind = _unique_name(task, {a['name'] for a in mine if a['name']}), kind
     task.pane_id, task.agent_source = pane_id, source
-    task.agent_api = None if pane_id else api
     task.worktree = worktree
     task.state = Task.STARTING
     # Its state before the task, so only a change after the prompt counts.
@@ -181,8 +178,6 @@ def assign(task: Task, pane_id: str = '', kind: str = '', source: int = herdr.EN
     task.finished_at = None
     task.save()
     who = f"{task.agent_name or task.agent_kind} ({task.agent_kind})" if pane_id else f'a new {kind} agent'
-    if api is not None and not pane_id:
-        who += f' on the model API {api.name}'
     on = f" on {src['name']}" if len(listed['sources']) > 1 else ''
     event(task, 'assigned', f'Given to {who}{on}', data={'pane_id': pane_id, 'source': source, 'kind': task.agent_kind,
                                                           'name': task.agent_name, 'git_start': task.git_start})
@@ -255,14 +250,13 @@ def _start(task: Task) -> bool:
     False when it is still starting: watch() sends the task once it is (or asks you, if it stops on a question)."""
     cwd = folder_for(task.project, task.agent_source)
     label = task.project.name if task.project else task.title
-    env = modelapis.env_for(task.agent_kind, task.agent_api)
     if task.worktree:
         if not cwd:
             raise ValueError("A worktree needs the project's folder, and it has none where Herdr runs.")
-        opened = herdr.open_worktree(cwd, task.worktree, f'{label} · {task.worktree.rsplit("/", 1)[-1]}', task.agent_source, env)
+        opened = herdr.open_worktree(cwd, task.worktree, f'{label} · {task.worktree.rsplit("/", 1)[-1]}', task.agent_source)
         event(task, 'state', f'Made a git worktree on the branch {task.worktree}', state='starting')
     else:
-        opened = herdr.open_workspace(cwd, label, task.agent_source, env)
+        opened = herdr.open_workspace(cwd, label, task.agent_source)
     task.pane_id, task.agent_state, task.prompt_pending = opened['pane_id'], '', True
     task.agent_cwd = opened['cwd'] or cwd
     _save(task)
@@ -270,7 +264,7 @@ def _start(task: Task) -> bool:
     if not task.worktree and cwd and opened['cwd'] and opened['cwd'].rstrip('/') != cwd.rstrip('/'):
         event(task, 'error', f"{cwd} isn't on the machine Herdr runs on, so the agent starts in {where}")
     event(task, 'state', f'Opened a workspace in {where}, starting {task.agent_kind}', state='starting')
-    if not herdr.launch_agent(task.agent_name, task.agent_kind, task.pane_id, task.agent_source, modelapis.args_for(task.agent_kind, task.agent_api)):
+    if not herdr.launch_agent(task.agent_name, task.agent_kind, task.pane_id, task.agent_source):
         return False
     agent = next((a for a in herdr.agents()['agents'] if (a['source'], a['pane_id']) == (task.agent_source, task.pane_id)), None)
     if agent and agent['status'] == 'blocked':
@@ -285,7 +279,7 @@ def _handover(task_id: int, start: bool) -> None:
     """Start the agent if `start`, then send it the task (now, or once watch() sees it ready)."""
     close_old_connections()
     try:
-        task = Task.objects.select_related('project', 'agent_api').get(pk=task_id)
+        task = Task.objects.select_related('project').get(pk=task_id)
         if start and not _start(task):
             return
         try:
