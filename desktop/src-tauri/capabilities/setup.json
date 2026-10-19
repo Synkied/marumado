@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "setup",
+  "description": "The bundled first-run page: runs Marumado here, or asks for another one's address and token.",
+  "windows": ["main"],
+  "permissions": ["allow-current", "allow-connect", "allow-host", "allow-pick-folders"]
+}
