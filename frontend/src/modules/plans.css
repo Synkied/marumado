@@ -946,6 +946,9 @@
   color: var(--ink);
   box-shadow: var(--shadow-float);
   overflow: hidden;
+  /* The modal is body-grey, the well's own colour, so its fields would vanish into it (above all under data-flat,
+     where a well is only a hairline): here the wells take the panel's colour instead. */
+  --well: var(--ground-raised);
 }
 
 .pmodal[open] {
