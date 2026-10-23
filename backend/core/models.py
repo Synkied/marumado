@@ -303,3 +303,26 @@ class TaskEvent(models.Model):
 
     class Meta:
         ordering = ['at', 'id']
+
+
+class Pin(models.Model):
+    """A message of an agent's session pinned in its Conversation view, to go back to: by its record (`path`, in its
+    agent source) and its step there (transcripts.Parser's `i`), with what it said, so the pin reads even while that
+    part of a long session isn't loaded."""
+
+    KINDS = [('you', 'You'), ('say', 'The agent')]
+
+    source = models.PositiveIntegerField(default=0)
+    path = models.CharField(max_length=500)
+    step = models.PositiveIntegerField()
+    kind = models.CharField(max_length=4, choices=KINDS)
+    t = models.BigIntegerField(default=0)  # when it was written (ms), as the step's
+    text = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['step']
+        constraints = [models.UniqueConstraint(fields=['source', 'path', 'step'], name='pin_once')]
+
+    def __str__(self):
+        return f'{self.path}#{self.step}'

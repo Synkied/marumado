@@ -7,9 +7,10 @@ import time
 from pathlib import Path
 from unittest import mock
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
+from rest_framework.test import APIClient
 
-from . import conversation, herdr, transcripts
+from . import conversation, herdr, monitor, transcripts
 from .models import Task
 
 PNG = base64.b64encode(b'\x89PNG\r\n\x1a\nfake').decode()
@@ -271,3 +272,37 @@ class ConversationTests(TestCase):
     def test_plain_terminal(self):
         self.panes = [{'pane_id': 'w1:p1', 'kind': 'terminal', 'cwd': self.cwd}]
         self.assertFalse(conversation.trace('w1:p1', 0)['found'])
+
+
+@override_settings(MARUMADO_TOKEN='test-token')
+@mock.patch.object(monitor, 'ensure_started', lambda: None)
+class PinTests(TestCase):
+    path = '/home/me/.claude/projects/-work-app/s1.jsonl'
+
+    def setUp(self):
+        self.api = APIClient()
+        self.api.credentials(HTTP_AUTHORIZATION='Bearer test-token')
+
+    def pins(self, path=path, source=0):
+        return self.api.get('/api/agents/pins', {'source': source, 'path': path}).json()['pins']
+
+    def pin(self, step, **body):
+        return self.api.post('/api/agents/pins?source=0', {'path': self.path, 'step': step, 'kind': 'say', 't': 1000, 'text': 'An answer', **body}, format='json')
+
+    def test_pin_and_unpin(self):
+        self.assertEqual(self.pin(7).status_code, 200)
+        self.pin(3, kind='you', text='A question')
+        self.pin(7, text='The answer, again')  # pinned once, its text kept up to date
+        self.assertEqual([(p['step'], p['kind'], p['text']) for p in self.pins()], [(3, 'you', 'A question'), (7, 'say', 'The answer, again')])
+        # Another session's are its own.
+        self.assertEqual(self.pins(path='/home/me/.claude/projects/-work-app/s2.jsonl'), [])
+        left = self.api.delete(f'/api/agents/pins?source=0&path={self.path}&step=3').json()['pins']
+        self.assertEqual([p['step'] for p in left], [7])
+
+    def test_only_messages_of_session_records(self):
+        self.assertEqual(self.api.get('/api/agents/pins', {'source': 0, 'path': '/etc/passwd'}).status_code, 400)
+        self.assertEqual(self.pin(1, path='/home/me/.claude/projects/../../x.jsonl').status_code, 400)
+        self.assertEqual(self.pin(1, kind='run').status_code, 400)
+        self.assertEqual(self.pin(-1).status_code, 400)
+        self.assertEqual(self.pin('one').status_code, 400)
+        self.assertEqual(self.pins(), [])

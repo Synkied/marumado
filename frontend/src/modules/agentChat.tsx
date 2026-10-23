@@ -27,9 +27,9 @@ function useConversation(paneId: string, source: number, every: number) {
   const have = useRef<{ path: string; steps: TraceStep[] }>({ path: '', steps: [] })
   const base = `agents/${encodeURIComponent(paneId)}/trace?${sourceQuery(source)}`
   const load = useCallback(
-    async (earlier = false): Promise<void> => {
+    async (earlier = false, to?: number): Promise<void> => {
       const mine = have.current
-      const from = earlier ? Math.max(0, (mine.steps[0]?.i ?? 0) - FIRST) : mine.steps.length ? mine.steps[mine.steps.length - 1].i + 1 : -FIRST
+      const from = earlier ? Math.max(0, to ?? (mine.steps[0]?.i ?? 0) - FIRST) : mine.steps.length ? mine.steps[mine.steps.length - 1].i + 1 : -FIRST
       try {
         const t = await api<AgentTrace>(`${base}&from=${from}`)
         if (t.found) {
@@ -59,7 +59,50 @@ function useConversation(paneId: string, source: number, every: number) {
   }, [load, every])
   const refresh = useCallback(() => load(), [load])
   const earlier = useCallback(() => load(true), [load])
-  return { ...state, refresh, earlier }
+  // Every step from `to` on: a pinned message from before the steps read so far.
+  const reach = useCallback((to: number) => load(true, to), [load])
+  return { ...state, refresh, earlier, reach }
+}
+
+/** A message pinned in the session, to go back to (GET agents/pins, core/views.py): which step, and what it said. */
+type Pin = { step: number; kind: 'you' | 'say'; t: number; text: string }
+const pinOf = (s: TraceStep): Pin => ({ step: s.i, kind: s.kind === 'you' ? 'you' : 'say', t: s.t, text: s.detail || s.title })
+
+function usePins(source: number, path: string) {
+  const [pins, setPins] = useState<Pin[]>([])
+  const [error, setError] = useState('')
+  const url = `agents/pins?${sourceQuery(source)}&path=${encodeURIComponent(path)}`
+  useEffect(() => {
+    setPins([])
+    setError('')
+    if (!path) return
+    let on = true
+    api<{ pins: Pin[] }>(url).then(
+      (r) => on && setPins(r.pins),
+      () => on && setPins([]), // none shown; pinning one says what went wrong
+    )
+    return () => {
+      on = false
+    }
+  }, [url, path])
+  // At once, then as kept: what it says back, or as it was if that failed.
+  const toggle = useCallback(
+    async (pin: Pin) => {
+      const was = pins
+      const on = was.some((p) => p.step === pin.step)
+      setPins(on ? was.filter((p) => p.step !== pin.step) : [...was, pin].sort((a, b) => a.step - b.step))
+      setError('')
+      try {
+        const r = on ? await api<{ pins: Pin[] }>(`${url}&step=${pin.step}`, { method: 'DELETE' }) : await api<{ pins: Pin[] }>(url, { method: 'POST', json: { path, ...pin } })
+        setPins(r.pins)
+      } catch (err) {
+        setPins(was)
+        setError(err instanceof Error ? err.message : `Couldn't ${on ? 'unpin' : 'pin'} it.`)
+      }
+    },
+    [pins, url, path],
+  )
+  return { pins, error, toggle }
 }
 
 /** How the conversation is set, remembered per browser. */
@@ -258,7 +301,7 @@ export const AgentConversation = memo(function AgentConversation({ agent, contro
   const paneId = agent.pane_id
   const working = agent.status === 'working'
   const asking = agent.status === 'blocked'
-  const { trace, steps, error, earlier, refresh } = useConversation(paneId, source, working ? 1500 : 4000)
+  const { trace, steps, error, earlier, reach, refresh } = useConversation(paneId, source, working ? 1500 : 4000)
   // A menu open in its terminal (/resume, /model…) is read often, as you move through it.
   const [menuUp, setMenuUp] = useState(false)
   const { screen, read } = useScreen(paneId, source, working ? 1200 : asking ? 2000 : menuUp ? 900 : 6000)
@@ -273,7 +316,8 @@ export const AgentConversation = memo(function AgentConversation({ agent, contro
   const scroller = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
   const [shown, setShown] = useState<Shown | null>(null)
-  const [gallery, setGallery] = useState(false)
+  // The panel over the conversation's right side: its images, or the messages pinned in it.
+  const [panel, setPanel] = useState<'images' | 'pins' | null>(null)
   const [pending, setPending] = useState<Pending[]>([])
   const attached = useAttached(paneId, source)
   const [dragging, setDragging] = useState(false)
@@ -333,6 +377,8 @@ export const AgentConversation = memo(function AgentConversation({ agent, contro
     }
     lastPath.current = path
   }, [path])
+  const pinned = usePins(source, path)
+  const isPinned = new Set(pinned.pins.map((p) => p.step))
   const live = { ...onScreen, text: onScreen.text || (held && Date.now() - held.at < 20000 ? held.text : '') }
   const sinceYou = lastYou ? steps.filter((s) => s.i > lastYou.i && s.kind === 'say') : steps.filter((s) => s.kind === 'say').slice(-3)
   const liveText = live.text && !sinceYou.some((s) => bare(s.detail).includes(bare(live.text).slice(0, 60))) ? live.text : ''
@@ -380,16 +426,42 @@ export const AgentConversation = memo(function AgentConversation({ agent, contro
     s.images?.length ? <Pictures ids={s.images} caption={caption} url={image} onOpen={setShown} onLoad={toEnd} /> : null
   // Every picture of the steps read so far, oldest first: the Images panel, and the lightbox's previous and next.
   const all = steps.flatMap((s) => (s.images || []).map((id): Picture => ({ id, step: s.i, t: s.t, src: image(id), caption: s.kind === 'you' ? 'You sent' : s.title })))
-  // Where a picture came, brought into view and marked a moment.
-  const goTo = (p: Picture) => {
-    const el = scroller.current?.querySelector<HTMLElement>(`[data-step="${p.step}"]`)
-    if (!el) return
+  // Where a picture or a pinned message came, brought into view and marked a moment: from before the steps read so
+  // far, once those are read too.
+  const [seek, setSeek] = useState<number | null>(null)
+  const show = useCallback((step: number) => {
+    const el = scroller.current?.querySelector<HTMLElement>(`[data-step="${step}"]`)
+    if (!el) return false
+    const box = scroller.current!
     follow.current = false
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    // Only the conversation moves (scrollIntoView would move the page around it too): the step in its middle.
+    const at = el.getBoundingClientRect().top - box.getBoundingClientRect().top
+    box.scrollBy({ top: at - Math.max(0, (box.clientHeight - el.offsetHeight) / 2), behavior: 'smooth' })
     el.classList.remove('chat__flash')
     void el.offsetWidth
     el.classList.add('chat__flash')
     window.setTimeout(() => el.classList.remove('chat__flash'), 1700)
+    return true
+  }, [])
+  const goTo = (step: number) => {
+    if (window.matchMedia('(max-width: 720px)').matches) setPanel(null)
+    if (show(step) || !steps.length || step >= steps[0].i) return
+    follow.current = false
+    setSeek(step)
+    reach(step)
+  }
+  // Read and still not there (a step no longer in its record): given up, so it doesn't jump there later.
+  useEffect(() => {
+    if (seek !== null && (show(seek) || (steps.length && steps[0].i <= seek))) setSeek(null)
+  }, [seek, steps, show])
+  const pin = (s: TraceStep) => {
+    const on = isPinned.has(s.i)
+    return (
+      <button type="button" className={`pin chat__pin-btn${on ? ' pin--on' : ''}`} onClick={() => pinned.toggle(pinOf(s))} aria-pressed={on} title={on ? 'Unpin it' : 'Pin it: in Pinned above, to go back to'}>
+        <Icon name="pin" size={14} />
+        <span className={on ? undefined : 'sr-only'}>{on ? 'Pinned' : 'Pin'}</span>
+      </button>
+    )
   }
 
   let body: ReactNode
@@ -407,19 +479,23 @@ export const AgentConversation = memo(function AgentConversation({ agent, contro
         <ol className="chat__list">
           {items.map((it) =>
             it.kind === 'you' ? (
-              <li key={it.step.i} className="chat__msg chat__msg--you" data-step={it.step.i}>
+              <li key={it.step.i} className={`chat__msg chat__msg--you${isPinned.has(it.step.i) ? ' chat__msg--pinned' : ''}`} data-step={it.step.i}>
                 <Secret label="Message">
                   <p className="chat__text">{it.step.detail || it.step.title}</p>
                 </Secret>
                 {pictures(it.step, 'You sent')}
-                <time className="chat__at">{clock(it.step.t)}</time>
+                <div className="chat__msg-foot">
+                  {path && pin(it.step)}
+                  <time className="chat__at">{clock(it.step.t)}</time>
+                </div>
               </li>
             ) : it.kind === 'say' ? (
-              <li key={it.step.i} className="chat__msg chat__msg--say" data-step={it.step.i}>
+              <li key={it.step.i} className={`chat__msg chat__msg--say${isPinned.has(it.step.i) ? ' chat__msg--pinned' : ''}`} data-step={it.step.i}>
                 <Secret label="Message">
                   <Markdown text={it.step.detail || it.step.title} />
                 </Secret>
                 {pictures(it.step)}
+                {path && <div className="chat__msg-foot">{pin(it.step)}</div>}
               </li>
             ) : it.kind === 'compact' ? (
               <li key={it.step.i} className="chat__compact">
@@ -473,28 +549,33 @@ export const AgentConversation = memo(function AgentConversation({ agent, contro
           </p>
         )}
         <div className="chat__tools">
+          {pinned.pins.length > 0 && (
+            <button type="button" className="btn btn--quiet chat__display-btn" aria-expanded={panel === 'pins'} onClick={() => setPanel(panel === 'pins' ? null : 'pins')}>
+              <Icon name="pin" size={16} /> Pinned <span className="chat__count">{pinned.pins.length}</span>
+            </button>
+          )}
           {all.length > 0 && (
-            <button type="button" className="btn btn--quiet chat__display-btn" aria-expanded={gallery} onClick={() => setGallery(!gallery)}>
+            <button type="button" className="btn btn--quiet chat__display-btn" aria-expanded={panel === 'images'} onClick={() => setPanel(panel === 'images' ? null : 'images')}>
               <Icon name="image" size={16} /> Images <span className="chat__count">{all.length}</span>
             </button>
           )}
           <DisplayMenu display={display} onChange={setDisplay} />
         </div>
       </div>
-      {gallery && all.length > 0 && (
-        <Gallery
-          pictures={all}
-          more={steps.length > 0 && steps[0].i > 0}
-          earlier={earlier}
-          onOpen={setShown}
-          onGo={(p) => {
-            if (window.matchMedia('(max-width: 720px)').matches) setGallery(false)
-            goTo(p)
+      {panel === 'images' && all.length > 0 && <Gallery pictures={all} more={steps.length > 0 && steps[0].i > 0} earlier={earlier} onOpen={setShown} onGo={(p) => goTo(p.step)} onClose={() => setPanel(null)} />}
+      {panel === 'pins' && pinned.pins.length > 0 && (
+        <Pinned
+          pins={pinned.pins}
+          onGo={(step) => {
+            setPanel(null) // your messages sit on the right, under it
+            goTo(step)
           }}
-          onClose={() => setGallery(false)}
+          onUnpin={pinned.toggle}
+          onClose={() => setPanel(null)}
         />
       )}
       {error && trace && <p className="notice signal-text">{error}</p>}
+      {pinned.error && <p className="notice signal-text">{pinned.error}</p>}
       <div className="chat__scroll" ref={scroller} onScroll={onScroll}>
         {body}
       </div>
@@ -1250,6 +1331,65 @@ function Gallery({ pictures, more, earlier, onOpen, onGo, onClose }: { pictures:
           Look in the steps before
         </button>
       )}
+    </aside>
+  )
+}
+
+/** When a pinned message was written: its time, and its day too when not today (a session can go on for days). */
+const when = (t: number) =>
+  new Date(t).toDateString() === new Date().toDateString() ? clock(t) : new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+
+/** The messages pinned in the session, in the order they came, each read right here (a long one folded to its first
+    lines): "Show where" puts the panel away and brings it into view in the conversation, its pin unpins it. Not
+    modal: Escape or Close puts it away. */
+function Pinned({ pins, onGo, onUnpin, onClose }: { pins: Pin[]; onGo: (step: number) => void; onUnpin: (p: Pin) => void; onClose: () => void }) {
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && !document.querySelector('dialog[open]') && onClose()
+    document.addEventListener('keydown', esc)
+    return () => document.removeEventListener('keydown', esc)
+  }, [onClose])
+  const [unfolded, setUnfolded] = useState<number[]>([])
+  return (
+    <aside className="chat__gallery chat__pins" aria-label="Pinned in this session">
+      <header className="chat__gallery-head">
+        <h3>
+          Pinned <span className="chat__count">{pins.length}</span>
+        </h3>
+        <button type="button" className="btn btn--quiet chat__gallery-close" onClick={onClose} aria-label="Close the pinned messages">
+          <Icon name="close" size={16} />
+        </button>
+      </header>
+      <Secret label="Pinned">
+        <ol className="chat__pins-list">
+          {pins.map((p) => {
+            const long = p.text.length > 360 || p.text.split('\n').length > 7
+            const all = unfolded.includes(p.step)
+            return (
+              <li key={p.step} className={`chat__pinned chat__pinned--${p.kind}`}>
+                <div className="chat__pinned-head">
+                  <span className="chat__pinned-who">{p.kind === 'you' ? 'You' : 'Agent'}</span>
+                  <time>{when(p.t)}</time>
+                  <button type="button" className="pin pin--on" onClick={() => onUnpin(p)} title="Unpin it">
+                    <Icon name="pin" size={14} />
+                    <span className="sr-only">Unpin it</span>
+                  </button>
+                </div>
+                <div className={`chat__pinned-body${long && !all ? ' is-folded' : ''}`}>{p.kind === 'you' ? <p className="chat__text">{p.text}</p> : <Markdown text={p.text} />}</div>
+                <div className="chat__pinned-actions">
+                  <button type="button" className="chat__pinned-link" onClick={() => onGo(p.step)}>
+                    Show where
+                  </button>
+                  {long && (
+                    <button type="button" className="chat__pinned-link" aria-expanded={all} onClick={() => setUnfolded(all ? unfolded.filter((s) => s !== p.step) : [...unfolded, p.step])}>
+                      {all ? 'Show less' : 'Read all'}
+                    </button>
+                  )}
+                </div>
+              </li>
+            )
+          })}
+        </ol>
+      </Secret>
     </aside>
   )
 }

@@ -14,7 +14,7 @@ import re
 import psutil
 
 from . import auth, checks, discovery, drops, files, herdr, land, machines, monitor, opener, overview, places, plans, pulse, tasks, transcripts
-from .models import AgentSource, Machine, Plan, Project, ScanRoot, Skill, Task, UptimeCheck
+from .models import AgentSource, Machine, Pin, Plan, Project, ScanRoot, Skill, Task, UptimeCheck
 from .serializers import AgentSourceSerializer, MachineSerializer, PlanSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
 
 RECENT_CHECKS = 30
@@ -1228,6 +1228,36 @@ def agent_conversation(request, pane_id: str):
         return Response({'found': False, 'reason': str(exc), 'steps': [], 'total': 0})
     except RuntimeError as exc:
         return Response({'detail': str(exc)}, status=502)
+
+
+MAX_PIN = 200_000  # characters of a pinned message kept
+
+
+@api_view(['GET', 'POST', 'DELETE'])
+def agent_pins(request):
+    """The messages pinned in a session, by its record (?source=&path=): GET lists them, POST {path, step, kind, t,
+    text} pins one, DELETE ?path=&step= unpins it."""
+    q = request.query_params
+    body = request.data if isinstance(request.data, dict) else {}
+    try:
+        src = _agent_source(request)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    path = str(body.get('path', '') if request.method == 'POST' else q.get('path', ''))
+    if not transcripts.RECORD.match(path) or '/../' in path:
+        return Response({'detail': 'Not a session record.'}, status=400)
+    mine = Pin.objects.filter(source=src.id, path=path)
+    try:
+        if request.method == 'POST':
+            step, t = int(body.get('step')), int(body.get('t') or 0)
+            if step < 0 or body.get('kind') not in ('you', 'say'):
+                raise ValueError
+            Pin.objects.update_or_create(source=src.id, path=path, step=step, defaults={'kind': body['kind'], 't': t, 'text': str(body.get('text', ''))[:MAX_PIN]})
+        elif request.method == 'DELETE':
+            mine.filter(step=int(q.get('step', ''))).delete()
+    except (TypeError, ValueError):
+        return Response({'detail': 'Not a step of that session.'}, status=400)
+    return Response({'pins': list(mine.values('step', 'kind', 't', 'text'))})
 
 
 @api_view(['GET'])

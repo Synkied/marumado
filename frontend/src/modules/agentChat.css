@@ -1023,6 +1023,142 @@ button.chat__mode:hover {
   margin: 0 var(--sp-6) var(--sp-6);
 }
 
+/* Under a message: its pin (shown on hover, or always once pinned), and the time of yours. */
+.chat__msg-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+
+.chat__msg--say .chat__msg-foot {
+  justify-content: flex-start;
+}
+
+.chat__msg-foot .chat__at {
+  margin-top: 0;
+}
+
+/* Over the shared .pin (app.css, loaded after): a label beside the icon, where the foot puts it. */
+.chat__msg-foot .chat__pin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-left: 0;
+  padding: var(--sp-1) var(--sp-2);
+  font: inherit;
+  font-size: calc(var(--chat-small) * 0.9);
+  cursor: pointer;
+}
+
+.chat__msg:hover .pin,
+.chat__msg:focus-within .pin {
+  opacity: 1;
+}
+
+/* A pinned message stands out as you scroll past it: its bubble ringed, or a rule down the side of a reply. */
+.chat__msg--you.chat__msg--pinned {
+  border-color: var(--mod, var(--ink-3));
+}
+
+.chat__msg--say.chat__msg--pinned {
+  /* The rule sits in the gutter: the reply's text stays where it was. */
+  margin-left: calc(-1 * var(--sp-5) - 2px);
+  padding-left: var(--sp-5);
+  border-left: 2px solid var(--mod, var(--ink-3));
+}
+
+.chat__msg--say.chat__msg--pinned.chat__flash {
+  border-radius: 0;
+}
+
+/* The pinned messages, in the Images panel's place: each read in full there, or its first lines. */
+.chat__pins {
+  width: min(460px, calc(100% - 2 * var(--sp-2)));
+}
+
+.chat__pins-list {
+  display: grid;
+  gap: var(--sp-4);
+  margin: 0;
+  padding: var(--sp-2) var(--sp-6) var(--sp-6);
+  list-style: none;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.chat__pinned {
+  display: grid;
+  gap: var(--sp-2);
+  min-width: 0;
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-lg);
+}
+
+.chat__pinned--you {
+  background: var(--well);
+}
+
+.chat__pinned-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+
+.chat__pinned-who {
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+
+.chat__pinned-head time {
+  font-variant-numeric: tabular-nums;
+}
+
+.chat__pinned-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chat__pinned-body.is-folded {
+  max-height: calc(var(--chat-text) * 1.55 * 7);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+
+.chat__pinned-body .md > :first-child {
+  margin-top: 0;
+}
+
+.chat__pinned-body .md > :last-child {
+  margin-bottom: 0;
+}
+
+.chat__pinned-actions {
+  display: flex;
+  gap: var(--sp-5);
+}
+
+.chat__pinned-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.chat__pinned-link:hover,
+.chat__pinned-link:focus-visible {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
 /* Where a picture came, marked a moment when the Images panel brings it into view. */
 @keyframes chat-flash {
   from { background: color-mix(in oklab, var(--ink-3) 22%, transparent); }
