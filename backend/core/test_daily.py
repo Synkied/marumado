@@ -87,3 +87,13 @@ class DailyUsageTests(TestCase):
         self.assertTrue(behind)
         self.assertEqual(sum(r[0] for m in ledger['files'][str(self.record)]['hours'].values() for r in m.values()), 1)
         self.assertEqual(self.totals()[('2026-10-28', 'demo', 'claude-opus-5-5')][:6], [2, 20, 0, 0, 200, 12])
+
+    def test_a_cloud_model_id_is_priced_and_a_day_read_before_it_had_a_price_is_priced_now(self):
+        self.record.write_text(_reply('m1', '2026-10-27T13:05:00Z', 5, model='eu.anthropic.claude-opus-4-8'))
+        cost = self.totals()[('2026-10-28', 'demo', 'eu.anthropic.claude-opus-4-8')][6]
+        self.assertAlmostEqual(cost, (10 * 5 + 100 * 0.5 + 5 * 25) / 1e6)
+        ledger = json.loads(self.ledger.read_text())
+        for models in ledger['files'][str(self.record)]['hours'].values():
+            models['eu.anthropic.claude-opus-4-8'][6] = 0.0
+        self.ledger.write_text(json.dumps(ledger))
+        self.assertAlmostEqual(self.totals()[('2026-10-28', 'demo', 'eu.anthropic.claude-opus-4-8')][6], cost)

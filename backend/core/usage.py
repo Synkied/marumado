@@ -35,6 +35,10 @@ FIELDS = ('input', 'cache_write', 'cache_write_1h', 'cache_read', 'output')
 
 
 def price(model: str) -> tuple[float, float, float] | None:
+    # Through a cloud the id carries its region and provider before it: eu.anthropic.claude-opus-4-8 (Bedrock),
+    # anthropic/claude-… (routers).
+    at = model.find('claude-')
+    model = model[at:] if at > 0 else model
     return next((PRICES[p] for p in _BY_LENGTH if model.startswith(p)), None)
 
 

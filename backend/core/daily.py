@@ -309,6 +309,8 @@ def days(src, out: dict, names: dict[str, str], ledger: dict, day) -> None:
             d = day(hour)
             for model, r in models.items():
                 if r[0]:
+                    if not r[6] and usage.price(model):  # read before its model had a price: priced now
+                        r = [*r[:6], usage.cost([0, model, *r[1:6], False]) or 0.0]
                     _add(out, (d, src.name, project), model, r)
     for rec in ledger.get('files', {}).values():
         put(rec.get('folder', ''), rec.get('hours') or {})
