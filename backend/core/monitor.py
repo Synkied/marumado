@@ -482,6 +482,16 @@ def _tasks_step(now: float):
     plans.archive_done()
 
 
+_usage_behind = False
+
+
+def _usage_step(now: float):
+    # What agents used, into each source's ledger (core/daily.py): often while a first run catches up, then now and then.
+    global _usage_behind
+    from . import daily
+    _usage_behind = daily.collect_all(now)
+
+
 def ensure_started():
     global _started
     if _started:
@@ -497,6 +507,7 @@ def ensure_started():
         ('uptime', lambda: settings.MARUMADO_UPTIME_SECONDS, lambda now: run_uptime_checks()),
         ('rescan', lambda: 3600, _rescan_step),
         ('tasks', lambda: 4, _tasks_step),
+        ('usage', lambda: 30 if _usage_behind else 600, _usage_step),
     ]
     from . import machines
     machines.sync()

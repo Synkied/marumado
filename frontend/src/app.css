@@ -11,6 +11,7 @@
 .mod-skills { --mod: var(--c-skills); }
 .mod-machines { --mod: var(--c-machines); }
 .mod-security { --mod: var(--c-security); }
+.mod-usage { --mod: var(--c-usage); }
 
 
 .app {

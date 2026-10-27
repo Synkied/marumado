@@ -355,6 +355,18 @@ export type Usage = {
   context: { t: number; tokens: number; window: number | null } | null
 }
 
+/** One day's use by one model, for one project on one source (core/daily.py): the day in the browser's time zone,
+    then calls, input, cache write 5m, cache write 1h, cache read, output, and the cost at API prices. */
+export type UsageRow = [day: string, source: string, project: string, model: string, calls: number, input: number, cacheWrite: number, cacheWrite1h: number, cacheRead: number, output: number, cost: number]
+
+/** GET usage: every day's tokens, kept in ~/.agents/marumado/usage.json where the agents run. `behind`: older
+    records are still being read; `priced`: the models with a known price. */
+export type UsageReport = {
+  rows: UsageRow[]
+  sources: { id: number; name: string; where: string; stored: string; ok: boolean; error: string; behind: boolean }[]
+  priced: string[]
+}
+
 /** GET tasks/<id>/work: the agent's work. `branch`: a step's own branch, against the branch the project is on (`into`);
     `folder`: what changed in the project's folder since it got the task. `reason`: why there is nothing to show. */
 export type TaskWork = {

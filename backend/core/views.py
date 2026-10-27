@@ -13,7 +13,7 @@ import re
 
 import psutil
 
-from . import auth, checks, discovery, drops, files, herdr, land, machines, monitor, opener, overview, places, plans, pulse, security, tasks, transcripts
+from . import auth, checks, daily, discovery, drops, files, herdr, land, machines, monitor, opener, overview, places, plans, pulse, security, tasks, transcripts
 from .models import AgentSource, Machine, Pin, Plan, Project, ScanRoot, Skill, Task, UptimeCheck
 from .serializers import AgentSourceSerializer, MachineSerializer, PlanSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
 
@@ -705,6 +705,14 @@ def ports(request):
 def security_audit(request):
     """This machine's security audit (core/security.py): findings, worst first, each with what to do about it."""
     return Response(security.audit(fresh=request.query_params.get('fresh') == '1'))
+
+
+@api_view(['GET'])
+def usage_view(request):
+    """Tokens every agent used, by day (in the time zone `?tz=`), source, project and model (core/daily.py), kept in ~/.agents where they run.
+    `?machines=0`: only this machine's own sources."""
+    q = request.query_params
+    return Response(daily.report(include_machines=q.get('machines') != '0', tz=q.get('tz', '')))
 
 
 @api_view(['POST', 'DELETE'])

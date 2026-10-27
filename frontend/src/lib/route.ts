@@ -6,7 +6,7 @@ export type Route =
   | { kind: 'alerts' }
   | { kind: 'module'; id: ModuleId; sub?: string }
 
-const MODULES: ModuleId[] = ['projects', 'machine', 'agents', 'tasks', 'urls', 'machines']
+const MODULES: ModuleId[] = ['projects', 'machine', 'agents', 'tasks', 'usage', 'urls', 'machines']
 
 /** Modules read as a tab of another module's page rather than as a page of their own. */
 export const VIEW_OF: Partial<Record<ModuleId, ModuleId>> = { momentum: 'projects', skills: 'projects', processes: 'machine', ports: 'machine', docker: 'machine', security: 'machine' }

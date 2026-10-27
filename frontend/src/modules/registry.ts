@@ -1,11 +1,12 @@
 import type { IconName } from '../components/Icon'
-import { ago } from '../lib/format'
+import { ago, dollars, tokens } from '../lib/format'
 import { downsample, niceMax } from '../lib/chart'
 import type { HistoryPoint } from '../lib/types'
 import type { ModuleId } from '../lib/hub'
 import { VIEW_OF } from '../lib/route'
 import { useHub } from '../lib/hub'
 import { useMachines } from '../lib/machines'
+import { usageDays } from '../lib/usageDays'
 
 /** One item on a lanes chart: on (running, working, up), done, off (idle, stopped), or fault (needs you). */
 export type Lane = 'on' | 'done' | 'off' | 'fault'
@@ -50,6 +51,7 @@ export const MODULES: ModuleMeta[] = [
   { id: 'security', label: 'Security', icon: 'shield', blurb: 'What is exposed or suspicious, and what to do about it' },
   { id: 'tasks', label: 'Tasks', icon: 'tasks', blurb: 'A to-do list you can hand to agents, and what they did' },
   { id: 'agents', label: 'Agents', icon: 'agent', blurb: 'Coding agents in Herdr and what they are doing' },
+  { id: 'usage', label: 'Usage', icon: 'usage', blurb: 'Tokens your agents used each day, and what they would cost' },
   { id: 'urls', label: 'URLs', icon: 'globe', blurb: 'Up or down, checked every minute' },
   { id: 'momentum', label: 'Momentum', icon: 'momentum', blurb: 'Which projects are moving, and what to push or park' },
   { id: 'skills', label: 'Skills', icon: 'skills', blurb: 'What you use, what is getting rusty, what to learn' },
@@ -90,7 +92,7 @@ function latencyTrace(series: (number | null)[][]): Chart {
 
 /** One dial's worth of state for every module. */
 export function useSummaries(): Record<ModuleId, Summary | null> {
-  const { system, history, projects, agents, tasks, alerts } = useHub()
+  const { system, history, projects, agents, tasks, alerts, usage } = useHub()
   const { machines } = useMachines()
   const faulty = new Set(alerts.map((a) => a.module))
 
@@ -203,6 +205,24 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
     }
   }
 
+  let usageSum: Summary | null = null
+  if (usage) {
+    // Today's tokens, against the busiest of the last 30 days; the last 14 days as ticks round the rim.
+    const days = usageDays(usage, 30).slice(0, 30)
+    const today = days[0]
+    const top = Math.max(...days.map((d) => d.total))
+    const priced = today.calls > 0 && today.cost > 0
+    usageSum = {
+      value: today.total ? tokens(today.total) : '0',
+      fraction: top ? today.total / top : 0,
+      caption: priced ? `${dollars(today.cost)} today` : today.calls ? `${today.calls} calls today` : 'none today',
+      fault: false,
+      quiet: !today.total,
+      subject: priced ? `${tokens(today.total)} tokens · ${dollars(today.cost)} at API prices` : undefined,
+      chart: { kind: 'ticks', values: days.slice(0, 14).reverse().map((d) => d.total), span: '14 d' },
+    }
+  }
+
   let machinesSum: Summary | null = null
   if (machines) {
     const up = machines.filter((m) => m.state === 'up').length
@@ -218,5 +238,5 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
     }
   }
 
-  return { tasks: tasksSum, machines: machinesSum, momentum: null, skills: null, agents: agentsSum, projects: projectsSum, machine: machineSum, urls: urlsSum, ports: null, docker: null, processes: null, security: null }
+  return { tasks: tasksSum, machines: machinesSum, momentum: null, skills: null, agents: agentsSum, projects: projectsSum, machine: machineSum, urls: urlsSum, ports: null, docker: null, processes: null, security: null, usage: usageSum }
 }

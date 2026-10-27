@@ -209,3 +209,17 @@ class HostPathTests(TestCase):
             self.assertEqual(security.host_path('/etc/ufw/ufw.conf'), Path('/proc/1/root/etc/ufw/ufw.conf'))
         with mock.patch.object(security, '_in_container', return_value=False):
             self.assertEqual(security.host_path('/etc/ufw/ufw.conf'), Path('/etc/ufw/ufw.conf'))
+
+    def test_container_reads_the_mounted_host_root_first(self):
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, 'etc/ufw').mkdir(parents=True)
+            with mock.patch.object(security, '_in_container', return_value=True), mock.patch.dict('os.environ', {'MARUMADO_HOST_ROOT': root}):
+                self.assertEqual(security.host_path('/etc/ufw/ufw.conf'), Path(root, 'etc/ufw/ufw.conf'))
+                self.assertEqual(security.host_path('/run/reboot-required'), Path('/proc/1/root/run/reboot-required'))
+
+    def test_newer_kernel_installed(self):
+        HostFiles(self, {'/usr/lib/modules/6.8.0-40-generic/x': '', '/usr/lib/modules/6.8.0-45-generic/x': ''})
+        with mock.patch.object(security.os, 'uname', return_value=mock.Mock(release='6.8.0-40-generic')):
+            self.assertEqual([f['id'] for f in security._newer_kernel()], ['upd:kernel'])
+        with mock.patch.object(security.os, 'uname', return_value=mock.Mock(release='6.8.0-45-generic')):
+            self.assertEqual(security._newer_kernel(), [])

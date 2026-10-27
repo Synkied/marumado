@@ -5,7 +5,7 @@ import { daysSince, PUSH_GRACE_DAYS } from './growth'
 import type { MachineId } from './api'
 import { useMachines } from './machines'
 import { moduleHref } from './route'
-import type { Agent, Agents, Docker, HistoryPoint, Machine, Plan, Port, Project, QueuedStep, SecurityAudit, Skill, System, Task } from './types'
+import type { Agent, Agents, Docker, HistoryPoint, Machine, Plan, Port, Project, QueuedStep, SecurityAudit, Skill, System, Task, UsageReport } from './types'
 import { usePoll } from './usePoll'
 import { activity, atWork } from './work'
 
@@ -20,7 +20,7 @@ export type Alert = {
   machine?: MachineId
 }
 
-export type ModuleId = 'projects' | 'machine' | 'urls' | 'ports' | 'docker' | 'processes' | 'agents' | 'tasks' | 'momentum' | 'skills' | 'machines' | 'security'
+export type ModuleId = 'projects' | 'machine' | 'urls' | 'ports' | 'docker' | 'processes' | 'agents' | 'tasks' | 'momentum' | 'skills' | 'machines' | 'security' | 'usage'
 
 /** The modules about a machine: they follow the machine picker. The others are about your work, and live on this
     Marumado (the hub you opened) whichever machine the picker shows. */
@@ -45,6 +45,9 @@ function needsYou(agents?: Agents, plans?: Plan[]): NeedsYou {
   return { waiting, asks, count: waiting.length + asks.length }
 }
 
+/** The browser's time zone, which days of usage are counted in. */
+export const TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+
 type Hub = {
   system?: System
   history: HistoryPoint[]
@@ -52,6 +55,7 @@ type Hub = {
   ports?: Port[]
   docker?: Docker
   security?: SecurityAudit
+  usage?: UsageReport
   agents?: Agents
   tasks?: Task[]
   plans?: Plan[]
@@ -62,6 +66,7 @@ type Hub = {
   refreshProjects: () => void
   refreshDocker: () => void
   refreshSecurity: () => Promise<void>
+  refreshUsage: () => Promise<void>
   refreshSkills: () => void
   refreshAgents: () => Promise<void>
   refreshTasks: () => void
@@ -202,6 +207,8 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const ports = usePoll<Port[]>('ports', 5000)
   const docker = usePoll<Docker>('docker', 5000)
   const security = usePoll<SecurityAudit>('security', 60000)
+  // Days are the browser's: the backend sums each UTC hour into the day it falls on here.
+  const usage = usePoll<UsageReport>(`usage?tz=${encodeURIComponent(TIME_ZONE)}`, 60000)
   // Agents keep being asked while the tab is hidden, so it can tell you when one needs you (lib/notify.ts).
   const agents = usePoll<Agents>('agents', 4000, true)
   const skills = usePoll<Skill[]>('skills', 30000)
@@ -251,6 +258,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       ports: ports.data,
       docker: docker.data,
       security: security.data,
+      usage: usage.data,
       agents: agents.data,
       tasks: tasks.data,
       plans: plans.data,
@@ -261,14 +269,15 @@ export function HubProvider({ children }: { children: ReactNode }) {
       refreshProjects: projects.refresh,
       refreshDocker: docker.refresh,
       refreshSecurity: security.refresh,
+      refreshUsage: usage.refresh,
       refreshSkills: skills.refresh,
       refreshAgents: agents.refresh,
       refreshTasks: tasks.refresh,
       refreshPlans: plans.refresh,
     }),
     [
-      system.data, history, projects.data, ports.data, docker.data, security.data, agents.data, tasks.data, plans.data, needs, skills.data, alerts, system.error, projects.error,
-      projects.refresh, docker.refresh, security.refresh, skills.refresh, agents.refresh, tasks.refresh, plans.refresh,
+      system.data, history, projects.data, ports.data, docker.data, security.data, usage.data, agents.data, tasks.data, plans.data, needs, skills.data, alerts, system.error, projects.error,
+      projects.refresh, docker.refresh, security.refresh, usage.refresh, skills.refresh, agents.refresh, tasks.refresh, plans.refresh,
     ],
   )
   return <HubContext.Provider value={value}>{children}</HubContext.Provider>

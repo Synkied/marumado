@@ -23,6 +23,7 @@ import { AgentSourcesSheet } from './agentSources'
 import { MachinesSheet } from './machines'
 import { ProcessesSheet } from './processes'
 import { SecuritySheet } from './security'
+import { UsageSheet } from './usage'
 import { Fleet } from './fleet'
 import { ProjectForm, ProjectsSheet } from './projects'
 import { SheetHead, ViewTabs } from './sheetHead'
@@ -53,6 +54,8 @@ export function SheetFor({ route }: { route: Route }) {
       return route.sub === 'new' ? <ProjectForm kind="link" onDone={() => go('#/m/urls')} /> : <UrlsSheet />
     case 'agents':
       return <AgentsSheet sub={route.sub} />
+    case 'usage':
+      return <UsageSheet />
     case 'tasks':
       return <TasksSheet sub={route.sub} key={route.sub ?? 'list'} />
     // Read as tabs of Projects and Machine (VIEW_OF): the route never lands on them.
@@ -1141,6 +1144,9 @@ function AgentsSheet({ sub }: { sub?: string }) {
       <div className="sheet">
         <SheetHead id="agents">
           {plansButton}
+          <a className="btn btn--quiet" href="#/m/usage">
+            Usage
+          </a>
           <a className="btn btn--quiet" href="#/m/agents/sources">
             {sourcesLabel}
           </a>
@@ -1302,6 +1308,10 @@ function AgentsSheet({ sub }: { sub?: string }) {
       <aside className="agents__side">
         <SheetHead id="agents">
           {plansButton}
+          <a className="tool" href="#/m/usage" title="Tokens your agents used each day">
+            <Icon name="usage" size={18} />
+            <span className="sr-only">Usage</span>
+          </a>
           <a className="tool" href="#/m/agents/sources" title="Where your agents run: add, edit or remove sources">
             <Icon name="sliders" size={18} />
             <span className="sr-only">{sourcesLabel}</span>

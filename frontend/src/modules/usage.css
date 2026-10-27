@@ -1,0 +1,290 @@
+/* ---------- usage: tokens each day, as a strip of columns in a well, then the day's models and projects ---------- */
+
+/* The days: one column a day on ruled space sunk into the panel, oldest at the left, today with a dot at its foot. */
+.ledger__chart {
+  margin: 0;
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.ledger__plot {
+  position: relative;
+  height: 180px;
+  padding: var(--sp-8) var(--sp-6) 0 var(--sp-22);
+  border-radius: var(--radius-lg);
+  background: var(--well);
+  box-shadow: var(--shadow-well);
+}
+
+/* The top rule and the quarter rule (the middle of a square-root scale), with their values in mono at the left. */
+.ledger__plot::before,
+.ledger__plot::after {
+  content: '';
+  position: absolute;
+  left: var(--sp-22);
+  right: var(--sp-6);
+  border-top: 1px solid var(--grid-major);
+}
+
+.ledger__plot::before {
+  top: var(--sp-8);
+}
+
+.ledger__plot::after {
+  top: calc(var(--sp-8) + (100% - var(--sp-8)) / 2);
+  border-top-color: var(--grid);
+}
+
+.ledger__axis {
+  position: absolute;
+  left: var(--sp-5);
+  translate: 0 -50%;
+  font-family: var(--f-mono);
+  font-size: var(--text-2xs);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger__axis--top {
+  top: var(--sp-8);
+}
+
+.ledger__axis--mid {
+  top: calc(var(--sp-8) + (100% - var(--sp-8)) / 2);
+}
+
+.ledger__cols {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 2px;
+  height: 100%;
+  align-items: end;
+}
+
+.ledger__col {
+  position: relative;
+  height: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  background: none;
+  display: flex;
+  align-items: flex-end;
+  cursor: pointer;
+}
+
+.ledger__col:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.ledger__col:focus-visible {
+  outline: 1px solid var(--ink-2);
+  outline-offset: 1px;
+}
+
+.ledger__fill {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  background: var(--mod);
+  opacity: 0.78;
+  transition: opacity var(--dur-quick) ease-out;
+}
+
+.ledger__col:hover .ledger__fill {
+  opacity: 1;
+}
+
+/* The picked day is the pressed key's graphite. */
+.ledger__col.is-picked .ledger__fill {
+  background: var(--solid);
+  opacity: 1;
+}
+
+.ledger__col.is-today::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: calc(-1 * var(--sp-4));
+  width: 5px;
+  height: 5px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: var(--ink);
+}
+
+.ledger__foot {
+  display: grid;
+  margin: 0;
+  padding: var(--sp-2) var(--sp-6) 0 var(--sp-22);
+  font-family: var(--f-mono);
+  font-size: var(--text-2xs);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* A label sits at its column's right edge, so the last one ("today") ends with the chart. */
+.ledger__foot > span {
+  justify-self: end;
+}
+
+/* ---------- the day's (or the span's) detail ---------- */
+
+.ledger__detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+.ledger__detail-head h3 {
+  margin: var(--sp-10) 0 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps-wide);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.ledger__split {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
+  gap: var(--sp-4);
+}
+
+.ledger__split > div {
+  padding: var(--sp-5) var(--sp-6);
+  border-radius: var(--radius-lg);
+  background: var(--well);
+}
+
+.ledger__split dt {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.ledger__split dd {
+  margin: var(--sp-2) 0 0;
+  font-family: var(--f-mono);
+  font-size: var(--text-2xl);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger__groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: var(--sp-4) var(--sp-14);
+}
+
+.ledger__group h4 {
+  margin: var(--sp-6) 0 var(--sp-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.ledger__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 7ch;
+  align-items: baseline;
+  gap: var(--sp-2) var(--sp-6);
+  padding: var(--sp-4) 0 var(--sp-5);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.ledger__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ledger__name.mono {
+  font-size: var(--text-md);
+}
+
+.ledger__item-bar {
+  grid-column: 1 / -1;
+}
+
+.ledger__num {
+  font-family: var(--f-mono);
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ledger__cost {
+  color: var(--ink-2);
+}
+
+.ledger__none,
+.ledger__note {
+  margin: 0;
+  max-width: 72ch;
+  color: var(--ink-2);
+}
+
+.ledger__note {
+  font-size: var(--text-md);
+}
+
+/* ---------- every day ---------- */
+
+.row.ledger__day {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(80px, 28%) 7ch 7ch;
+  align-items: center;
+  gap: var(--sp-7);
+  padding-inline: var(--sp-4);
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.ledger__day.is-picked {
+  background: var(--well);
+  border-radius: var(--radius-md, var(--radius-lg));
+}
+
+.ledger__day:focus-visible {
+  outline: 1px solid var(--ink-2);
+  outline-offset: -1px;
+}
+
+.ledger__day .row__sub {
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .ledger__plot {
+    height: 140px;
+  }
+
+  .row.ledger__day {
+    grid-template-columns: minmax(0, 1fr) 7ch 7ch;
+  }
+
+  .ledger__bar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ledger__fill {
+    transition: none;
+  }
+}

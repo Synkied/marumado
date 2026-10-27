@@ -65,11 +65,16 @@ def _in_container() -> bool:
 
 
 def host_path(path: str) -> Path:
-    """`path` on the host: through PID 1's root from inside the container, as is outside it. Never the container's
-    own file: when PID 1's root can't be read, nothing can, and the checks say so instead of auditing the image."""
-    if _in_container():
-        return Path('/proc/1/root') / path.lstrip('/')
-    return Path(path)
+    """`path` on the host. From inside the container: under MARUMADO_HOST_ROOT, where `make up` mounts the host's
+    /etc and a few more folders read-only, else through PID 1's root (which AppArmor usually forbids). Never the
+    container's own file: what can't be read from the host is reported unknown instead of auditing the image."""
+    if not _in_container():
+        return Path(path)
+    rel = path.lstrip('/')
+    root = os.environ.get('MARUMADO_HOST_ROOT', '')
+    if root and Path(root, rel.split('/')[0]).is_dir():
+        return Path(root, rel)
+    return Path('/proc/1/root', rel)
 
 
 def _read(path: str) -> str | None:
@@ -387,6 +392,8 @@ def check_updates() -> list[dict]:
             'Updates were installed that only take effect after a restart'
             + (f' ({", ".join(sorted(set(pkgs))[:6])}).' if pkgs else '.'),
             'Reboot when it suits you.', 'sudo reboot'))
+    else:
+        out += _newer_kernel()
     notice = _read('/var/lib/update-notifier/updates-available') or ''
     # Ubuntu's login notice: "2 of these updates are standard security updates." (older: "2 updates are security updates.")
     m = re.search(r'(\d+)(?: of these)? updates? (?:is|are) (?:a )?(?:standard )?security update', notice)
@@ -405,6 +412,29 @@ def check_updates() -> list[dict]:
                 'Turn it on: it installs security updates every day.',
                 'sudo apt install unattended-upgrades && sudo dpkg-reconfigure -plow unattended-upgrades'))
     return out
+
+
+def _kernel_key(release: str) -> tuple:
+    return tuple(int(n) for n in re.findall(r'\d+', release))
+
+
+def _newer_kernel() -> list[dict]:
+    """A kernel newer than the running one is installed: its fixes wait for a reboot. The container shares the
+    host's kernel, so the running one is ours."""
+    running = os.uname().release
+    for folder in ('/usr/lib/modules', '/lib/modules'):
+        try:
+            installed = [d.name for d in host_path(folder).iterdir() if d.is_dir()]
+        except OSError:
+            continue
+        newest = max(installed, key=_kernel_key, default='')
+        if newest and _kernel_key(newest) > _kernel_key(running):
+            return [_finding(
+                'upd:kernel', 'system', MEDIUM, 'A newer kernel waits for a reboot',
+                f'{newest} is installed, {running} is running: its fixes only apply once the machine restarts.',
+                'Reboot when it suits you.', 'sudo reboot')]
+        return []
+    return []
 
 
 def check_accounts() -> list[dict]:

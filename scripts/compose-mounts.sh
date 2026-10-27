@@ -87,5 +87,14 @@ mounted=$(printf '%s\n' "$mounts" | sed -n 's/^      - "\(.*\):.*:ro"$/\1/p' | p
       MARUMADO_SMOLVM_USER: \"$(id -u):$(id -g)\"
 "
   fi
+  # The security audit reads the host's settings (firewall, SSH, accounts, updates, installed kernels) under /host:
+  # read-only, and only what exists. MARUMADO_AUDIT_HOST=0 leaves them out (the audit then says what it can't see).
+  if [ "$(env_value MARUMADO_AUDIT_HOST)" != 0 ]; then
+    for d in /etc /var/lib/update-notifier /usr/lib/modules; do
+      if [ -d "$d" ]; then echo "      - \"$d:/host$d:ro\""; fi
+    done
+    environment="$environment      MARUMADO_HOST_ROOT: \"/host\"
+"
+  fi
   if [ -n "$environment" ]; then printf '    environment:\n%s' "$environment"; fi
 } > compose.override.yaml
