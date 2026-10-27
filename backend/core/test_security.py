@@ -201,3 +201,11 @@ class AuditApiTests(TestCase):
         data = self.api.delete('/api/security/accept?id=net:exposed:6379').json()
         self.assertIsNone(data['findings'][0]['accepted'])
         self.assertEqual(self.api.post('/api/security/accept', {}, format='json').status_code, 400)
+
+
+class HostPathTests(TestCase):
+    def test_container_never_reads_its_own_files_as_the_hosts(self):
+        with mock.patch.object(security, '_in_container', return_value=True):
+            self.assertEqual(security.host_path('/etc/ufw/ufw.conf'), Path('/proc/1/root/etc/ufw/ufw.conf'))
+        with mock.patch.object(security, '_in_container', return_value=False):
+            self.assertEqual(security.host_path('/etc/ufw/ufw.conf'), Path('/etc/ufw/ufw.conf'))

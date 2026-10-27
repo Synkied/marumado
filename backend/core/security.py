@@ -65,11 +65,10 @@ def _in_container() -> bool:
 
 
 def host_path(path: str) -> Path:
-    """`path` on the host: through PID 1's root from inside the container, as is outside it."""
+    """`path` on the host: through PID 1's root from inside the container, as is outside it. Never the container's
+    own file: when PID 1's root can't be read, nothing can, and the checks say so instead of auditing the image."""
     if _in_container():
-        root = Path('/proc/1/root')
-        if os.access(root, os.R_OK | os.X_OK):
-            return root / path.lstrip('/')
+        return Path('/proc/1/root') / path.lstrip('/')
     return Path(path)
 
 
@@ -522,7 +521,9 @@ def _unknowns() -> list[str]:
     out = []
     if _read('/etc/os-release') is None:
         out.append('The host’s files can’t be read from here, so SSH, updates, accounts and the firewall weren’t checked.'
-                   + (' Give the container SYS_PTRACE (compose.yaml has it) and run it as root.' if _in_container() else ''))
+                   + (' Marumado runs in a container and reads them through /proc/1/root, which needs SYS_PTRACE '
+                      '(compose.yaml has it) and a security profile (AppArmor, SELinux) that allows it.'
+                      if _in_container() else ''))
     if not monitor.snapshot('docker').get('available'):
         out.append('Docker isn’t reachable, so containers weren’t checked.')
     if any(r['pid'] is None for r in monitor.snapshot('ports')):
