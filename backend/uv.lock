@@ -233,7 +233,7 @@ wheels = [
 
 [[package]]
 name = "marumado-backend"
-version = "0.9.105"
+version = "0.9.106"
 source = { virtual = "." }
 dependencies = [
     { name = "a2wsgi" },
