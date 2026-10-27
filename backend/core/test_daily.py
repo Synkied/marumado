@@ -50,4 +50,22 @@ class DailyUsageTests(TestCase):
         self.assertEqual(self.totals(), rows)
         ledger = json.loads((self.home / '.agents' / 'marumado' / 'usage.json').read_text())
         self.assertEqual(ledger['files'], {})
-        self.assertIn('claude\t-projects-demo', ledger['gone'])
+        self.assertIn(str(self.record), ledger['gone'])
+
+    def test_a_record_the_listing_misses_for_a_while_is_not_counted_again(self):
+        self.record.write_text(_reply('m1', '2026-10-27T13:05:00Z', 5) + _reply('m2', '2026-10-27T14:00:00Z', 7))
+        rows = self.totals()
+        away = self.home / 'away.jsonl'
+        for _ in range(3):  # out of sight (unreadable, say), then back
+            self.record.rename(away)
+            self.assertEqual(self.totals(), rows)
+            away.rename(self.record)
+            self.assertEqual(self.totals(), rows)
+
+    def test_a_version_1_ledger_drops_its_summed_gone(self):
+        self.record.write_text(_reply('m1', '2026-10-27T13:05:00Z', 5))
+        ledger = self.home / '.agents' / 'marumado' / 'usage.json'
+        ledger.parent.mkdir(parents=True)
+        ledger.write_text(json.dumps({'version': 1, 'files': {}, 'gone': {'claude\t-projects-demo': {'2026-10-27T13': {'claude-opus-5-5': [9, 9, 0, 0, 9, 9, 1.0]}}}}))
+        self.assertEqual(self.totals()[('2026-10-28', 'demo', 'claude-opus-5-5')][:6], [1, 10, 0, 0, 100, 5])
+        self.assertEqual(json.loads(ledger.read_text())['version'], 2)

@@ -22,6 +22,7 @@ urlpatterns = [
     path('ports', views.ports),
     path('security', views.security_audit),
     path('usage', views.usage_view),
+    path('usage/check', views.usage_check_view),
     path('security/accept', views.security_accept),
     path('docker', views.docker),
     path('docker/<str:cid>/logs', views.docker_logs),

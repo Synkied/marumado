@@ -363,8 +363,40 @@ export type UsageRow = [day: string, source: string, project: string, model: str
     records are still being read; `priced`: the models with a known price. */
 export type UsageReport = {
   rows: UsageRow[]
-  sources: { id: number; name: string; where: string; stored: string; ok: boolean; error: string; behind: boolean }[]
+  sources: UsageSource[]
   priced: string[]
+}
+
+/** A source's ledger and how its collector is doing: records tracked, bytes read (`done`) of all there are (`size`),
+    and its last runs, newest first (`at` in epoch seconds, `took` seconds, `read` bytes, `calls` added). */
+export type UsageSource = {
+  id: number
+  name: string
+  where: string
+  stored: string
+  ok: boolean
+  error: string
+  behind: boolean
+  tracked?: number
+  done?: number
+  size?: number
+  runs?: { at: number; took: number; read: number; calls: number; records: number }[]
+}
+
+/** GET usage/check: where a day's tokens come from, per source: its records that used most that day, with what the
+    ledger holds and what reading the record again finds ([calls, tokens]; null when not read again), how many of
+    its calls are in another of those records too, and whether the record is still listed. */
+export type UsageCheck = {
+  day: string
+  sources: {
+    id: number
+    name: string
+    error: string
+    calls?: number
+    tokens?: number
+    count?: number
+    records: { path: string; kind: string; offset: number; ledger: [number, number]; again: [number, number] | null; shared: number; listed?: boolean }[]
+  }[]
 }
 
 /** GET tasks/<id>/work: the agent's work. `branch`: a step's own branch, against the branch the project is on (`into`);

@@ -708,11 +708,18 @@ def security_audit(request):
 
 
 @api_view(['GET'])
+def usage_check_view(request):
+    """Where a day's tokens come from (core/daily.py check): `?day=YYYY-MM-DD&tz=`."""
+    q = request.query_params
+    return Response(daily.check(q.get('day', ''), tz=q.get('tz', '')))
+
+
+@api_view(['GET'])
 def usage_view(request):
     """Tokens every agent used, by day (in the time zone `?tz=`), source, project and model (core/daily.py), kept in ~/.agents where they run.
     `?machines=0`: only this machine's own sources."""
     q = request.query_params
-    return Response(daily.report(include_machines=q.get('machines') != '0', tz=q.get('tz', '')))
+    return Response(daily.report(include_machines=q.get('machines') != '0', tz=q.get('tz', ''), fresh=q.get('fresh') == '1'))
 
 
 @api_view(['POST', 'DELETE'])

@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Meter } from '../components/Meter'
 import { niceMax } from '../lib/chart'
-import { dollars, tokens } from '../lib/format'
-import { useHub } from '../lib/hub'
+import { api } from '../lib/api'
+import { ago, bytes, dollars, tokens } from '../lib/format'
+import { TIME_ZONE, useHub } from '../lib/hub'
 import { Secret } from '../lib/streaming'
 import { dayLabel, shortDay, sumDays, usageDays, type Day, type Sum } from '../lib/usageDays'
 import { SheetHead } from './sheetHead'
+import type { UsageCheck, UsageSource } from '../lib/types'
 import './usage.css'
 
 const SPANS: [number, string][] = [
@@ -154,40 +156,7 @@ export function UsageSheet() {
         </section>
       )}
 
-      <section className="sheet__section ledger__kept">
-        <h3>Where it is kept</h3>
-        <ul className="list">
-          {usage.sources.map((s) => (
-            <li className="row" key={s.id}>
-              <span
-                className={`row__lamp${s.ok ? (s.behind ? '' : ' row__lamp--on') : ' row__lamp--fault'}`}
-                role="img"
-                aria-label={s.ok ? (s.behind ? 'catching up' : 'up to date') : 'unreadable'}
-              />
-              <span className="row__main">
-                {s.name}
-                <span className="row__sub">
-                  {s.ok ? (
-                    <>
-                      <Secret label="Path">
-                        <span className="mono">{s.stored}</span>
-                      </Secret>{' '}
-                      {s.where}
-                      {s.behind ? ', reading older records' : ''}
-                    </>
-                  ) : (
-                    <Secret label="Error">{s.error}</Secret>
-                  )}
-                </span>
-              </span>
-            </li>
-          ))}
-        </ul>
-        <p className="ledger__note">
-          Each source keeps its own ledger in ~/.agents, beside the agents' session records, so it is backed up with your agent setup and outlives the records
-          (Claude Code deletes its own after 30 days). Costs are at API prices; on a subscription nothing is billed per token.
-        </p>
-      </section>
+      <Collector sources={usage.sources} day={day?.day ?? all[0].day} />
     </div>
   )
 }
@@ -316,5 +285,156 @@ function Breakdown({ title, items, total, mono = false }: { title: string; items
         </button>
       )}
     </section>
+  )
+}
+
+/** The collector at work: each source's ledger, how much of its records it has read, its last runs (every 10 minutes,
+    more often while catching up, and whenever this page asks), and a check of where a day's tokens come from. */
+function Collector({ sources, day }: { sources: UsageSource[]; day: string }) {
+  const { refreshUsage } = useHub()
+  const [reading, setReading] = useState(false)
+  const [check, setCheck] = useState<{ day: string; data?: UsageCheck; error?: string } | null>(null)
+
+  const readNow = async () => {
+    setReading(true)
+    try {
+      await api(`usage?tz=${encodeURIComponent(TIME_ZONE)}&fresh=1`)
+      await refreshUsage()
+    } finally {
+      setReading(false)
+    }
+  }
+  const runCheck = async () => {
+    setCheck({ day })
+    try {
+      setCheck({ day, data: await api<UsageCheck>(`usage/check?day=${day}&tz=${encodeURIComponent(TIME_ZONE)}`) })
+    } catch (e) {
+      setCheck({ day, error: String(e) })
+    }
+  }
+
+  return (
+    <section className="sheet__section ledger__kept">
+      <div className="ledger__kept-head">
+        <h3>Collector</h3>
+        <button className="chip" type="button" onClick={readNow} disabled={reading}>
+          {reading ? 'Reading…' : 'Read now'}
+        </button>
+        <button className="chip" type="button" onClick={runCheck} disabled={!!check && !check.data && !check.error}>
+          Check {dayLabel(day).toLowerCase() === 'today' ? 'today' : dayLabel(day)}
+        </button>
+      </div>
+      <ul className="list">
+        {sources.map((s) => {
+          const last = s.runs?.[0]
+          return (
+            <li className="row ledger__source" key={s.id}>
+              <span
+                className={`row__lamp${s.ok ? (s.behind ? '' : ' row__lamp--on') : ' row__lamp--fault'}`}
+                role="img"
+                aria-label={s.ok ? (s.behind ? 'catching up' : 'up to date') : 'unreadable'}
+              />
+              <span className="row__main">
+                {s.name}
+                <span className="row__sub">
+                  {s.ok ? (
+                    <>
+                      <Secret label="Path">
+                        <span className="mono">{s.stored}</span>
+                      </Secret>{' '}
+                      {s.where}
+                    </>
+                  ) : (
+                    <Secret label="Error">{s.error}</Secret>
+                  )}
+                </span>
+                {s.ok && s.size ? (
+                  <span className="ledger__progress">
+                    <Meter percent={((s.done ?? 0) / s.size) * 100} label={`${s.name}: ${bytes(s.done)} of ${bytes(s.size)} read`} />
+                    <span className="mono">
+                      {s.tracked} records · {bytes(s.done)} of {bytes(s.size)} read{s.behind ? ', catching up' : ''}
+                    </span>
+                  </span>
+                ) : null}
+                {last && (
+                  <span className="ledger__runs mono">
+                    {s.runs!.slice(0, 4).map((r) => (
+                      <span key={r.at}>
+                        {ago(r.at)}: {r.records ? `${r.records} records, ${bytes(r.read)}, +${r.calls.toLocaleString()} calls` : 'nothing new'} in {r.took}s
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+      {check && <CheckResult check={check} />}
+      <p className="ledger__note">
+        Each source keeps its own ledger in ~/.agents, beside the agents' session records, so it is backed up with your agent setup and outlives the records
+        (Claude Code deletes its own after 30 days). Costs are at API prices; on a subscription nothing is billed per token.
+      </p>
+    </section>
+  )
+}
+
+/** A day's check: per source, the records that used most, the ledger's count against reading the record again. */
+function CheckResult({ check }: { check: { day: string; data?: UsageCheck; error?: string } }) {
+  if (check.error) return <p className="ledger__note">The check failed: {check.error}</p>
+  if (!check.data) return <p className="ledger__note">Reading the records of {dayLabel(check.day)} again…</p>
+  return (
+    <div className="ledger__check" aria-live="polite">
+      {check.data.sources.map((s) => (
+        <div key={s.id} className="ledger__check-source">
+          <p className="ledger__compare">
+            <strong>{s.name}</strong>
+            {s.error ? (
+              <> · {s.error}</>
+            ) : (
+              <>
+                {' '}
+                · {dayLabel(check.day)}: <span className="mono">{tokens(s.tokens ?? 0)}</span> tokens in{' '}
+                <span className="mono">{(s.calls ?? 0).toLocaleString()}</span> calls from {s.count ?? 0} records
+              </>
+            )}
+          </p>
+          {s.records.length > 0 && (
+            <table className="ledger__table">
+              <thead>
+                <tr>
+                  <th scope="col">Record</th>
+                  <th scope="col">In the ledger</th>
+                  <th scope="col">Read again</th>
+                  <th scope="col">In another record too</th>
+                </tr>
+              </thead>
+              <tbody>
+                {s.records.map((r) => {
+                  const off = r.again && (r.again[0] !== r.ledger[0] || r.again[1] !== r.ledger[1])
+                  return (
+                    <tr key={r.path} className={off || r.shared ? 'is-off' : ''}>
+                      <td className="ledger__path">
+                        <Secret label="Path">
+                          <span className="mono" title={r.path}>
+                            {r.path.split('/').slice(-2).join('/')}
+                          </span>
+                        </Secret>
+                        {r.listed === false && <span className="ledger__share"> not listed now</span>}
+                      </td>
+                      <td className="mono">
+                        {r.ledger[0].toLocaleString()} · {tokens(r.ledger[1])}
+                      </td>
+                      <td className="mono">{r.again ? `${r.again[0].toLocaleString()} · ${tokens(r.again[1])}` : '—'}</td>
+                      <td className="mono">{r.again ? (r.shared ? `${r.shared} calls` : 'none') : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ))}
+    </div>
   )
 }
