@@ -9,7 +9,7 @@
 
 .ledger__plot {
   position: relative;
-  height: 180px;
+  height: 150px;
   padding: var(--sp-8) var(--sp-6) 0 var(--sp-22);
   border-radius: var(--radius-lg);
   background: var(--well);
@@ -131,18 +131,171 @@
   justify-self: end;
 }
 
-/* ---------- the day's (or the span's) detail ---------- */
+/* ---------- the lead: one reading (the span, or the picked day) and what it was made of, close over the strip that picks it ---------- */
 
-.ledger__detail-head {
+.ledger__lead {
+  display: grid;
+  gap: var(--sp-8);
+}
+
+.ledger__focus {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
+  align-items: end;
+  gap: var(--sp-8) var(--sp-14);
+}
+
+.ledger__reading {
+  display: grid;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.ledger__when {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
-  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-4);
+  min-height: var(--control-sm);
+  margin: 0 0 var(--sp-1);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.ledger__when .chip {
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.ledger__figure {
+  margin: 0;
+  font-size: var(--text-xl);
+  color: var(--ink-2);
+}
+
+.ledger__value {
+  margin-right: var(--sp-2);
+  font-family: var(--f-mono);
+  font-size: var(--text-display);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.ledger__context {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--text-xl);
+}
+
+.ledger__compare {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.ledger__context .mono,
+.ledger__compare .mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The mix: one bar split by kind, in the Usage colour from solid (output, the dearest) to its palest (cache read, the
+   cheapest), with its key under it. */
+.ledger__mix {
+  margin: 0;
+  display: grid;
+  gap: var(--sp-5);
+}
+
+.ledger__mix-bar {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+
+.ledger__mix-bar > span {
+  flex-basis: 0;
+  min-width: 3px;
+}
+
+.ledger__mix-output {
+  background: var(--mod);
+}
+
+.ledger__mix-input {
+  background: color-mix(in oklch, var(--mod) 70%, var(--ground-raised));
+}
+
+.ledger__mix-write {
+  background: color-mix(in oklch, var(--mod) 45%, var(--ground-raised));
+}
+
+.ledger__mix-read {
+  background: color-mix(in oklch, var(--mod) 22%, var(--ground-raised));
+}
+
+.ledger__mix-key {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--sp-4);
 }
 
-.ledger__detail-head h3 {
-  margin: var(--sp-10) 0 0;
+.ledger__mix-key dt {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.ledger__swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.ledger__mix-key dd {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin: var(--sp-1) 0 0;
+}
+
+.ledger__mix-key .ledger__num {
+  font-size: var(--text-lg);
+}
+
+.ledger__share {
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+/* ---------- what drove it: models, projects, sources side by side ---------- */
+
+.ledger__groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: var(--sp-6) var(--sp-14);
+}
+
+.ledger__group {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+}
+
+.ledger__group > h3 {
+  margin: 0 0 var(--sp-2);
   font-size: var(--text-sm);
   font-weight: var(--weight-strong);
   letter-spacing: var(--track-caps-wide);
@@ -150,54 +303,11 @@
   color: var(--ink-2);
 }
 
-.ledger__split {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
-  gap: var(--sp-4);
-}
-
-.ledger__split > div {
-  padding: var(--sp-5) var(--sp-6);
-  border-radius: var(--radius-lg);
-  background: var(--well);
-}
-
-.ledger__split dt {
-  font-size: var(--text-xs);
-  font-weight: var(--weight-strong);
-  letter-spacing: var(--track-caps);
-  text-transform: uppercase;
-  color: var(--ink-2);
-}
-
-.ledger__split dd {
-  margin: var(--sp-2) 0 0;
-  font-family: var(--f-mono);
-  font-size: var(--text-2xl);
-  font-variant-numeric: tabular-nums;
-}
-
-.ledger__groups {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-  gap: var(--sp-4) var(--sp-14);
-}
-
-.ledger__group h4 {
-  margin: var(--sp-6) 0 var(--sp-2);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-strong);
-  letter-spacing: var(--track-caps);
-  text-transform: uppercase;
-  color: var(--ink-2);
-}
-
 .ledger__item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 7ch;
+  grid-template-columns: minmax(0, 1fr) 5ch auto 7ch;
   align-items: baseline;
-  gap: var(--sp-2) var(--sp-6);
+  gap: var(--sp-3) var(--sp-6);
   padding: var(--sp-4) 0 var(--sp-5);
   border-bottom: 1px solid var(--rule-soft);
 }
@@ -213,8 +323,18 @@
   font-size: var(--text-md);
 }
 
+/* The meter is the row's share of the whole; its percentage sits in the row beside the tokens. */
 .ledger__item-bar {
   grid-column: 1 / -1;
+}
+
+.ledger__item > .ledger__share {
+  text-align: right;
+}
+
+.ledger__more {
+  justify-self: start;
+  margin-top: var(--sp-4);
 }
 
 .ledger__num {
@@ -228,22 +348,19 @@
   color: var(--ink-2);
 }
 
-.ledger__none,
+/* Where the ledgers are kept is setup, not the reading: it sits quieter, at the foot. */
 .ledger__note {
   margin: 0;
   max-width: 72ch;
-  color: var(--ink-2);
-}
-
-.ledger__note {
   font-size: var(--text-md);
+  color: var(--ink-2);
 }
 
 /* ---------- every day ---------- */
 
 .row.ledger__day {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(80px, 28%) 7ch 7ch;
+  grid-template-columns: minmax(0, 1fr) 7ch 7ch;
   align-items: center;
   gap: var(--sp-7);
   padding-inline: var(--sp-4);
@@ -269,17 +386,19 @@
   white-space: nowrap;
 }
 
+@media (max-width: 860px) {
+  .ledger__focus {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 640px) {
   .ledger__plot {
-    height: 140px;
+    height: 120px;
   }
 
-  .row.ledger__day {
-    grid-template-columns: minmax(0, 1fr) 7ch 7ch;
-  }
-
-  .ledger__bar {
-    display: none;
+  .ledger__mix-key {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
