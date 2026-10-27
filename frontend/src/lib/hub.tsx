@@ -5,7 +5,7 @@ import { daysSince, PUSH_GRACE_DAYS } from './growth'
 import type { MachineId } from './api'
 import { useMachines } from './machines'
 import { moduleHref } from './route'
-import type { Agent, Agents, Docker, HistoryPoint, Machine, Plan, Port, Project, QueuedStep, Skill, System, Task } from './types'
+import type { Agent, Agents, Docker, HistoryPoint, Machine, Plan, Port, Project, QueuedStep, SecurityAudit, Skill, System, Task } from './types'
 import { usePoll } from './usePoll'
 import { activity, atWork } from './work'
 
@@ -20,11 +20,11 @@ export type Alert = {
   machine?: MachineId
 }
 
-export type ModuleId = 'projects' | 'machine' | 'urls' | 'ports' | 'docker' | 'processes' | 'agents' | 'tasks' | 'momentum' | 'skills' | 'machines'
+export type ModuleId = 'projects' | 'machine' | 'urls' | 'ports' | 'docker' | 'processes' | 'agents' | 'tasks' | 'momentum' | 'skills' | 'machines' | 'security'
 
 /** The modules about a machine: they follow the machine picker. The others are about your work, and live on this
     Marumado (the hub you opened) whichever machine the picker shows. */
-export const MACHINE_MODULES: ModuleId[] = ['machine', 'processes', 'ports', 'docker']
+export const MACHINE_MODULES: ModuleId[] = ['machine', 'processes', 'ports', 'docker', 'security']
 export const isMachineModule = (id: ModuleId) => MACHINE_MODULES.includes(id)
 
 /** A plan's step whose turn has come and that waits for your go; `agent`: the one it is next for (none when it starts
@@ -51,6 +51,7 @@ type Hub = {
   projects?: Project[]
   ports?: Port[]
   docker?: Docker
+  security?: SecurityAudit
   agents?: Agents
   tasks?: Task[]
   plans?: Plan[]
@@ -60,6 +61,7 @@ type Hub = {
   error: ApiError | Error | null
   refreshProjects: () => void
   refreshDocker: () => void
+  refreshSecurity: () => Promise<void>
   refreshSkills: () => void
   refreshAgents: () => Promise<void>
   refreshTasks: () => void
@@ -117,7 +119,7 @@ function machineAlerts(machines: Machine[] = [], current: MachineId): Alert[] {
   return out
 }
 
-function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: Project[], docker?: Docker, agents?: Agents, tasks?: Task[]): Alert[] {
+function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: Project[], docker?: Docker, agents?: Agents, tasks?: Task[], security?: SecurityAudit): Alert[] {
   const out: Alert[] = []
   for (const p of projects ?? []) {
     const latest = p.status.online.latest
@@ -184,6 +186,12 @@ function deriveAlerts(system?: System, history: HistoryPoint[] = [], projects?: 
       out.push({ id: `ctr:${c.id}`, module: 'docker', title: `${c.name} is unhealthy`, detail: c.image, href: moduleHref('docker') })
     }
   }
+  // Only what is serious and not accepted: the rest waits on the Security tab for when you look.
+  for (const f of security?.findings ?? []) {
+    if (f.severity === 'high' && !f.accepted) {
+      out.push({ id: `sec:${f.id}`, module: 'security', title: f.title, detail: f.action, href: moduleHref('security') })
+    }
+  }
   return out
 }
 
@@ -193,6 +201,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
   const projects = usePoll<Project[]>('projects', 10000)
   const ports = usePoll<Port[]>('ports', 5000)
   const docker = usePoll<Docker>('docker', 5000)
+  const security = usePoll<SecurityAudit>('security', 60000)
   // Agents keep being asked while the tab is hidden, so it can tell you when one needs you (lib/notify.ts).
   const agents = usePoll<Agents>('agents', 4000, true)
   const skills = usePoll<Skill[]>('skills', 30000)
@@ -227,8 +236,8 @@ export function HubProvider({ children }: { children: ReactNode }) {
   }, [system.data])
 
   const alerts = useMemo(
-    () => [...deriveAlerts(system.data, history, projects.data, docker.data, agents.data, tasks.data), ...machineAlerts(machines, current)],
-    [system.data, history, projects.data, docker.data, agents.data, tasks.data, machines, current],
+    () => [...deriveAlerts(system.data, history, projects.data, docker.data, agents.data, tasks.data, security.data), ...machineAlerts(machines, current)],
+    [system.data, history, projects.data, docker.data, agents.data, tasks.data, security.data, machines, current],
   )
 
   const needs = useMemo(() => needsYou(agents.data, plans.data), [agents.data, plans.data])
@@ -241,6 +250,7 @@ export function HubProvider({ children }: { children: ReactNode }) {
       projects: projects.data,
       ports: ports.data,
       docker: docker.data,
+      security: security.data,
       agents: agents.data,
       tasks: tasks.data,
       plans: plans.data,
@@ -250,14 +260,15 @@ export function HubProvider({ children }: { children: ReactNode }) {
       error: system.error ?? projects.error,
       refreshProjects: projects.refresh,
       refreshDocker: docker.refresh,
+      refreshSecurity: security.refresh,
       refreshSkills: skills.refresh,
       refreshAgents: agents.refresh,
       refreshTasks: tasks.refresh,
       refreshPlans: plans.refresh,
     }),
     [
-      system.data, history, projects.data, ports.data, docker.data, agents.data, tasks.data, plans.data, needs, skills.data, alerts, system.error, projects.error,
-      projects.refresh, docker.refresh, skills.refresh, agents.refresh, tasks.refresh, plans.refresh,
+      system.data, history, projects.data, ports.data, docker.data, security.data, agents.data, tasks.data, plans.data, needs, skills.data, alerts, system.error, projects.error,
+      projects.refresh, docker.refresh, security.refresh, skills.refresh, agents.refresh, tasks.refresh, plans.refresh,
     ],
   )
   return <HubContext.Provider value={value}>{children}</HubContext.Provider>

@@ -534,3 +534,21 @@ export type PulseFolder = {
 }
 
 export type Pulse = { time: number; folders: PulseFolder[] }
+
+export type Severity = 'high' | 'medium' | 'low' | 'info'
+
+/** One thing the security audit found on a machine (backend core/security.py), with what to do about it. */
+export type SecurityFinding = {
+  id: string
+  area: 'network' | 'marumado' | 'processes' | 'containers' | 'system' | 'secrets'
+  severity: Severity
+  title: string
+  detail: string
+  action: string
+  /** a command that does it, to run on that machine yourself; '' when there is none */
+  command: string
+  /** the owner accepted the risk: when, and why */
+  accepted: { note: string; at: number } | null
+}
+
+export type SecurityAudit = { checked_at: number; findings: SecurityFinding[]; unknown: string[] }

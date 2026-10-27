@@ -10,6 +10,7 @@
 .mod-momentum { --mod: var(--c-momentum); }
 .mod-skills { --mod: var(--c-skills); }
 .mod-machines { --mod: var(--c-machines); }
+.mod-security { --mod: var(--c-security); }
 
 
 .app {

@@ -15,7 +15,7 @@ export function SheetHead({ id, children }: { id: ModuleId; children?: ReactNode
 /** The first tab names the page's own view: every project, or the machine at a glance. */
 const FIRST: Partial<Record<ModuleId, string>> = { projects: 'All', machine: 'Overview' }
 
-/** A page's views as tabs: Projects (All, Momentum, Skills), Machine (Overview, Processes, Ports, Docker). */
+/** A page's views as tabs: Projects (All, Momentum, Skills), Machine (Overview, Processes, Ports, Docker, Security). */
 export function ViewTabs({ at }: { at: ModuleId }) {
   const home = VIEW_OF[at] ?? at
   return (

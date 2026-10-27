@@ -17,7 +17,7 @@ export type MachineId = 'local' | number
 
 let machine: MachineId = 'local'
 
-/** Which machine the machine modules (Machine, Processes, Ports, Docker) answer for. Other machines are reached
+/** Which machine the machine modules (Machine, Processes, Ports, Docker, Security) answer for. Other machines are reached
     through this Marumado (`/api/machines/<id>/…`). */
 export function setApiMachine(id: MachineId) {
   machine = id
@@ -25,7 +25,7 @@ export function setApiMachine(id: MachineId) {
 
 /** What a machine has, as opposed to what you have: these follow the machine picker. Everything else (projects,
     tasks, agents, skills, URLs, the login, the list of machines) belongs to this Marumado, the hub you opened. */
-const MACHINE_PATHS = ['system', 'processes', 'ports', 'docker']
+const MACHINE_PATHS = ['system', 'processes', 'ports', 'docker', 'security']
 
 export const followsMachine = (path: string) => MACHINE_PATHS.some((p) => path === p || path.startsWith(`${p}/`) || path.startsWith(`${p}?`))
 

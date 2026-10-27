@@ -69,6 +69,7 @@
   --c-momentum: oklch(0.5 0.07 245); /* blue */
   --c-processes: oklch(0.46 0.03 60); /* umber grey */
   --c-machines: oklch(0.45 0.04 250); /* blue slate */
+  --c-security: oklch(0.45 0.06 140); /* fir green */
   --mod: var(--ink);
   --on-mod: var(--ground);
 
@@ -226,6 +227,7 @@
     --c-momentum: oklch(0.78 0.09 245);
     --c-processes: oklch(0.77 0.03 60);
     --c-machines: oklch(0.77 0.045 250);
+    --c-security: oklch(0.78 0.07 140);
     --syn-keyword: #9eaed0;
     --syn-string: #a8ba7a;
     --syn-number: #d6b26a;

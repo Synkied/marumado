@@ -9,7 +9,7 @@ export type Route =
 const MODULES: ModuleId[] = ['projects', 'machine', 'agents', 'tasks', 'urls', 'machines']
 
 /** Modules read as a tab of another module's page rather than as a page of their own. */
-export const VIEW_OF: Partial<Record<ModuleId, ModuleId>> = { momentum: 'projects', skills: 'projects', processes: 'machine', ports: 'machine', docker: 'machine' }
+export const VIEW_OF: Partial<Record<ModuleId, ModuleId>> = { momentum: 'projects', skills: 'projects', processes: 'machine', ports: 'machine', docker: 'machine', security: 'machine' }
 
 /** Where a module opens: its own page, or its tab on the page it lives under. */
 export const moduleHref = (id: ModuleId) => {

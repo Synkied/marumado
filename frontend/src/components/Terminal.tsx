@@ -32,7 +32,7 @@ function decode(b64: string): Uint8Array {
 }
 
 /** Put text on the clipboard; over plain HTTP, where the Clipboard API is missing, through a hidden textarea. */
-function copy(text: string) {
+export function copy(text: string) {
   if (navigator.clipboard && window.isSecureContext) {
     navigator.clipboard.writeText(text).catch(() => {})
     return

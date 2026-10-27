@@ -22,6 +22,7 @@ import { NotifyToggle } from './agentInbox'
 import { AgentSourcesSheet } from './agentSources'
 import { MachinesSheet } from './machines'
 import { ProcessesSheet } from './processes'
+import { SecuritySheet } from './security'
 import { Fleet } from './fleet'
 import { ProjectForm, ProjectsSheet } from './projects'
 import { SheetHead, ViewTabs } from './sheetHead'
@@ -46,6 +47,7 @@ export function SheetFor({ route }: { route: Route }) {
       if (route.sub === 'processes') return <ProcessesSheet />
       if (route.sub === 'ports') return <PortsSheet />
       if (route.sub === 'docker') return <DockerSheet />
+      if (route.sub === 'security') return <SecuritySheet />
       return <MachineSheet />
     case 'urls':
       return route.sub === 'new' ? <ProjectForm kind="link" onDone={() => go('#/m/urls')} /> : <UrlsSheet />
@@ -59,6 +61,7 @@ export function SheetFor({ route }: { route: Route }) {
     case 'processes':
     case 'ports':
     case 'docker':
+    case 'security':
       return null
     case 'machines':
       return <MachinesSheet sub={route.sub} />

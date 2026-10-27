@@ -13,7 +13,7 @@ import re
 
 import psutil
 
-from . import auth, checks, discovery, drops, files, herdr, land, machines, monitor, opener, overview, places, plans, pulse, tasks, transcripts
+from . import auth, checks, discovery, drops, files, herdr, land, machines, monitor, opener, overview, places, plans, pulse, security, tasks, transcripts
 from .models import AgentSource, Machine, Pin, Plan, Project, ScanRoot, Skill, Task, UptimeCheck
 from .serializers import AgentSourceSerializer, MachineSerializer, PlanSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
 
@@ -699,6 +699,25 @@ def ports(request):
         p = discovery.project_for_path(r['cwd'], projects)
         out.append({**r, 'project': {'id': p.id, 'name': p.name} if p else None})
     return Response(out)
+
+
+@api_view(['GET'])
+def security_audit(request):
+    """This machine's security audit (core/security.py): findings, worst first, each with what to do about it."""
+    return Response(security.audit(fresh=request.query_params.get('fresh') == '1'))
+
+
+@api_view(['POST', 'DELETE'])
+def security_accept(request):
+    """Accept a finding's risk (it stays listed, set apart, and stops counting), or take that back."""
+    fid = str(request.data.get('id') or request.query_params.get('id') or '')
+    if not fid:
+        return Response({'detail': 'Which finding?'}, status=400)
+    if request.method == 'DELETE':
+        security.unaccept(fid)
+    else:
+        security.accept(fid, str(request.data.get('note') or ''))
+    return Response(security.audit())
 
 
 @api_view(['GET'])

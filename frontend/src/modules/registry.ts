@@ -47,6 +47,7 @@ export const MODULES: ModuleMeta[] = [
   { id: 'processes', label: 'Processes', icon: 'processes', blurb: 'What is running, and what is heavy' },
   { id: 'ports', label: 'Ports', icon: 'ports', blurb: 'What is listening, and for which project' },
   { id: 'docker', label: 'Docker', icon: 'container', blurb: 'Containers and their logs' },
+  { id: 'security', label: 'Security', icon: 'shield', blurb: 'What is exposed or suspicious, and what to do about it' },
   { id: 'tasks', label: 'Tasks', icon: 'tasks', blurb: 'A to-do list you can hand to agents, and what they did' },
   { id: 'agents', label: 'Agents', icon: 'agent', blurb: 'Coding agents in Herdr and what they are doing' },
   { id: 'urls', label: 'URLs', icon: 'globe', blurb: 'Up or down, checked every minute' },
@@ -116,7 +117,7 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
         fraction: system.cpu.percent / 100,
         caption: `cpu · mem ${Math.round(system.memory.percent)}%`,
         // Its tabs' alarms (an unhealthy container) show on its dial.
-        fault: ['machine', 'processes', 'ports', 'docker'].some((id) => faulty.has(id as ModuleId)),
+        fault: ['machine', 'processes', 'ports', 'docker', 'security'].some((id) => faulty.has(id as ModuleId)),
         quiet: system.cpu.percent < 15 && system.memory.percent < 70,
         busy: system.cpu.percent >= 50,
         chart: { kind: 'trace', values: downsample(history.map((h) => h.cpu / 100), 180), span: minutes(history) },
@@ -217,5 +218,5 @@ export function useSummaries(): Record<ModuleId, Summary | null> {
     }
   }
 
-  return { tasks: tasksSum, machines: machinesSum, momentum: null, skills: null, agents: agentsSum, projects: projectsSum, machine: machineSum, urls: urlsSum, ports: null, docker: null, processes: null }
+  return { tasks: tasksSum, machines: machinesSum, momentum: null, skills: null, agents: agentsSum, projects: projectsSum, machine: machineSum, urls: urlsSum, ports: null, docker: null, processes: null, security: null }
 }
