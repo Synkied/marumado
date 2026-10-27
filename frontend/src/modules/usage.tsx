@@ -70,6 +70,11 @@ export function UsageSheet() {
           <div className="ledger__reading">
             <h3 className="ledger__when">
               {day ? dayLabel(day.day) : spanTitle}
+              {!day && (
+                <span className="ledger__range">
+                  {shortDay(days[days.length - 1].day)} – {shortDay(days[0].day)}
+                </span>
+              )}
               {day && (
                 <button className="chip" type="button" onClick={() => setPicked(null)}>
                   Back to {span ? `${span} days` : 'every day'}

@@ -1,9 +1,9 @@
-"""Tokens used each day, by every agent, kept for good in ~/.agents/marumado/usage.json where the agents run.
+"""Tokens used each day, by every agent, kept for good in ~/.agents/marumado/usage-<machine>.json where the agents run.
 
 Agents' session records don't last (Claude Code deletes its own after 30 days), so what they used is summed as they
 are written and kept in a ledger of its own: in ~/.agents, which is backed up with the rest of your agent setup. One
-ledger per source (this machine, a VM, an SSH host), next to the records it comes from; a machine in Machines keeps
-its own, read through its Marumado.
+ledger per machine (this one, a VM, an SSH host), named after it and next to the records it comes from; a machine in
+Machines keeps its own, read through its Marumado.
 
 The ledger holds, for each record, how far it has been read and what it used, by UTC hour and model:
   {"version": 2,
@@ -29,13 +29,18 @@ from . import herdr, transcripts, usage
 
 log = logging.getLogger(__name__)
 
-LEDGER = '"$HOME/.agents/marumado/usage.json"'
-SHOWN = '~/.agents/marumado/usage.json'
+# One ledger per machine, named after it: VMs may share one ~/.agents (mounted from the host, or synced), and each
+# would otherwise take the others' records for deleted ones.
+LEDGER = '"$HOME/.agents/marumado/usage-$(uname -n).json"'
+OLD_LEDGER = '"$HOME/.agents/marumado/usage.json"'  # before, one for every machine with this ~/.agents
+SHOWN = '~/.agents/marumado/usage-{host}.json'
 ROOTS = '"$HOME/.claude/projects" "$HOME/.codex/sessions" "$HOME/.pi/agent/sessions"'
 CHUNK = 8 * 1024 * 1024  # at most this much of one record a run
 BUDGET = 48 * 1024 * 1024  # and of every record together
+CALL = 8 * 1024 * 1024  # and in one call where the records are
 FRESH = 90  # seconds: a ledger read this recently is not read again for the page
 MARK = '\n@@marumado-usage@@\n'
+OLD = '@@marumado-usage-old@@\n'
 # A session record: transcripts.RECORD, and Claude Code's sub-agents' records too (<session>/subagents/agent-*.jsonl).
 RECORD = re.compile(r'^/(?:[^/\0]+/)*(?:\.claude/projects/[^/\0]+/(?:[^/\0]+/)*[^/\0]+|\.codex/sessions/(?:[^/\0]+/)*rollout-[^/\0]+|\.pi/agent/sessions/[^/\0]+/[^/\0]+)\.jsonl$')
 
@@ -72,14 +77,18 @@ def _hour(ms: int) -> str:
 
 
 def _read_listing(src) -> tuple[dict, dict[str, int]]:
-    out = herdr.shell(src, f'cat {LEDGER} 2>/dev/null; printf %s {shlex.quote(MARK)}; '
+    out = herdr.shell(src, f'uname -n; if [ -e {LEDGER} ]; then cat {LEDGER}; else printf %s {shlex.quote(OLD)}; cat {OLD_LEDGER} 2>/dev/null; fi; '
+                           f'printf %s {shlex.quote(MARK)}; '
                            f'find {ROOTS} -type f -name "*.jsonl" -exec stat -c "%s\t%n" {{}} + 2>/dev/null', timeout=60)
     text = out.decode(errors='replace')
+    host, _, text = text.partition('\n')
     head, _, listing = text.partition(MARK)
+    old = head.startswith(OLD)
+    head = head.removeprefix(OLD)
     try:
         ledger = json.loads(head) if head.strip() else {}
     except ValueError:
-        raise RuntimeError(f'{SHOWN} could not be read: it is not valid JSON.')
+        raise RuntimeError(f'{SHOWN.format(host=host.strip())} could not be read: it is not valid JSON.')
     if not isinstance(ledger, dict):
         ledger = {}
     ledger.setdefault('files', {})
@@ -88,17 +97,35 @@ def _read_listing(src) -> tuple[dict, dict[str, int]]:
         # came back, so a record a listing missed now and then was counted many times over: its `gone` goes.
         ledger['gone'] = {}
     ledger['version'] = 2
+    ledger['host'] = host.strip()
     ledger.setdefault('gone', {})
     sizes = {}
     for line in listing.splitlines():
         size, _, path = line.partition('\t')
         if size.isdigit() and RECORD.match(path) and '/../' not in path:
             sizes[path] = int(size)
+    if old:
+        # The shared ledger of before: this machine takes its own records from it, and leaves the others' to them.
+        ledger['files'] = {p: r for p, r in ledger['files'].items() if p in sizes}
+        ledger['gone'] = {}
     return ledger, sizes
 
 
 def _read_chunks(src, wanted: list[tuple[str, int, int]]) -> list[bytes]:
-    """Each (path, offset, length) as read: `<bytes read>\\n<the bytes>` per record, in order."""
+    """Each (path, offset, length) as read, in order, in calls of at most CALL bytes each (a VM's exec tool may cut a
+    long answer short). What a cut answer left out comes back empty, to be read on the next run: only whole lines
+    count, so a piece cut short is read as far as it goes."""
+    chunks: list[bytes] = []
+    batch: list[tuple[str, int, int]] = []
+    for i, item in enumerate(wanted):
+        batch.append(item)
+        if i == len(wanted) - 1 or sum(n for _, _, n in batch) + wanted[i + 1][2] > CALL:
+            chunks += _read_batch(src, batch)
+            batch = []
+    return chunks
+
+
+def _read_batch(src, wanted: list[tuple[str, int, int]]) -> list[bytes]:
     parts = ['t=$(mktemp) || exit 1']
     for path, offset, n in wanted:
         parts.append(f'tail -c +{offset + 1} -- {shlex.quote(path)} 2>/dev/null | head -c {n} > "$t"; wc -c < "$t"; cat "$t"')
@@ -106,10 +133,16 @@ def _read_chunks(src, wanted: list[tuple[str, int, int]]) -> list[bytes]:
     out = herdr.shell(src, '\n'.join(parts), timeout=180)
     chunks, at = [], 0
     for _ in wanted:
-        end = out.index(b'\n', at)
-        n = int(out[at:end].strip() or 0)
-        chunks.append(out[end + 1:end + 1 + n])
-        at = end + 1 + n
+        end = out.find(b'\n', at)
+        size = out[at:end].strip() if end >= 0 else b''
+        if not size.isdigit():
+            chunks.append(b'')
+            at = len(out)
+            continue
+        chunks.append(out[end + 1:end + 1 + int(size)])
+        at = end + 1 + int(size)
+    if wanted and not any(chunks):
+        log.debug('reading the records of %s gave nothing back (%d bytes)', src.name, len(out))
     return chunks
 
 
@@ -185,7 +218,8 @@ def collect(src) -> tuple[dict, bool]:
             behind = behind or n < size - offset
         started, read, calls = time.time(), 0, 0
         if wanted:
-            for (path, _, _), data in zip(wanted, _read_chunks(src, wanted)):
+            for (path, _, n), data in zip(wanted, _read_chunks(src, wanted)):
+                behind = behind or len(data) < n  # cut short on the way: the rest next run
                 kind = _kind(path)
                 rec = files.setdefault(path, {'kind': kind, 'folder': _folder(kind, path), 'offset': 0, 'state': {}, 'hours': {}})
                 was = _calls(rec)
@@ -298,7 +332,7 @@ def report(include_machines: bool = True, tz: str = '', fresh: bool = False) -> 
     sources: list[dict] = []
     rows: list = []
     for src in herdr.sources(include_machines):
-        info = {'id': src.id, 'name': src.name, 'where': src.where(), 'stored': SHOWN, 'ok': True, 'error': '', 'behind': False}
+        info = {'id': src.id, 'name': src.name, 'where': src.where(), 'stored': SHOWN.format(host='<machine>'), 'ok': True, 'error': '', 'behind': False}
         try:
             if src.kind == 'machine':
                 data = herdr._remote(src, 'GET', 'usage', query=f'machines=0&tz={quote(tz)}{"&fresh=1" if fresh else ""}', timeout=60)
@@ -316,6 +350,7 @@ def report(include_machines: bool = True, tz: str = '', fresh: bool = False) -> 
                 else:
                     ledger, behind = collect(src)
                 info['behind'] = behind
+                info['stored'] = SHOWN.format(host=ledger.get('host') or '<machine>')
                 info.update(progress(src.id))
                 days(src, out, _project_names(src), ledger, day)
         except Exception as exc:

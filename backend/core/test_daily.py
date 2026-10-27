@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 from pathlib import Path
 from unittest import mock
@@ -22,6 +23,7 @@ class DailyUsageTests(TestCase):
         daily._seen.clear()
         self.record = self.home / '.claude' / 'projects' / '-projects-demo' / 's1.jsonl'
         self.record.parent.mkdir(parents=True)
+        self.ledger = self.home / '.agents' / 'marumado' / f'usage-{os.uname().nodename}.json'
 
     def totals(self) -> dict:
         daily._seen.clear()
@@ -43,12 +45,12 @@ class DailyUsageTests(TestCase):
         rows = self.totals()
         # Days in the browser's time zone: at UTC+14 both replies fall on the 28th.
         self.assertEqual(rows[('2026-10-28', 'demo', 'claude-opus-5-5')][:6], [2, 20, 0, 0, 200, 47])
-        ledger = json.loads((self.home / '.agents' / 'marumado' / 'usage.json').read_text())
+        ledger = json.loads(self.ledger.read_text())
         self.assertIn(str(self.record), ledger['files'])
 
         self.record.unlink()
         self.assertEqual(self.totals(), rows)
-        ledger = json.loads((self.home / '.agents' / 'marumado' / 'usage.json').read_text())
+        ledger = json.loads(self.ledger.read_text())
         self.assertEqual(ledger['files'], {})
         self.assertIn(str(self.record), ledger['gone'])
 
@@ -62,10 +64,26 @@ class DailyUsageTests(TestCase):
             away.rename(self.record)
             self.assertEqual(self.totals(), rows)
 
-    def test_a_version_1_ledger_drops_its_summed_gone(self):
+    def test_the_shared_version_1_ledger_gives_this_machine_its_own_records_only(self):
         self.record.write_text(_reply('m1', '2026-10-27T13:05:00Z', 5))
-        ledger = self.home / '.agents' / 'marumado' / 'usage.json'
-        ledger.parent.mkdir(parents=True)
-        ledger.write_text(json.dumps({'version': 1, 'files': {}, 'gone': {'claude\t-projects-demo': {'2026-10-27T13': {'claude-opus-5-5': [9, 9, 0, 0, 9, 9, 1.0]}}}}))
-        self.assertEqual(self.totals()[('2026-10-28', 'demo', 'claude-opus-5-5')][:6], [1, 10, 0, 0, 100, 5])
-        self.assertEqual(json.loads(ledger.read_text())['version'], 2)
+        old = self.home / '.agents' / 'marumado' / 'usage.json'  # shared by every machine with this ~/.agents
+        old.parent.mkdir(parents=True)
+        theirs = {'kind': 'claude', 'folder': '-x', 'offset': 9, 'state': {}, 'hours': {'2026-10-27T13': {'claude-opus-5-5': [3, 3, 0, 0, 3, 3, 1.0]}}}
+        old.write_text(json.dumps({'version': 1, 'files': {'/elsewhere/.claude/projects/-x/s.jsonl': theirs},
+                                   'gone': {'claude\t-projects-demo': {'2026-10-27T13': {'claude-opus-5-5': [9, 9, 0, 0, 9, 9, 1.0]}}}}))
+        self.assertEqual(self.totals(), {('2026-10-28', 'demo', 'claude-opus-5-5'): [1, 10, 0, 0, 100, 5, mock.ANY]})
+        mine = json.loads(self.ledger.read_text())
+        self.assertEqual((mine['version'], list(mine['files']), mine['gone']), (2, [str(self.record)], {}))
+
+    def test_an_answer_cut_short_reads_what_came_and_the_rest_next_run(self):
+        self.record.write_text(_reply('m1', '2026-10-27T13:05:00Z', 5) + _reply('m2', '2026-10-27T14:00:00Z', 7))
+        real = daily.herdr.shell
+
+        def cut(src, script, **kw):
+            out = real(src, script, **kw)
+            return out[:out.index(b'"m2"')] if 'tail -c' in script else out
+        with mock.patch.object(daily.herdr, 'shell', cut):
+            ledger, behind = daily.collect(0)
+        self.assertTrue(behind)
+        self.assertEqual(sum(r[0] for m in ledger['files'][str(self.record)]['hours'].values() for r in m.values()), 1)
+        self.assertEqual(self.totals()[('2026-10-28', 'demo', 'claude-opus-5-5')][:6], [2, 20, 0, 0, 200, 12])

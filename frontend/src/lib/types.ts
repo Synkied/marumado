@@ -359,7 +359,7 @@ export type Usage = {
     then calls, input, cache write 5m, cache write 1h, cache read, output, and the cost at API prices. */
 export type UsageRow = [day: string, source: string, project: string, model: string, calls: number, input: number, cacheWrite: number, cacheWrite1h: number, cacheRead: number, output: number, cost: number]
 
-/** GET usage: every day's tokens, kept in ~/.agents/marumado/usage.json where the agents run. `behind`: older
+/** GET usage: every day's tokens, kept in ~/.agents/marumado/usage-<machine>.json where the agents run. `behind`: older
     records are still being read; `priced`: the models with a known price. */
 export type UsageReport = {
   rows: UsageRow[]
