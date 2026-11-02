@@ -13,7 +13,7 @@ import re
 
 import psutil
 
-from . import auth, checks, daily, discovery, drops, files, herdr, land, machines, monitor, opener, overview, places, plans, pulse, security, tasks, transcripts
+from . import auth, checks, daily, discovery, drops, files, herdr, land, machines, monitor, opener, overview, places, plans, pulse, recap, security, tasks, transcripts
 from .models import AgentSource, Machine, Pin, Plan, Project, ScanRoot, Skill, Task, UptimeCheck
 from .serializers import AgentSourceSerializer, MachineSerializer, PlanSerializer, ProjectSerializer, SkillSerializer, TaskEventSerializer, TaskSerializer, UptimeCheckSerializer
 
@@ -712,6 +712,36 @@ def usage_check_view(request):
     """Where a day's tokens come from (core/daily.py check): `?day=YYYY-MM-DD&tz=`."""
     q = request.query_params
     return Response(daily.check(q.get('day', ''), tz=q.get('tz', '')))
+
+
+@api_view(['GET', 'POST'])
+def usage_recap_view(request):
+    """What was done on each project over some days (core/recap.py). GET `?from=&to=`: the summaries kept for those
+    days. POST {project, from, to, tz}: Claude writes the project's (again); slow, up to a few minutes."""
+    if request.method == 'GET':
+        q = request.query_params
+        return Response({'recaps': recap.saved(q.get('from', ''), q.get('to', ''))})
+    d = request.data
+    project, start, end = str(d.get('project') or ''), str(d.get('from') or ''), str(d.get('to') or '')
+    if not project or not start or not end:
+        return Response({'detail': 'Which project, and which days?'}, status=400)
+    try:
+        return Response(recap.write(project, start, end, tz=str(d.get('tz') or '')))
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
+    except RuntimeError as exc:
+        return Response({'detail': f"Claude couldn't write it: {str(exc)[:400]}"}, status=502)
+
+
+@api_view(['GET'])
+def usage_recap_material(request):
+    """What this machine's agents were told and did on a project over some days, for the Marumado that writes its
+    summary: `?project=&from=&to=&tz=`."""
+    q = request.query_params
+    try:
+        return Response(recap.material(q.get('project', ''), q.get('from', ''), q.get('to', ''), tz=q.get('tz', ''), include_machines=False))
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=400)
 
 
 @api_view(['GET'])

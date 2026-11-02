@@ -131,6 +131,68 @@
   justify-self: end;
 }
 
+/* ---------- the tabs, and the scope a tab's data is for ---------- */
+
+/* A tab's count, quieter than its name. */
+.ledger__tab-count {
+  margin-left: var(--sp-3);
+  font-family: var(--f-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.ledger__tab-lamp {
+  width: 8px;
+  height: 8px;
+  margin-left: var(--sp-3);
+}
+
+/* On Projects and Models: what the numbers below are for (the span or the picked day, and its total), over a short
+   day strip that picks it, as on Overview. */
+.ledger__scope {
+  display: grid;
+  gap: var(--sp-6);
+}
+
+.ledger__scope-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-8);
+}
+
+.ledger__scope-line .ledger__when {
+  margin: 0;
+}
+
+.ledger__scope-sum {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.ledger__scope-sum .mono {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.ledger__chart--compact .ledger__plot {
+  height: 64px;
+  padding-top: var(--sp-5);
+}
+
+.ledger__chart--compact .ledger__plot::before,
+.ledger__chart--compact .ledger__axis--top {
+  top: var(--sp-5);
+}
+
+.ledger__chart--compact .ledger__plot::after,
+.ledger__chart--compact .ledger__axis--mid {
+  display: none;
+}
+
 /* ---------- the lead: one reading (the span, or the picked day) and what it was made of, close over the strip that picks it ---------- */
 
 .ledger__lead {
@@ -290,7 +352,7 @@
 
 .ledger__groups {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--sp-6) var(--sp-14);
 }
 
@@ -362,6 +424,158 @@
   color: var(--ink-2);
 }
 
+/* ---------- what was done: each project's share, and the summary Claude wrote of it ---------- */
+
+.recap__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--sp-4) var(--sp-8);
+  margin-bottom: var(--sp-3);
+}
+
+.recap__head h3 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--track-caps-wide);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.recap__lede {
+  margin: 0;
+  max-width: 72ch;
+  font-size: var(--text-md);
+  color: var(--ink-2);
+}
+
+.recap__item {
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+/* The breakdown's row, with a column for its key so the numbers line up whether or not it has one. */
+/* Wide, the meter sits in the row between the name and its numbers, so a breakdown reads as one bar chart. */
+.ledger__item.recap__row {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 5ch 6ch 7ch 8.5rem;
+  align-items: center;
+  border-bottom: 0;
+}
+
+.ledger__item.ledger__item--wide {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 5ch 6ch 7ch 8.5rem;
+  align-items: center;
+}
+
+.recap__row > .ledger__name,
+.ledger__item--wide > .ledger__name {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.recap__row > .ledger__item-bar,
+.ledger__item--wide > .ledger__item-bar {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.recap__action {
+  display: flex;
+  justify-content: end;
+}
+
+.recap__body {
+  display: grid;
+  gap: var(--sp-3);
+  max-width: 76ch;
+  padding: 0 0 var(--sp-7);
+  animation: recap-in var(--dur-base) var(--ease) both;
+}
+
+.recap__list {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding-left: 1.15em;
+  list-style: disc;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.recap__list p {
+  margin: 0;
+}
+
+.recap__list li::marker {
+  color: var(--ink-3);
+}
+
+.recap__empty,
+.recap__meta {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+/* While Claude writes it: the working light, breathing. */
+.recap__body[aria-busy='true'] > .recap__meta:first-child::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: var(--sp-3);
+  border-radius: 50%;
+  background: var(--moss);
+  vertical-align: 0.05em;
+  animation: recap-breathe 1.6s var(--ease) infinite alternate;
+}
+
+.recap__error {
+  color: var(--signal-text);
+}
+
+.recap__again {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.recap__again:hover:not(:disabled) {
+  text-decoration-color: currentColor;
+}
+
+.recap__again:disabled {
+  color: var(--ink-2);
+  text-decoration: none;
+  cursor: default;
+}
+
+.recap__again:focus-visible {
+  outline: 1px solid var(--ink-2);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+@keyframes recap-in {
+  from {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+
+@keyframes recap-breathe {
+  to {
+    opacity: 0.35;
+  }
+}
+
 /* ---------- the collector: each source's progress and last runs, and a day's check ---------- */
 
 .ledger__kept-head {
@@ -369,7 +583,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-4);
-  margin-top: var(--sp-10);
+  margin-top: 0;
 }
 
 .ledger__kept-head h3 {
@@ -485,14 +699,59 @@
 }
 
 @media (max-width: 860px) {
-  .ledger__focus {
+  .ledger__focus,
+  .ledger__groups {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Narrower, the meter goes back under the row. */
+  .ledger__item.recap__row {
+    grid-template-columns: minmax(0, 1fr) 5ch auto 7ch 8.5rem;
+  }
+
+  .ledger__item.ledger__item--wide {
+    grid-template-columns: minmax(0, 1fr) 5ch auto 7ch;
+  }
+
+  .recap__row > .ledger__item-bar,
+  .ledger__item--wide > .ledger__item-bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 }
 
 @media (max-width: 640px) {
   .ledger__plot {
     height: 120px;
+  }
+
+  .ledger__chart--compact .ledger__plot {
+    height: 56px;
+  }
+
+  /* The key drops under the meter, so the name keeps its width. */
+  .ledger__item.recap__row {
+    grid-template-columns: minmax(0, 1fr) 5ch auto 7ch;
+  }
+
+  .recap__row > .ledger__item-bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .recap__action {
+    grid-row: 3;
+    grid-column: 1 / -1;
+    justify-content: start;
+  }
+
+  .recap__action:empty {
+    display: none;
+  }
+
+  .ledger__progress {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-2);
   }
 
   .ledger__mix-key {
@@ -504,4 +763,14 @@
   .ledger__fill {
     transition: none;
   }
+
+  .recap__body,
+  .recap__body[aria-busy='true'] > .recap__meta:first-child::before {
+    animation: none;
+  }
+}
+
+/* A name in a summary (`code`) set in mono, a step smaller so it sits in the sentence. */
+.recap__list .mono {
+  font-size: 0.88em;
 }

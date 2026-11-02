@@ -2176,9 +2176,14 @@ a.row:hover .row__main {
 }
 
 a.chip:hover,
-button.chip:hover {
+button.chip:hover:not(:disabled) {
   background: var(--solid);
   color: var(--on-solid);
+}
+
+button.chip:disabled {
+  color: var(--ink-2);
+  cursor: default;
 }
 
 .chip--fault {

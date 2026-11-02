@@ -55,7 +55,7 @@ export function SheetFor({ route }: { route: Route }) {
     case 'agents':
       return <AgentsSheet sub={route.sub} />
     case 'usage':
-      return <UsageSheet />
+      return <UsageSheet sub={route.sub} />
     case 'tasks':
       return <TasksSheet sub={route.sub} key={route.sub ?? 'list'} />
     // Read as tabs of Projects and Machine (VIEW_OF): the route never lands on them.

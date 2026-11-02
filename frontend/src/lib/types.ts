@@ -596,3 +596,15 @@ export type SecurityFinding = {
 }
 
 export type SecurityAudit = { checked_at: number; findings: SecurityFinding[]; unknown: string[] }
+
+/** What was done on a project over some days, written by Claude (core/recap.py): `text` is bullets ("- …"), empty
+    when there was nothing to go on; `counts` is what it was written from; `at` in epoch seconds. */
+export type UsageRecap = {
+  project: string
+  from: string
+  to: string
+  text: string
+  at: number
+  counts: { sessions: number; prompts: number; commits: number; tasks: number }
+  errors: string[]
+}

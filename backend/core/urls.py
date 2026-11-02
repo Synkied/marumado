@@ -23,6 +23,8 @@ urlpatterns = [
     path('security', views.security_audit),
     path('usage', views.usage_view),
     path('usage/check', views.usage_check_view),
+    path('usage/recap', views.usage_recap_view),
+    path('usage/recap/material', views.usage_recap_material),
     path('security/accept', views.security_accept),
     path('docker', views.docker),
     path('docker/<str:cid>/logs', views.docker_logs),
