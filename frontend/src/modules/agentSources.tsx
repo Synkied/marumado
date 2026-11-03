@@ -102,6 +102,10 @@ function SourcesList() {
               <a className="row__meta" href="#/m/machines" title="A machine in Machines whose Marumado sees a Herdr: added on its own">
                 from Machines
               </a>
+            ) : s.kind === 'herdr' ? (
+              <span className="row__meta" title="A machine saved in Herdr (herdr machine add): added on its own">
+                from Herdr
+              </span>
             ) : (
               <a className="btn btn--quiet" href={`#/m/agents/sources/edit/${s.id}`} aria-label={`Edit ${s.name}`}>
                 Edit

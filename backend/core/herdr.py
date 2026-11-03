@@ -15,6 +15,7 @@ import signal
 import subprocess
 import threading
 import time
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -51,6 +52,13 @@ TIMEOUT = 4
 
 ENV = 0  # the source set in .env
 MACHINE_BASE = 1_000_000  # a machine's source id is this plus its id (AgentSource ids stay far below)
+# A machine saved in Herdr itself (`herdr machine add`) is a source of its own (kind `herdr`), found in the Herdr of
+# another source (its `parent`) and asked with `herdr --machine <profile> …` there. Its id is this plus a hash of the
+# two, so it stays the same across restarts, and below MACHINE_BASE: everything that is not a machine in Machines
+# is asked from here, so the checks for `>= MACHINE_BASE` stay right.
+HERDR_MACHINE_BASE = 900_000
+HERDR_MACHINE_SPAN = 100_000
+HERDR_MACHINES_SECONDS = 60  # how long a source's list of saved machines is kept before asking again
 SMOLVM_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$')
 # A source that failed is not asked again for a few seconds, so one VM that is off doesn't slow every listing.
 RETRY_SECONDS = 15
@@ -70,16 +78,23 @@ GIT_SAFE = (
 
 @dataclass(frozen=True)
 class Source:
-    """One place Herdr runs. `kind`: env (configured in .env), ssh or smolvm (added in the app)."""
+    """One place Herdr runs. `kind`: env (configured in .env), ssh or smolvm (added in the app), machine (one in
+    Machines) or herdr (a machine saved in the Herdr of source `parent`; `target` is its profile id)."""
     id: int
     name: str
     kind: str
     target: str = ''
     # Where it sees this machine's folders: (here, there) pairs, as set on the source.
     folders: tuple[tuple[str, str], ...] = field(default=(), compare=False)
+    parent: int = ENV
+    # A herdr source's SSH target and Herdr session, as saved in its profile: for what Herdr doesn't forward.
+    ssh: str = field(default='', compare=False)
+    session: str = field(default='', compare=False)
 
     def where(self) -> str:
         """A short description of where Marumado looks for Herdr."""
+        if self.kind == 'herdr':
+            return f'on {self.ssh or self.name}, a machine saved in Herdr'
         if self.kind == 'machine':
             return f"on {self.name}, through its Marumado"
         if self.kind == 'ssh':
@@ -232,9 +247,79 @@ def sources(include_machines: bool = True) -> list[Source]:
     if include_machines:
         added += _machine_sources()
     configured = any(env(k) for k in ('HERDR_SMOLVM', 'HERDR_EXEC', 'HERDR_SSH', 'HERDR_SOCKET'))
-    if added and not configured and not _local_binary():
-        return added
-    return [_env_source(), *added]
+    own = added if added and not configured and not _local_binary() else [_env_source(), *added]
+    saved = [m for src in own if src.kind in ('env', 'ssh', 'smolvm') for m in _herdr_machines(src)]
+    return [*own, *saved]
+
+
+# ---------------------------------------------------------------- machines saved in Herdr
+
+_saved_lock = threading.Lock()
+# Per parent source id: (when asked, its saved machines). Kept when a later ask fails, so a source that stops
+# answering for a moment doesn't make its machines' agents and tasks unknown.
+_saved: dict[int, tuple[float, list[Source]]] = {}
+
+
+def _herdr_machine_id(parent: int, profile: str) -> int:
+    return HERDR_MACHINE_BASE + zlib.crc32(f'{parent}:{profile}'.encode()) % HERDR_MACHINE_SPAN
+
+
+def _profiles(listed) -> list[dict]:
+    """The profiles in `herdr machine list --json`, whichever way it wraps them."""
+    if isinstance(listed, dict):
+        for key in ('result', 'machines', 'profiles', 'items'):
+            if key in listed:
+                return _profiles(listed[key])
+        return []
+    return [p for p in listed if isinstance(p, dict)] if isinstance(listed, list) else []
+
+
+def _first(profile: dict, *keys: str) -> str:
+    for key in keys:
+        value = profile.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, dict):  # {"ssh": {"target": …}}, say
+            inner = _first(value, 'target', 'name', 'value', 'id')
+            if inner:
+                return inner
+    return ''
+
+
+def _herdr_machines(parent: Source) -> list[Source]:
+    """The enabled machines saved in `parent`'s Herdr (`herdr machine list`), as sources. An older Herdr has none."""
+    with _saved_lock:
+        cached = _saved.get(parent.id)
+    if cached and time.monotonic() - cached[0] < HERDR_MACHINES_SECONDS:
+        return cached[1]
+    try:
+        listed = _profiles(json.loads(_run(parent, 'machine', 'list', '--json', text=True) or '[]'))
+    except (RuntimeError, ValueError, OSError) as exc:
+        log.debug('listing the machines saved in Herdr %s failed: %s', parent.where(), exc)
+        found = cached[1] if cached else []
+    else:
+        found = []
+        for p in listed:
+            profile = _first(p, 'id', 'profile_id', 'machine_id')
+            if not profile or p.get('enabled') is False or p.get('disabled') is True or profile.startswith('-'):
+                continue
+            ssh = _first(p, 'ssh_target', 'target', 'ssh', 'host', 'destination')
+            found.append(Source(
+                _herdr_machine_id(parent.id, profile), _first(p, 'label', 'name') or ssh or profile, 'herdr', profile,
+                parent=parent.id, ssh=ssh if ssh and valid_target('ssh', ssh) else '',
+                session=_first(p, 'remote_session', 'session', 'session_name')))
+    with _saved_lock:
+        _saved[parent.id] = (time.monotonic(), found)
+    return found
+
+
+def _find_herdr_machine(wanted: int) -> Source | None:
+    with _saved_lock:
+        known = [m for _, found in _saved.values() for m in found]
+    hit = next((m for m in known if m.id == wanted), None)
+    if hit is None:
+        hit = next((m for m in sources(include_machines=False) if m.id == wanted), None)
+    return hit
 
 
 def get_source(source_id: 'int | str | Source | None' = ENV) -> Source:
@@ -247,6 +332,11 @@ def get_source(source_id: 'int | str | Source | None' = ENV) -> Source:
         raise ValueError('Not an agent source.')
     if wanted == ENV:
         return _env_source()
+    if HERDR_MACHINE_BASE <= wanted < HERDR_MACHINE_BASE + HERDR_MACHINE_SPAN:
+        found = _find_herdr_machine(wanted)
+        if found is None:
+            raise ValueError('That machine is no longer saved in Herdr.')
+        return found
     if wanted >= MACHINE_BASE:
         from . import machines
         tunnel = machines.get(wanted - MACHINE_BASE)
@@ -327,7 +417,10 @@ def _ssh(target: str, remote: str) -> list[str]:
 
 
 def _elsewhere(src: Source) -> tuple[str, str, str]:
-    """(smolvm machine, exec command, SSH target): where `src` runs, when it isn't this machine."""
+    """(smolvm machine, exec command, SSH target): where `src` runs, when it isn't this machine. A machine saved in
+    Herdr is never this machine: its SSH target (it is reached from its parent's place, see _script_command)."""
+    if src.kind == 'herdr':
+        return '', '', src.ssh or src.name
     smolvm = src.target if src.kind == 'smolvm' else env('HERDR_SMOLVM') if src.kind == 'env' else ''
     ssh = src.target if src.kind == 'ssh' else env('HERDR_SSH') if src.kind == 'env' else ''
     exec_ = env('HERDR_EXEC') if src.kind == 'env' else ''
@@ -349,6 +442,13 @@ def _wrap(src: Source, remote: str, interactive: bool = False) -> tuple[list[str
 
 def _command(src: Source, args: tuple[str, ...], interactive: bool = False) -> tuple[list[str], dict | None]:
     """The command line that runs `herdr <args>` wherever `src` is. `interactive` keeps stdin connected."""
+    if src.kind == 'herdr':
+        if args[:2] == ('terminal', 'session'):
+            # Herdr doesn't forward a terminal stream to a saved machine: run it there, over the profile's SSH.
+            session = ('--session', src.session) if src.session else ()
+            remote = ' '.join(['"$(command -v herdr || echo "$HOME/.local/bin/herdr")"', *map(shlex.quote, (*session, *args))])
+            return _script_command(src, remote, interactive)
+        return _command(get_source(src.parent), ('--machine', src.target, *args), interactive)
     if any(_elsewhere(src)):
         # MARUMADO_HERDR_BIN names the binary on the .env source only; sources added in the app find it themselves.
         given = env('HERDR_BIN') if src.kind == 'env' else ''
@@ -359,6 +459,23 @@ def _command(src: Source, args: tuple[str, ...], interactive: bool = False) -> t
         raise RuntimeError('Herdr is not installed on this machine. If it runs elsewhere, add it under Agents → Sources, or set MARUMADO_HERDR_SMOLVM, MARUMADO_HERDR_EXEC or MARUMADO_HERDR_SSH.')
     extra = {'HERDR_SOCKET_PATH': env('HERDR_SOCKET')} if env('HERDR_SOCKET') else {}
     return [binary, *args], {**os.environ, **extra}
+
+
+def _script_command(src: Source, script: str, interactive: bool = False) -> tuple[list[str], dict | None]:
+    """The command line that runs the shell script `script` where the agents of `src` run."""
+    if src.kind == 'herdr':
+        if not src.ssh:
+            raise RuntimeError(f"Herdr doesn't say how to reach {src.name} over SSH, so only its agents can be listed and "
+                               'typed into from here. Add it under Agents → Sources as an SSH host for the rest.')
+        parent = get_source(src.parent)
+        # From where its Herdr runs: that is where its SSH keys and config are.
+        remote = 'export HOME="${HOME:-/root}" PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}"; ' + script
+        hop = ' '.join(['ssh', '-o', 'BatchMode=yes', '-o', f'ConnectTimeout={TIMEOUT - 1}', '--',
+                        shlex.quote(src.ssh), shlex.quote(remote)])
+        return _script_command(parent, hop, interactive)
+    if any(_elsewhere(src)):
+        return _wrap(src, script, interactive=interactive)
+    return ['sh', '-c', script], None
 
 
 def _run(src: Source, *args: str, text: bool = False, timeout: float = TIMEOUT + 4):
@@ -402,7 +519,7 @@ def shell(src: 'int | Source', script: str, timeout: float = TIMEOUT + 8, data: 
     if src.kind == 'machine':
         raise RuntimeError(f"{src.name}'s files are read through its Marumado.")
     script = GIT_SAFE + script  # neutralize any git call in it against a planted .git/config
-    cmd, environ = _wrap(src, script, interactive=data is not None) if any(_elsewhere(src)) else (['sh', '-c', script], None)
+    cmd, environ = _script_command(src, script, interactive=data is not None)
     try:
         proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL if data is None else subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, env=environ, start_new_session=True)
@@ -563,6 +680,8 @@ def forget_failures() -> None:
     """Ask every source again on the next listing (after a source is added or changed, say)."""
     with _failed_lock:
         _failed.clear()
+    with _saved_lock:
+        _saved.clear()
 
 
 def agents(include_machines: bool = True) -> dict:

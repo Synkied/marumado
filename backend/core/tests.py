@@ -666,6 +666,81 @@ class AgentSourceTests(TestCase):
         self.assertEqual(cmd[-3:-1], ['sh', '-c'])
 
 
+@override_settings(MARUMADO_TOKEN='test-token')
+@mock.patch.object(monitor, 'ensure_started', lambda: None)
+class HerdrSavedMachineTests(TestCase):
+    """Machines saved in Herdr itself (`herdr machine add`) are sources of their own."""
+
+    PROFILES = [{'id': 'm_8f2a', 'label': 'gpu-vm', 'ssh_target': 'me@gpu-vm', 'remote_session': 'agents', 'enabled': True},
+                {'id': 'm_off', 'label': 'old', 'ssh_target': 'me@old', 'enabled': False}]
+
+    def setUp(self):
+        herdr.forget_failures()
+        self.addCleanup(herdr.forget_failures)
+        self.api = APIClient()
+        self.api.credentials(HTTP_AUTHORIZATION='Bearer test-token')
+        self.calls = []
+
+    def run_herdr(self, src, *args, text=False, timeout=0):
+        import json
+        self.calls.append((src.name, args))
+        if args == ('machine', 'list', '--json'):
+            return json.dumps(self.PROFILES if src.kind == 'env' else [])
+        if args[:2] == ('pane', 'list'):
+            return {'panes': [{'pane_id': 'w1:p1', 'workspace_id': 'w1', 'agent': 'claude', 'agent_status': 'idle'}]}
+        if args[:2] == ('workspace', 'list'):
+            return {'workspaces': [{'workspace_id': 'w1', 'label': src.name}]}
+        return 'output' if text else {}
+
+    def env(self):
+        return mock.patch.dict(os.environ, {k: '' for k in ('MARUMADO_HERDR_SMOLVM', 'MARUMADO_HERDR_EXEC', 'MARUMADO_HERDR_SSH',
+                                                         'MARUMADO_HERDR_SOCKET', 'MARUMADO_HERDR_BIN')})
+
+    def test_saved_machines_are_listed_as_sources_with_their_agents(self):
+        with self.env(), mock.patch.object(herdr, '_local_binary', return_value='/usr/bin/herdr'), \
+                mock.patch.object(herdr, '_run', self.run_herdr):
+            listed = self.api.get('/api/agents').json()
+        saved = herdr._herdr_machine_id(herdr.ENV, 'm_8f2a')
+        self.assertTrue(herdr.HERDR_MACHINE_BASE <= saved < herdr.MACHINE_BASE)
+        self.assertEqual([(s['id'], s['name'], s['kind']) for s in listed['sources']],
+                         [(0, 'This machine', 'env'), (saved, 'gpu-vm', 'herdr')])  # the disabled one is left out
+        self.assertEqual(sorted((a['source'], a['pane_id']) for a in listed['agents']), [(0, 'w1:p1'), (saved, 'w1:p1')])
+        # The same id after a restart, and it is found again from it.
+        herdr.forget_failures()
+        with self.env(), mock.patch.object(herdr, '_local_binary', return_value='/usr/bin/herdr'), \
+                mock.patch.object(herdr, '_run', self.run_herdr):
+            src = herdr.get_source(saved)
+        self.assertEqual((src.target, src.ssh, src.session, src.parent), ('m_8f2a', 'me@gpu-vm', 'agents', herdr.ENV))
+
+    def test_an_older_herdr_without_saved_machines_adds_none(self):
+        def run(src, *args, text=False, timeout=0):
+            if args[:2] == ('machine', 'list'):
+                raise RuntimeError("unrecognized subcommand 'machine'")
+            return {}
+        with self.env(), mock.patch.object(herdr, '_local_binary', return_value='/usr/bin/herdr'), mock.patch.object(herdr, '_run', run):
+            self.assertEqual([s.kind for s in herdr.sources()], ['env'])
+
+    def test_commands_go_through_the_parent_herdr_and_the_rest_over_its_ssh(self):
+        box = AgentSource.objects.create(name='box', kind='ssh', target='me@box')
+        src = herdr.Source(herdr._herdr_machine_id(box.id, 'm_8f2a'), 'gpu-vm', 'herdr', 'm_8f2a', parent=box.id,
+                           ssh='me@gpu-vm', session='agents')
+        cmd, _ = herdr._command(src, ('pane', 'list'))
+        self.assertEqual(cmd[5], 'me@box')
+        self.assertTrue(cmd[6].endswith('--machine m_8f2a pane list'))
+        # Herdr doesn't forward a terminal stream: it runs on the machine, reached over SSH from the parent's place.
+        cmd, _ = herdr._command(src, ('terminal', 'session', 'observe', 'w1:p1', '--cols', '80', '--rows', '24'))
+        self.assertEqual(cmd[5], 'me@box')
+        self.assertIn("ssh -o BatchMode=yes", cmd[6])
+        self.assertIn('me@gpu-vm', cmd[6])
+        self.assertIn('--session agents terminal session observe', cmd[6])
+        self.assertNotIn('--machine', cmd[6])
+        self.assertTrue(any(herdr._elsewhere(src)))  # files are written there, not here
+        cmd, _ = herdr._script_command(src, 'uname -n')
+        self.assertIn('me@gpu-vm', cmd[6])
+        with self.assertRaisesMessage(RuntimeError, 'over SSH'):
+            herdr._script_command(herdr.Source(src.id, 'x', 'herdr', 'm_1', parent=box.id), 'true')
+
+
 class FakeTunnel:
     """A machine in Machines, up, whose Marumado answers `answers` ({path: (status, json)}) and reports `overview`."""
 

@@ -248,7 +248,7 @@ export type AgentSource = {
   id: number
   name: string
   /** machine: another machine in Machines, whose Herdr is reached through its Marumado */
-  kind: 'env' | 'ssh' | 'smolvm' | 'machine'
+  kind: 'env' | 'ssh' | 'smolvm' | 'machine' | 'herdr'
   /** where it looks for Herdr, in words */
   where: string
   /** where it sees this machine's folders (absent from older Marumados) */
