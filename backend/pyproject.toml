@@ -1,6 +1,6 @@
 [project]
 name = "marumado-backend"
-version = "0.9.109"
+version = "0.9.110"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
