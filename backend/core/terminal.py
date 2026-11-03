@@ -152,7 +152,9 @@ async def _handle(scope, receive, send):
     try:
         size = await asyncio.to_thread(herdr.pane_size, pane, source) or (120, 40)
         attach = (_clamp(query['cols'], 20, 400, 80), _clamp(query['rows'], 8, 200, 24)) if fit else size
-        cmd, environ = herdr.terminal_command(pane, *attach, control, takeover=query.get('takeover') == '1', source=source)
+        # Off the event loop too: a machine saved in Herdr looks up its parent source in the database.
+        cmd, environ = await asyncio.to_thread(herdr.terminal_command, pane, *attach, control,
+                                               takeover=query.get('takeover') == '1', source=source)
         proc = await asyncio.create_subprocess_exec(
             *cmd, env=environ, limit=64 * 1024 * 1024,
             stdin=asyncio.subprocess.PIPE if control else asyncio.subprocess.DEVNULL,

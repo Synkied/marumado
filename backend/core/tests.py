@@ -1192,3 +1192,18 @@ class TerminalFailureTests(SimpleTestCase):
         with self.assertLogs('core.terminal', 'INFO'):
             sent = self.talk(get_source=lambda *a, **k: source, terminal_command=lambda *a, **k: (['sh', '-c', 'exit 3'], None))
         self.assertIn('exit code 3', sent[-2]['text'])
+
+    def test_a_saved_machine_terminal_reads_its_parent_off_the_event_loop(self):
+        # Its parent is an added source: the database is read to find it, which Django refuses on the event loop.
+        from django.core.exceptions import SynchronousOnlyOperation
+        from django.utils.asyncio import async_unsafe
+
+        saved = herdr.Source(herdr.HERDR_MACHINE_BASE + 1, 'gpu-vm', 'herdr', 'm1', parent=7, ssh='me@gpu-vm')
+        box = herdr.Source(7, 'box', 'ssh', 'me@box')
+        get = async_unsafe(lambda i=0, *a, **k: i if isinstance(i, herdr.Source) else saved if int(i) == 0 else box)
+        with mock.patch.object(herdr, '_ssh', lambda target, remote: ['sh', '-c', 'exit 0']):
+            try:
+                sent = self.talk(get_source=get)
+            except SynchronousOnlyOperation:  # pragma: no cover
+                self.fail('the terminal read the database on the event loop')
+        self.assertNotIn('SynchronousOnlyOperation', ''.join(m.get('text', '') for m in sent))
