@@ -32,4 +32,8 @@ class Command(BaseCommand):
         call_command('migrate', interactive=False, verbosity=0)
         call_command('scan')
         self.stdout.write(self.style.SUCCESS(f'Marumado on http://{host}:{port}'))
-        uvicorn.run('marumado.asgi:application', host=host, port=port, ws='websockets-sansio', lifespan='off', access_log=False, log_level='warning')
+        log_file = settings.LOG_DIR / 'marumado.log'
+        self.stdout.write(f'Logs: here, and in {log_file}' if 'file' in settings.LOGGING['handlers'] else 'Logs: here')
+        # log_config None: uvicorn keeps the LOGGING of settings.py (console and data/logs) instead of its own.
+        uvicorn.run('marumado.asgi:application', host=host, port=port, ws='websockets-sansio', lifespan='off', access_log=False,
+                    log_config=None, log_level=settings.LOG_LEVEL.lower())

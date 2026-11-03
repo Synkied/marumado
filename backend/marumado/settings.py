@@ -170,3 +170,47 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+
+# Logging: to stderr (`make logs` in Docker) and to data/logs/marumado.log (kept across restarts, rotated).
+# MARUMADO_LOG_LEVEL: DEBUG also logs every Herdr, SSH and smolvm command Marumado runs and how each one ended;
+# INFO (default) logs what goes wrong, with its traceback, and what connects and disconnects.
+LOG_LEVEL = env('LOG_LEVEL', 'INFO').strip().upper() or 'INFO'
+if LOG_LEVEL not in ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'):
+    LOG_LEVEL = 'INFO'
+LOG_DIR = BASE_DIR / 'data' / 'logs'
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _log_file = os.access(LOG_DIR, os.W_OK)
+except OSError:
+    _log_file = False
+_log_handlers = ['console', *(['file'] if _log_file else [])]
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'plain': {'format': '%(asctime)s %(levelname)-7s %(name)s: %(message)s', 'datefmt': '%Y-%m-%d %H:%M:%S'},
+    },
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'plain'},
+        **({'file': {'class': 'logging.handlers.RotatingFileHandler', 'formatter': 'plain',
+                     'filename': str(LOG_DIR / 'marumado.log'), 'maxBytes': 5 * 1024 * 1024, 'backupCount': 3,
+                     'encoding': 'utf-8', 'delay': True}} if _log_file else {}),
+    },
+    'root': {'handlers': _log_handlers, 'level': LOG_LEVEL},
+    'loggers': {
+        # A request that fails with a 500: its traceback (Django only prints it with DEBUG on otherwise).
+        'django.request': {'handlers': _log_handlers, 'level': 'ERROR', 'propagate': False},
+        'django.server': {'handlers': _log_handlers, 'level': 'ERROR', 'propagate': False},
+        'django.db.backends': {'level': 'INFO'},  # its DEBUG is every SQL query
+        # uvicorn: an exception in the ASGI app (the live terminal), startup and shutdown.
+        'uvicorn': {'handlers': _log_handlers, 'level': 'INFO', 'propagate': False},
+        'uvicorn.error': {'level': 'INFO'},
+        'uvicorn.access': {'handlers': _log_handlers, 'level': 'WARNING', 'propagate': False},
+        'httpx': {'level': 'WARNING'},
+        'httpcore': {'level': 'WARNING'},
+        'websockets': {'level': 'WARNING'},
+        'asyncio': {'level': 'WARNING'},
+    },
+}

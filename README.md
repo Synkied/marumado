@@ -125,6 +125,10 @@ In `.env`, set `MARUMADO_BIND=0.0.0.0`, then run `make up`. Everyone who opens i
 
 Nothing is opened to the network: the other Marumado stays on its localhost, and SSH is the only way in.
 
+## Logs
+
+When something fails without a clear reason (an agent source that doesn't answer, a live terminal that drops), Marumado's log says why, with a traceback for its own errors. It goes to its output (`make logs` in Docker, the terminal running `manage.py serve` otherwise) and to `data/logs/marumado.log` (rotated at 5 MB, three kept; in Docker, `make shell` then `tail -f data/logs/marumado.log`). `MARUMADO_LOG_LEVEL=DEBUG` in `.env` (then `make up`) also logs every Herdr, SSH and smolvm command Marumado runs and how each one ended. Those lines can hold the start of a prompt or script, so look before sharing them.
+
 ## Run it without Docker
 
 ```sh

@@ -154,8 +154,10 @@ export function Terminal({
       const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
       ws = new WebSocket(`${scheme}://${window.location.host}/api/${apiPath(`agents/${encodeURIComponent(paneId)}/terminal`)}?${q}`)
       ws.onmessage = onMessage
-      ws.onclose = () => {
-        if (!ended) setLink({ state: 'closed', message: 'Lost the connection to Marumado.', takeover: false })
+      ws.onclose = (e) => {
+        // 1006: the connection dropped without a close (Marumado restarted, a proxy cut it, the network went).
+        const why = e.code === 1006 ? 'it dropped' : `code ${e.code}${e.reason ? `: ${e.reason}` : ''}`
+        if (!ended) setLink({ state: 'closed', message: `Lost the connection to Marumado (${why}). Its log may say why.`, takeover: false })
       }
     }
 

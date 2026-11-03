@@ -259,7 +259,10 @@ def collect_all(now: float = 0) -> bool:
         try:
             behind = collect(src)[1] or behind
         except Exception as exc:
-            log.debug('collecting the usage of %s failed: %s', src.name, exc)
+            if isinstance(exc, (RuntimeError, OSError)):  # the source is off or unreachable: shown in the Collector
+                log.debug('collecting the usage of %s failed: %s', src.name, exc)
+            else:
+                log.warning('collecting the usage of %s failed', src.name, exc_info=True)
     return behind
 
 

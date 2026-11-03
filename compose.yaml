@@ -27,6 +27,7 @@ services:
       MARUMADO_HERDR_BIN: ${MARUMADO_HERDR_BIN:-}
       MARUMADO_HERDR_SOCKET: ${MARUMADO_HERDR_SOCKET:-}
       MARUMADO_HERDR_TERMINAL: ${MARUMADO_HERDR_TERMINAL:-control}
+      MARUMADO_LOG_LEVEL: ${MARUMADO_LOG_LEVEL:-INFO}
     volumes:
       # Project folders are mounted read-only by compose.override.yaml, which
       # `make up` generates from MARUMADO_PROJECT_DIRS and MARUMADO_MOUNTS in .env

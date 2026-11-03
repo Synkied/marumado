@@ -295,7 +295,7 @@ def _herdr_machines(parent: Source) -> list[Source]:
     try:
         listed = _profiles(json.loads(_run(parent, 'machine', 'list', '--json', text=True) or '[]'))
     except (RuntimeError, ValueError, OSError) as exc:
-        log.debug('listing the machines saved in Herdr %s failed: %s', parent.where(), exc)
+        log.debug('listing the machines saved in Herdr %s failed (an older Herdr has none): %s', parent.where(), exc)
         found = cached[1] if cached else []
     else:
         found = []
@@ -309,7 +309,11 @@ def _herdr_machines(parent: Source) -> list[Source]:
                 parent=parent.id, ssh=ssh if ssh and valid_target('ssh', ssh) else '',
                 session=_first(p, 'remote_session', 'session', 'session_name')))
     with _saved_lock:
+        before = _saved.get(parent.id)
         _saved[parent.id] = (time.monotonic(), found)
+    if before is None or [m.target for m in before[1]] != [m.target for m in found]:
+        log.info('machines saved in Herdr %s: %s', parent.where(),
+                 ', '.join(f'{m.name} ({m.target}, ssh {m.ssh or "unknown"})' for m in found) or 'none')
     return found
 
 
@@ -478,6 +482,12 @@ def _script_command(src: Source, script: str, interactive: bool = False) -> tupl
     return ['sh', '-c', script], None
 
 
+def _shown(cmd: list[str]) -> str:
+    """A command line for the log: cut short, since it may carry a whole prompt or script."""
+    text = shlex.join(cmd).replace(shlex.quote(GIT_SAFE)[1:-1], '').replace(GIT_SAFE, '')
+    return text if len(text) <= 400 else text[:400] + '…'
+
+
 def _run(src: Source, *args: str, text: bool = False, timeout: float = TIMEOUT + 4):
     cmd, environ = _command(src, args)
     try:
@@ -487,6 +497,7 @@ def _run(src: Source, *args: str, text: bool = False, timeout: float = TIMEOUT +
                                 text=True, env=environ, start_new_session=True)
     except FileNotFoundError:
         raise RuntimeError(f'{cmd[0]} is not installed.')
+    started = time.monotonic()
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -498,9 +509,14 @@ def _run(src: Source, *args: str, text: bool = False, timeout: float = TIMEOUT +
             proc.communicate(timeout=2)
         except subprocess.TimeoutExpired:
             pass
+        log.info('herdr %s %s: no answer in %ss: %s', ' '.join(args[:2]), src.where(), timeout, _shown(cmd))
         raise RuntimeError(f'Herdr did not answer in time ({src.where()}).')
     out = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+    log.debug('herdr %s %s: exit %s in %.1fs: %s', ' '.join(args[:2]), src.where(), out.returncode,
+              time.monotonic() - started, _shown(cmd))
     if out.returncode != 0:
+        log.debug('herdr %s %s failed (exit %s): %s\n  command: %s', ' '.join(args[:2]), src.where(), out.returncode,
+                 (out.stderr or '').strip()[-1500:] or 'nothing on stderr', _shown(cmd))
         try:
             message = json.loads(out.stderr)['error']['message']
         except (ValueError, KeyError, TypeError):
@@ -532,7 +548,12 @@ def shell(src: 'int | Source', script: str, timeout: float = TIMEOUT + 8, data: 
             os.killpg(proc.pid, signal.SIGKILL)
         except OSError:
             pass
+        log.info('shell %s: no answer in %ss', src.where(), timeout)
         raise RuntimeError(f'No answer in time ({src.where()}).')
+    log.debug('shell %s: exit %s: %s', src.where(), proc.returncode, _shown(cmd))
+    if proc.returncode == 255:
+        # ssh's own failure (a script's own errors are its caller's business: many exit non-zero on purpose).
+        log.info('shell %s: exit 255: %s', src.where(), stderr.decode(errors='replace').strip()[-1500:] or 'nothing on stderr')
     if proc.returncode == 255 and cmd[0] == 'ssh':
         raise RuntimeError(f"SSH to {cmd[-2]} failed: {stderr.decode(errors='replace').strip()}")
     return stdout
@@ -611,12 +632,10 @@ def _list(src: Source) -> dict:
         listed = [{**p, **known.get(p['pane_id'], {})} for p in listed]
         spaces = _workspaces(_run(src, 'workspace', 'list')['workspaces'])
     except (RuntimeError, ValueError, KeyError, OSError) as exc:
-        with _failed_lock:
-            _failed[src] = (time.monotonic(), str(exc))
+        _note_failure(src, exc)
         return {'available': False, 'error': str(exc), 'agents': [], 'workspaces': []}
     workspaces = {w['id']: w['label'] for w in spaces}
-    with _failed_lock:
-        _failed.pop(src, None)
+    _note_answer(src)
     rows = []
     for a in listed:
         rows.append({
@@ -636,6 +655,29 @@ def _list(src: Source) -> dict:
         })
     _settle_watching(src)
     return {'available': True, 'error': '', 'agents': rows, 'workspaces': spaces}
+
+
+_last_error: dict[Source, str] = {}
+
+
+def _note_failure(src: Source, exc: Exception) -> None:
+    """A source didn't answer: logged when it starts failing or fails differently, not on every listing."""
+    message = str(exc)
+    with _failed_lock:
+        _failed[src] = (time.monotonic(), message)
+        changed = _last_error.get(src) != message
+        _last_error[src] = message
+    if changed:
+        log.warning('agent source %s (%s) is not answering: %s', src.name, src.where(), message,
+                    exc_info=not isinstance(exc, RuntimeError))  # a KeyError or ValueError is Marumado's own bug
+
+
+def _note_answer(src: Source) -> None:
+    with _failed_lock:
+        _failed.pop(src, None)
+        was = _last_error.pop(src, None)
+    if was is not None:
+        log.info('agent source %s (%s) answers again', src.name, src.where())
 
 
 def _workspaces(listed: list[dict]) -> list[dict]:
@@ -668,11 +710,9 @@ def _list_machine(src: Source) -> dict:
         # Older Marumados don't list workspaces.
         spaces = (own or {}).get('workspaces') or []
     except (RuntimeError, ValueError, KeyError, TypeError) as exc:
-        with _failed_lock:
-            _failed[src] = (time.monotonic(), str(exc))
+        _note_failure(src, exc)
         return {'available': False, 'error': str(exc), 'agents': [], 'workspaces': []}
-    with _failed_lock:
-        _failed.pop(src, None)
+    _note_answer(src)
     return {'available': available, 'error': error, 'agents': rows if available else [], 'workspaces': spaces if available else []}
 
 

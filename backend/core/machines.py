@@ -8,6 +8,7 @@ live agent terminal), so every module can show any machine. Nothing is opened to
 Marumado stays bound to 127.0.0.1 and SSH key login is the only way in.
 """
 import ctypes
+import logging
 import os
 import re
 import signal
@@ -21,6 +22,7 @@ import httpx
 
 from . import sshhome
 
+log = logging.getLogger(__name__)
 SAMPLE_SECONDS = 5
 OVERVIEW_SECONDS = 10
 CONNECT_SECONDS = 20
@@ -183,6 +185,10 @@ class Tunnel:
     def _set(self, state: str, error: str = ''):
         if state != self.state:
             self.since = time.time()
+            if state == 'down':
+                log.warning('machine %s (%s) is down: %s', self.name, self.target, error or 'no reason given')
+            elif state == 'up':
+                log.info('machine %s (%s) is up', self.name, self.target)
         self.state, self.error = state, error
 
     def status(self) -> dict:

@@ -294,7 +294,8 @@ def _handover(task_id: int, start: bool) -> None:
     except Task.DoesNotExist:
         return
     except Exception as exc:  # anything that stops the handover fails the task, with the reason
-        log.warning('assigning task %s failed: %s', task_id, exc)
+        # RuntimeError and ValueError are the reasons the task shows; anything else is Marumado's own bug: its traceback.
+        log.warning('assigning task %s failed: %s', task_id, exc, exc_info=not isinstance(exc, (RuntimeError, ValueError)))
         try:
             task = Task.objects.get(pk=task_id)
         except Task.DoesNotExist:

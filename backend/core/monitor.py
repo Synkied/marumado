@@ -4,6 +4,7 @@ Sampling up front keeps requests fast and makes per-process CPU % meaningful
 (psutil needs two readings of the same Process object to compute it).
 """
 
+import logging
 import os
 import platform
 import signal
@@ -32,6 +33,8 @@ _procs: dict[int, psutil.Process] = {}
 PROC_HISTORY_POINTS = 90
 _proc_history: dict[int, deque] = {}
 _docker_client = None
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------- system
@@ -418,8 +421,8 @@ def _forever(name: str, interval, step):
         began = time.time()
         try:
             step(began)
-        except Exception as exc:
-            print(f'[marumado] {name} error: {exc!r}')
+        except Exception:
+            log.exception('%s failed (it runs again in %ss)', name, interval())
         finally:
             close_old_connections()
         time.sleep(max(0.2, interval() - (time.time() - began)))

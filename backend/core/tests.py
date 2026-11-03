@@ -1146,3 +1146,49 @@ class PulseTests(SimpleTestCase):
     def test_no_record_and_unknown_kinds(self):
         self.assertFalse(transcripts.pulse(herdr.ENV, 'claude', '/nowhere')['found'])
         self.assertFalse(transcripts.pulse(herdr.ENV, 'aider', '/p')['found'])
+
+
+class TerminalFailureTests(SimpleTestCase):
+    """The browser is told why its live terminal ended, and the log gets the traceback."""
+
+    def talk(self, **patches):
+        import asyncio
+
+        sent = []
+
+        async def main():
+            inbox = asyncio.Queue()
+            await inbox.put({'type': 'websocket.connect'})
+
+            async def receive():
+                return await inbox.get()
+
+            async def send(message):
+                sent.append(message)
+
+            scope = {'type': 'websocket', 'path': '/api/agents/w1:p1/terminal', 'query_string': b'source=0', 'headers': []}
+            from contextlib import ExitStack
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch.object(terminal, '_authorized', lambda s: True))
+                stack.enter_context(mock.patch.object(herdr, 'pane_size', lambda *a, **k: (80, 24)))
+                stack.enter_context(mock.patch.object(herdr, 'terminal_mode', lambda: 'observe'))
+                for k, v in patches.items():
+                    stack.enter_context(mock.patch.object(herdr, k, v))
+                await asyncio.wait_for(terminal.handle(scope, receive, send), 10)
+        asyncio.run(main())
+        return sent
+
+    def test_an_error_in_marumado_is_logged_and_told(self):
+        def broken(*a, **k):
+            raise KeyError('pane')
+        with self.assertLogs('core.terminal', 'ERROR') as logs:
+            sent = self.talk(get_source=broken)
+        self.assertIn('Traceback', logs.output[0])
+        self.assertIn('KeyError', sent[-2]['text'])
+        self.assertEqual(sent[-1], {'type': 'websocket.close', 'code': 1011})
+
+    def test_a_stream_that_ends_silently_says_its_exit_code(self):
+        source = herdr.Source(0, 'This machine', 'env')
+        with self.assertLogs('core.terminal', 'INFO'):
+            sent = self.talk(get_source=lambda *a, **k: source, terminal_command=lambda *a, **k: (['sh', '-c', 'exit 3'], None))
+        self.assertIn('exit code 3', sent[-2]['text'])

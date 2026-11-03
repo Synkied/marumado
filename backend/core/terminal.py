@@ -12,6 +12,7 @@ it watches, follows its `terminal.resize` messages, and gets its layout size bac
 """
 import asyncio
 import json
+import logging
 import re
 from http.cookies import SimpleCookie
 from importlib import import_module
@@ -24,6 +25,7 @@ from . import auth, herdr, machines
 PATH = re.compile(r'^/api/agents/(?P<pane>w[0-9A-Za-z]+:p[0-9A-Za-z]+)/terminal$')
 # The same terminal on another machine, relayed through its tunnel to its own Marumado.
 REMOTE_PATH = re.compile(r'^/api/machines/(?P<machine>\d+)/(?P<rest>agents/w[0-9A-Za-z]+:p[0-9A-Za-z]+/terminal)$')
+log = logging.getLogger(__name__)
 MAX_INPUT = 64 * 1024
 FOLLOW_SECONDS = 3
 MOUSE_ACTIONS = ('down', 'up', 'drag')
@@ -90,11 +92,31 @@ def _cell(message: dict) -> dict:
 
 
 async def _refuse(send, message: str):
+    log.info('live terminal refused: %s', message)
     await send({'type': 'websocket.send', 'text': json.dumps({'type': 'error', 'message': message})})
     await send({'type': 'websocket.close', 'code': 1008})
 
 
 async def handle(scope, receive, send):
+    """The live terminal. Whatever goes wrong is logged with its traceback and told to the browser, which would
+    otherwise only see the connection drop."""
+    try:
+        await _handle(scope, receive, send)
+    except Exception as exc:
+        log.exception('live terminal %s?%s failed', scope.get('path'), _query_for_log(scope))
+        try:
+            await send({'type': 'websocket.send', 'text': json.dumps(
+                {'type': 'error', 'message': f'Marumado hit an error: {type(exc).__name__}: {exc}. Its log has the traceback.'})})
+            await send({'type': 'websocket.close', 'code': 1011})
+        except Exception:
+            pass  # the browser left, or the socket was never accepted
+
+
+def _query_for_log(scope) -> str:
+    return scope.get('query_string', b'').decode(errors='replace')[:200]
+
+
+async def _handle(scope, receive, send):
     if (await receive())['type'] != 'websocket.connect':
         return
     match = PATH.match(scope['path'])
@@ -140,15 +162,26 @@ async def handle(scope, receive, send):
 
     async def pump_out():
         assert proc.stdout
+        closed = False
         async for line in proc.stdout:
             if line.strip():
+                closed = closed or b'"terminal.closed"' in line
                 await send({'type': 'websocket.send', 'text': line.decode('utf-8', 'replace')})
         # Herdr ended without a terminal.closed: tell the browser why.
-        err = (await proc.stderr.read()).decode('utf-8', 'replace').strip() if proc.stderr else ''
+        raw = (await proc.stderr.read()).decode('utf-8', 'replace').strip() if proc.stderr else ''
         try:
-            err = json.loads(err)['error']['message']
+            code = await asyncio.wait_for(proc.wait(), 2)
+        except TimeoutError:
+            code = None
+        try:
+            err = json.loads(raw)['error']['message']
         except (ValueError, KeyError, TypeError):
-            err = err.splitlines()[-1] if err else ''
+            err = raw.splitlines()[-1] if raw else ''
+        if code or raw:
+            log.info('live terminal on %s %s ended (exit code %s): %s', pane, source.where(), code, raw[-2000:] or 'nothing on stderr')
+        if not err and not closed:
+            err = (f'The terminal stream ended (exit code {code}) without saying why. Its command: {_shown(cmd)}'
+                   if code else 'The terminal stream ended without saying why.')
         if err:
             await send({'type': 'websocket.send', 'text': json.dumps({'type': 'error', 'message': err})})
 
@@ -184,6 +217,7 @@ async def handle(scope, receive, send):
                 except (BrokenPipeError, ConnectionResetError):
                     return
 
+    log.debug('live terminal on %s %s: %s', pane, source.where(), _shown(cmd))
     herdr.watch(source.id, pane)
     out_task, in_task = asyncio.create_task(pump_out()), asyncio.create_task(pump_in())
     follow_task = asyncio.create_task(follow_layout())
@@ -214,6 +248,12 @@ async def handle(scope, receive, send):
             await send({'type': 'websocket.close', 'code': 1000})
         except Exception:
             pass  # the browser left meanwhile
+
+
+def _shown(cmd: list[str]) -> str:
+    """A command line for the log, cut short."""
+    text = ' '.join(cmd)
+    return text if len(text) <= 400 else text[:400] + '…'
 
 
 async def _relay(machine_id: int, rest: str, query: dict, receive, send, typing: bool = True):
